@@ -780,13 +780,15 @@ function renderLocalModels() {
     const acc = mtps.length ? `<select class="input small-input" data-mtp="${esc(m.path)}" title="${esc(t("Acelerador MTP: o modelo gera vários tokens de uma vez (mais rápido). Use o MTP do mesmo modelo."))}">
         <option value="">${esc(t("Sem acelerador"))}</option>${mtps.map(x => `<option value="${esc(x)}" ${x === m.mtp ? "selected" : ""}>⚡ ${esc(baseName(x))}</option>`).join("")}</select>` : "";
     const visionNoFile = (m.info?.caps || []).some(c => c.key === "vision") && !m.mmproj;
-    return `<div class="item model-item"><div class="name-col"><span class="name" title="${esc(m.path)}">${esc(m.name)}</span>
-      <div class="sub">${capsHTML(m.info, true)}${m.info?.params ? `<span class="meta-pill">🧩 ${esc(m.info.params)}</span>` : ""}${m.quant?.quant ? `<span class="meta-pill" title="${esc(m.quant.tip)}">${esc(m.quant.quant)} ${starsHTML(m.quant)}</span>` : ""}
-      ${visionNoFile ? '<span class="warn-pill" title="Este modelo tem visão, mas o arquivo mmproj não foi baixado. Baixe de novo com Incluir visão ou escolha o arquivo ao lado.">👁 sem arquivo de visão</span>' : ""}</div></div>
-      ${on ? '<span class="tag on">carregado</span>' : ""}${extra ? `<span class="tag on" title="Carregado como modelo extra (agentes/pergunta rápida)">extra · ${(extra.device || "gpu").toUpperCase()}${extra.state === "loading" ? "…" : ""}</span><button class="btn small" data-unload-extra="${esc(m.path)}">Descarregar</button>` : ""}${m.mmproj ? '<span class="tag vis">👁 visão</span>' : ""}${m.mtp ? `<span class="tag vis" title="${esc(t("Acelerador MTP ativo"))}">⚡ MTP</span>` : ""}${fitTag(m.size)}<span class="meta">${fmtSize(m.size)}</span>${vis}${acc}
-      ${m.custom ? '<span class="tag on" title="Este modelo tem ajustes próprios">⚙ ajustes próprios</span>' : ""}<button class="btn small" data-msettings="${esc(m.path)}" title="Ajustes deste modelo (contexto, temperatura...)">⚙️</button>
-      <button class="btn small" data-load="${esc(m.path)}">${on ? "Recarregar" : "Carregar"}</button>
-      <button class="btn small danger" data-del="${esc(m.path)}">Excluir</button></div>`;
+    return `<div class="model-card ${on ? "loaded" : ""}">
+      <div class="mc-head"><span class="mc-name" title="${esc(m.path)}">${esc(m.name)}</span>
+        <div class="mc-status">${on ? '<span class="tag on">● carregado</span>' : ""}${extra ? `<span class="tag on" title="Carregado como modelo extra (agentes/pergunta rápida)">extra · ${(extra.device || "gpu").toUpperCase()}${extra.state === "loading" ? "…" : ""}</span>` : ""}${fitTag(m.size)}<span class="meta">${fmtSize(m.size)}</span></div></div>
+      <div class="mc-tags">${capsHTML(m.info, true)}${m.info?.params ? `<span class="meta-pill">🧩 ${esc(m.info.params)}</span>` : ""}${m.quant?.quant ? `<span class="meta-pill" title="${esc(m.quant.tip)}">${esc(m.quant.quant)} ${starsHTML(m.quant)}</span>` : ""}${m.mmproj ? '<span class="tag vis">👁 visão</span>' : ""}${m.mtp ? `<span class="tag neon" title="${esc(t("Acelerador MTP ativo"))}">⚡ MTP</span>` : ""}${m.custom ? '<span class="tag on" title="Este modelo tem ajustes próprios">⚙ ajustes próprios</span>' : ""}
+        ${visionNoFile ? '<span class="warn-pill" title="Este modelo tem visão, mas o arquivo mmproj não foi baixado. Baixe de novo com Incluir visão ou escolha o arquivo ao lado.">👁 sem arquivo de visão</span>' : ""}</div>
+      <div class="mc-actions">${vis}${acc}<span class="spacer"></span>
+        ${extra ? `<button class="btn small" data-unload-extra="${esc(m.path)}">Descarregar</button>` : ""}<button class="btn small" data-msettings="${esc(m.path)}" title="Ajustes deste modelo (contexto, temperatura...)">⚙️</button>
+        <button class="btn small primary" data-load="${esc(m.path)}">${on ? "Recarregar" : "Carregar"}</button>
+        <button class="btn small danger" data-del="${esc(m.path)}">Excluir</button></div></div>`;
   }).join("") : '<p class="muted">Nenhum modelo ainda. Vá na aba <b>Baixar modelos</b>.</p>';
   if ($("#localModels").dataset.sig !== html) { $("#localModels").innerHTML = html; $("#localModels").dataset.sig = html; }
 }
