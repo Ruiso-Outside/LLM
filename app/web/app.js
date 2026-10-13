@@ -769,8 +769,42 @@ function renderMemBar() {
     `<span title="${t("RAM ocupada pelos modelos que rodam na CPU (estimativa). Disponível no PC agora: {gb} GB", { gb: gb(m.ram_avail) })}">🧠 RAM (modelos na CPU) ${bar(m.ram_used, m.ram_total)} <b>${gb(m.ram_used)} / ${gb(m.ram_total)} GB</b></span>`;
   if ($("#memBar").dataset.sig !== html) { $("#memBar").innerHTML = html; $("#memBar").dataset.sig = html; }
 }
+// cartão da pergunta rápida (Ctrl+Shift+Space): modelo, GPU/CPU e carregar agora
+function renderQuickCard() {
+  const st = S.status, q = st.quick || {}, box = $("#quickCard");
+  const hk = esc(S.desktopCfg?.hotkeyLabel || "Ctrl+Shift+Space");
+  const opts = `<option value="">${esc(t("O mesmo modelo principal do app"))}</option>` + st.models.map(m =>
+    `<option value="${esc(m.path)}" ${m.path === q.model ? "selected" : ""}>${esc(m.name)} (${fmtSize(m.size)})</option>`).join("");
+  const state = !q.model ? `<span class="muted">${esc(t("usa o modelo principal"))}</span>`
+    : q.state === "ready" ? `<span class="tag fit">● ${esc(t("carregado"))} · ${esc((q.on || "gpu").toUpperCase())}</span>`
+    : q.state === "loading" ? `<span class="tag on"><span class="spin"></span> ${esc(t("carregando..."))}</span>`
+    : `<span class="tag">${esc(t("descarregado"))}</span>`;
+  const html = `<div class="qc-head"><b>⚡ ${esc(t("Pergunta rápida"))}</b> <kbd>${hk}</kbd><span class="spacer"></span>${state}</div>
+    <div class="qc-row"><select class="input small-input qc-model" id="qcModel">${opts}</select>
+      <select class="input small-input" id="qcDevice" ${q.model ? "" : "disabled"}><option value="gpu" ${q.device !== "cpu" ? "selected" : ""}>🎮 GPU (${esc(t("rápido"))})</option><option value="cpu" ${q.device === "cpu" ? "selected" : ""}>🧠 CPU (RAM)</option></select>
+      <label class="check"><input type="checkbox" id="qcKeep" ${q.keep ? "checked" : ""} ${q.model ? "" : "disabled"}> ${esc(t("Manter carregado"))}</label>
+      <span class="spacer"></span>
+      ${q.model && q.state === "ready" ? `<button class="btn small" id="qcUnload">${esc(t("Descarregar"))}</button>` : ""}
+      ${q.model ? `<button class="btn small primary" id="qcLoad" ${q.state === "loading" ? "disabled" : ""}>${q.state === "ready" ? esc(t("Recarregar")) : esc(t("Carregar agora"))}</button>` : ""}</div>
+    ${q.error ? `<div class="warn-box">${esc(trText(q.error))}</div>` : ""}`;
+  if (box.dataset.sig !== html) { box.innerHTML = html; box.dataset.sig = html; }
+}
+$("#quickCard").addEventListener("change", async e => {
+  const body = e.target.id === "qcModel" ? { quick_model: e.target.value } : e.target.id === "qcDevice" ? { quick_device: e.target.value }
+    : e.target.id === "qcKeep" ? { quick_keep_loaded: e.target.checked } : null;
+  if (!body) return;
+  if (body.quick_model === "") { await api("/api/settings", { method: "PUT", body }); return refreshStatus(); }
+  try { await post("/api/quick/load", body); } catch (err) { toast(err.message, 5000); }
+  refreshStatus();
+});
+$("#quickCard").addEventListener("click", async e => {
+  if (e.target.id === "qcLoad") { e.target.disabled = true; await post("/api/quick/load", { quick_device: $("#qcDevice").value }).catch(err => toast(err.message, 5000)); toast(t("Carregando o modelo da pergunta rápida...")); }
+  if (e.target.id === "qcUnload") { await post("/api/quick/unload"); toast(t("Modelo da pergunta rápida descarregado")); }
+  refreshStatus();
+});
+
 function renderLocalModels() {
-  renderMemBar();
+  renderMemBar(); renderQuickCard();
   const st = S.status; const mms = S.media?.mmproj || []; const mtps = S.media?.mtp || [];
   const html = st.models.length ? st.models.map(m => {
     const on = st.engine.model === m.path && st.engine.state === "ready";
@@ -977,7 +1011,7 @@ const NUM_FIELDS = ["temperature", "top_p", "top_k", "min_p", "repeat_penalty", 
 const DEFAULTS = { system_prompt: "", temperature: 0.7, top_p: 0.95, top_k: 40, min_p: 0.05, repeat_penalty: 1.0, max_tokens: 0,
   ctx_size: 8192, gpu_layers: 999, cpu_percent: 0, backend: "auto", extra_args: "", search_provider: "duckduckgo",
   search_region: "br-pt", search_results: 4, auto_load: true, agent_confirm_commands: true, agent_confirm_writes: false,
-  agent_max_steps: 40, quick_model: "", quick_device: "auto", reply_language: "auto", auto_summarize: true, use_recommended: true, extra_idle_minutes: 10, whisper_language: "auto", image_steps: 0, image_enhance: true, image_offload: true, image_unload_llm: false };
+  agent_max_steps: 40, quick_model: "", quick_device: "gpu", quick_keep_loaded: true, reply_language: "auto", auto_summarize: true, use_recommended: true, extra_idle_minutes: 10, whisper_language: "auto", image_steps: 0, image_enhance: true, image_offload: true, image_unload_llm: false };
 function cpuLabel() {
   const pct = +$("#cpuRange").value; const n = S.status?.gpu?.cpu_count || 0;
   $("#cpuLabel").textContent = pct ? t("{pct}% · {n} de {total} threads", { pct, n: Math.max(1, Math.round(n * pct / 100)), total: n }) : t("Automático ({n} threads no PC)", { n });

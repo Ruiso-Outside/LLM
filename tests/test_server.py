@@ -247,7 +247,36 @@ class ServerTest(unittest.TestCase):
         finally:
             self.call("/api/models/mtp", {"model": "gemma-3-4b-it-Q4_K_M.gguf", "mtp": ""})
             self.call("/api/load", {"model": "Qwen3-8B-Q4_K_M.gguf"})
-            load_and_wait()
+            for _ in range(100):
+                if self.call("/api/status")["engine"]["state"] == "ready":
+                    break
+                time.sleep(0.2)
+
+    def test_14_quick_model_on_gpu(self):
+        quick = "gemma-3-4b-it-Q4_K_M.gguf"
+        try:
+            q = self.call("/api/quick/load", {"quick_model": quick, "quick_device": "gpu", "quick_keep_loaded": True})
+            self.assertEqual((q["model"], q["device"], q["keep"]), (quick, "gpu", True))
+            for _ in range(100):
+                q = self.call("/api/status")["quick"]
+                if q["state"] == "ready":
+                    break
+                time.sleep(0.2)
+            self.assertEqual((q["state"], q["on"]), ("ready", "gpu"))
+            extra = next(x for x in self.call("/api/status")["extras"] if x["model"] == quick)
+            self.assertEqual(extra["device"], "gpu")
+            # a pergunta rapida usa esse motor ja carregado, com as camadas ajustadas pelo llama.cpp (-ngl auto)
+            ev = self.sse("/api/chat", {"messages": [{"role": "user", "content": "oi"}], "model": quick, "device": "gpu"})
+            text = self.text_of(ev)
+            self.assertIn("[gemma-3-4b-it-Q4_K_M]", text)
+            self.assertIn("ngl=auto", text)
+            self.assertEqual(sum(1 for x in self.call("/api/status")["extras"] if x["model"] == quick), 1)
+            # descarregar desliga o "manter carregado"
+            q = self.call("/api/quick/unload", {})
+            self.assertEqual((q["state"], q["keep"]), ("stopped", False))
+        finally:
+            self.call("/api/settings", {"quick_model": "", "quick_keep_loaded": True}, "PUT")
+            self.call("/api/unload", {"extra": "all"})
 
     def test_12_summarize_and_backup(self):
         r = self.call("/api/summarize", {"messages": [{"role": "user", "content": "a"}, {"role": "assistant", "content": "b"}]})

@@ -642,6 +642,15 @@ const DICT = {
   "Acelerador configurado.": ["Accelerator set.", "Acelerador configurado."],
   "Os arquivos MTP não são modelos sozinhos: são um acelerador que funciona junto com o modelo grande e ocupa um pouco mais de VRAM.": ["MTP files are not standalone models: they are an accelerator that works together with the big model and uses a bit more VRAM.", "Los archivos MTP no son modelos por sí solos: son un acelerador que funciona junto con el modelo grande y ocupa un poco más de VRAM."],
   "Incluir acelerador MTP (respostas mais rápidas, +{size})": ["Include MTP accelerator (faster answers, +{size})", "Incluir acelerador MTP (respuestas más rápidas, +{size})"],
+  "usa o modelo principal": ["uses the main model", "usa el modelo principal"],
+  "carregando...": ["loading...", "cargando..."],
+  "descarregado": ["unloaded", "descargado"],
+  "rápido": ["fast", "rápido"],
+  "Manter carregado": ["Keep loaded", "Mantener cargado"],
+  "Carregar agora": ["Load now", "Cargar ahora"],
+  "Carregando o modelo da pergunta rápida...": ["Loading the quick question model...", "Cargando el modelo de la pregunta rápida..."],
+  "Modelo da pergunta rápida descarregado": ["Quick question model unloaded", "Modelo de la pregunta rápida descargado"],
+  "Manter o modelo da pergunta rápida carregado": ["Keep the quick question model loaded", "Mantener cargado el modelo de la pregunta rápida"],
 };
 
 function _pick(key) {

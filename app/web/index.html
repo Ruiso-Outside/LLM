@@ -94,6 +94,7 @@
     <div class="modal-body">
       <div class="tab-pane active" id="tabLocal">
         <div id="memBar" class="mem-bar"></div>
+        <div id="quickCard" class="quick-card"></div>
         <div class="row between">
           <p class="muted">Arquivos <code>.gguf</code> na pasta <code>models/</code>. Você também pode colocar modelos lá manualmente.</p>
           <button class="btn" data-folder="models">Abrir pasta</button>
@@ -158,12 +159,13 @@
               <small class="muted">Um modelo leve deixa a pergunta rápida bem mais ágil. Ele é carregado junto com o principal.</small>
             </label>
             <label>Onde rodar o modelo da pergunta rápida
-              <select name="quick_device" class="input"><option value="auto">Automático (GPU se couber, senão CPU)</option><option value="gpu">GPU (VRAM): mais rápido</option><option value="cpu">CPU (RAM): não ocupa a GPU</option></select>
+              <select name="quick_device" class="input"><option value="gpu">GPU (VRAM): mais rápido</option><option value="cpu">CPU (RAM): não ocupa a GPU</option></select>
               <small class="muted">Na CPU, o modelo leve usa a RAM e deixa a GPU livre para o principal.</small>
             </label>
             <div class="checks">
               <label class="check"><input type="checkbox" id="autoStart"> Iniciar junto com o Windows</label>
               <label class="check"><input type="checkbox" id="hideOnBlur"> Esconder a pergunta rápida ao clicar fora</label>
+              <label class="check"><input type="checkbox" name="quick_keep_loaded"> Manter o modelo da pergunta rápida carregado</label>
             </div>
             <label>Atalho para falar na pergunta rápida
               <div class="row"><input id="voiceHotkeyInput" class="input" readonly><button type="button" class="btn" id="voiceHotkeySave">Salvar</button></div>

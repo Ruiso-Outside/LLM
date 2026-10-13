@@ -160,7 +160,7 @@ async function ask() {
   let pending = false;
   const schedule = () => { if (!pending) { pending = true; setTimeout(() => { pending = false; render(); }, 40); } };
   try {
-    await streamChat({ messages, web: Q.web, model: quickModel(Q.status) || undefined, device: Q.status.settings.quick_device || "auto", temperature: +st.temperature, top_p: +st.top_p, top_k: +st.top_k,
+    await streamChat({ messages, web: Q.web, model: quickModel(Q.status) || undefined, device: Q.status.settings.quick_device === "cpu" ? "cpu" : "gpu", temperature: +st.temperature, top_p: +st.top_p, top_k: +st.top_k,
       min_p: +st.min_p, repeat_penalty: +st.repeat_penalty, max_tokens: +st.max_tokens }, Q.abort.signal, j => {
       if (j.engine) {
         if (j.engine.stage === "loading") setStatus(t("⏳ Carregando {name}...", { name: j.engine.model }), "warn");

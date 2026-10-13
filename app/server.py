@@ -80,7 +80,8 @@ DEFAULT_SETTINGS = {
     "auto_summarize": True,  # resume a conversa antiga quando o contexto passa de ~80%
     "use_recommended": True,  # aplica a amostragem recomendada da familia de cada modelo
     "quick_model": "",  # modelo da pergunta rapida ("" = o principal)
-    "quick_device": "auto",  # onde roda o modelo da pergunta rapida: auto | gpu | cpu
+    "quick_device": "gpu",  # onde roda o modelo da pergunta rapida: gpu | cpu ("auto" antigo = gpu)
+    "quick_keep_loaded": True,  # deixa o modelo da pergunta rapida sempre carregado (responde na hora)
     "language": "",  # idioma da interface: pt-BR | en | es ("" = o do sistema)
     "reply_language": "auto",  # auto = a IA responde no idioma da pergunta | app = sempre no idioma do app
     "extra_idle_minutes": 10,  # modelos extras (agentes/pergunta rapida) sao descarregados apos X min parados
@@ -476,8 +477,13 @@ class EngineProcess:
         if self is ENGINE_PROC:
             POOL.stop(model_rel)  # se ja estava carregado como extra, libera antes
         on_cpu = device == "cpu"
+        if self is ENGINE_PROC and not on_cpu:
+            POOL.make_room_for_main(model_rel)  # o principal tem prioridade na VRAM
+        ngl = "0" if on_cpu else str(int(s["gpu_layers"]))
+        if device == "gpu" and self is not ENGINE_PROC and int(s["gpu_layers"]) >= 999:
+            ngl = "auto"  # extra na GPU: tudo que couber na VRAM livre de verdade (o resto fica na RAM)
         cmd = [backs[backend]["exe"], "-m", str(model_path), "--host", "127.0.0.1", "--port", str(self.port),
-               "-c", str(int(s["ctx_size"])), "-ngl", "0" if on_cpu else str(int(s["gpu_layers"])), "--jinja"]
+               "-c", str(int(s["ctx_size"])), "-ngl", ngl, "--jinja"]
         if on_cpu:
             cmd += ["--device", "none"]  # CPU e RAM apenas, sem tocar na GPU
         if embed:
@@ -621,9 +627,28 @@ class EnginePool:
     def _fits(self, device, need):
         return self._used(device) + need + self.OVERHEAD <= self._capacity(device)
 
+    @staticmethod
+    def kept_model():
+        """Modelo da pergunta rapida que deve ficar sempre carregado ("" se nenhum)."""
+        s = load_settings()
+        return s.get("quick_model", "") if s.get("quick_keep_loaded") else ""
+
+    def make_room_for_main(self, model_rel):
+        """Antes de carregar o principal na GPU, descarrega extras da GPU se ele nao couber junto."""
+        need = model_bytes(model_rel)
+        with self.lock:
+            for key, e in sorted(self.extra.items(), key=lambda kv: (kv[0][0] == self.kept_model(), kv[1].last_used)):
+                if self._used("gpu") + need + self.OVERHEAD <= self._capacity("gpu"):
+                    break
+                if e.busy == 0 and e.device == "gpu" and key[0] != model_rel:
+                    e.stop()
+                    self.extra.pop(key, None)
+
     def _make_room(self, device, need):
-        """Descarrega extras do dispositivo (do menos usado para o mais usado) ate o novo modelo caber."""
-        for key, e in sorted(self.extra.items(), key=lambda kv: kv[1].last_used):
+        """Descarrega extras do dispositivo (do menos usado para o mais usado) ate o novo modelo caber.
+        O modelo mantido da pergunta rapida e o ultimo a sair."""
+        kept = self.kept_model()
+        for key, e in sorted(self.extra.items(), key=lambda kv: (kv[0][0] == kept, kv[1].last_used)):
             if self._fits(device, need):
                 break
             if e.busy == 0 and e.device == device:
@@ -631,7 +656,8 @@ class EnginePool:
                 self.extra.pop(key, None)
 
     def _resolve(self, device, need):
-        """Escolhe onde rodar: 'auto' = GPU se couber, senao CPU (RAM), senao libera espaco na GPU."""
+        """Escolhe onde rodar: 'auto' = GPU se couber, senao CPU (RAM), senao libera espaco na GPU.
+        'gpu' = sempre GPU; se nao couber inteiro, o llama.cpp divide entre VRAM e RAM (-ngl auto)."""
         if not GPU.get("vram_mb"):
             return "cpu"
         if device in ("gpu", "cpu"):
@@ -711,17 +737,61 @@ class EnginePool:
         return {"vram_used": round(self._used("gpu") / 2 ** 20), "vram_total": GPU.get("vram_mb", 0),
                 "ram_used": round(self._used("cpu") / 2 ** 20), "ram_total": total, "ram_avail": avail}
 
+    def quick_status(self):
+        s = load_settings()
+        model = s.get("quick_model", "")
+        e = next((e for (m, d), e in self.extra.items() if m == model and e.state in ("ready", "loading")), None)
+        if not e and model and model == ENGINE_PROC.model and ENGINE_PROC.state in ("ready", "loading"):
+            e = ENGINE_PROC
+        state = e.state if e else ("loading" if getattr(self, "_quick_loading", False) else "stopped")
+        return {"model": model, "name": model_display(model) if model else "", "keep": bool(s.get("quick_keep_loaded")),
+                "device": quick_device(s), "state": state, "on": e.device if e else "",
+                "error": getattr(self, "quick_error", "")}
+
+    def load_quick(self):
+        """Carrega o modelo da pergunta rapida em segundo plano (se houver um e ainda nao estiver carregado)."""
+        s = load_settings()
+        model = s.get("quick_model", "")
+        if not model or getattr(self, "_quick_loading", False):
+            return
+        if not (MODELS / model).is_file() or not installed_backends():
+            return
+        if self.quick_status()["state"] in ("ready", "loading"):
+            return
+
+        def run():
+            self._quick_loading, self.quick_error = True, ""
+            for _ in range(600):  # o principal carrega primeiro (prioridade na VRAM)
+                if ENGINE_PROC.state != "loading":
+                    break
+                time.sleep(0.5)
+            try:
+                self.release(self.acquire(model, s, None, quick_device(s)))
+            except (RuntimeError, ValueError, OSError) as e:
+                self.quick_error = str(e)
+            finally:
+                self._quick_loading = False
+        threading.Thread(target=run, daemon=True).start()
+
     def _reaper(self):
         while True:
             time.sleep(30)
+            if self.kept_model() and not getattr(self, "quick_error", ""):
+                self.load_quick()  # volta a carregar se foi descarregado (ex.: para abrir espaco ao principal)
             limit = int(load_settings().get("extra_idle_minutes") or 0) * 60
             if limit <= 0:
                 continue
+            kept = self.kept_model()
             with self.lock:
                 for key, e in list(self.extra.items()):
-                    if e.busy == 0 and time.time() - e.last_used > limit:
+                    if e.busy == 0 and time.time() - e.last_used > limit and key[0] != kept:
                         e.stop()
                         self.extra.pop(key, None)
+
+
+def quick_device(s):
+    """Onde roda o modelo da pergunta rapida: GPU, a menos que o usuario escolha CPU."""
+    return "cpu" if s.get("quick_device") == "cpu" else "gpu"
 
 
 class _PoolLease:
@@ -1258,7 +1328,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if p == "/api/status":
                 return self.send_json({"engine": ENGINE_PROC.status() | {"device": ENGINE_PROC.device}, "extras": POOL.status(),
-                                       "memory": POOL.memory(), "backends": installed_backends(),
+                                       "memory": POOL.memory(), "backends": installed_backends(), "quick": POOL.quick_status(),
                                        "gpu": GPU | {"cpu_count": CPU_COUNT},
                                        "models": list_models(), "tasks": public_tasks(),
                                        "settings": masked(load_settings()), "chats": list_chats(),
@@ -1454,6 +1524,21 @@ class Handler(BaseHTTPRequestHandler):
                 t = new_task("engine" if what in ("whisper", "sd") else "model", f"{jobs[what][1]} ({value})")
                 run_task(t, lambda task: jobs[what][2](task, value))
                 return self.send_json({"id": t["id"]})
+            if p == "/api/quick/load":
+                upd = {k: b[k] for k in ("quick_model", "quick_device", "quick_keep_loaded") if k in b}
+                if upd:
+                    save_settings(upd)
+                POOL.quick_error = ""
+                s = load_settings()
+                POOL.stop(s.get("quick_model") or None) if "quick_device" in upd and s.get("quick_model") else None
+                POOL.load_quick()
+                return self.send_json(POOL.quick_status())
+            if p == "/api/quick/unload":
+                s = load_settings()
+                save_settings({"quick_keep_loaded": False})
+                if s.get("quick_model") and s["quick_model"] != ENGINE_PROC.model:
+                    POOL.stop(s["quick_model"])
+                return self.send_json(POOL.quick_status())
             if p == "/api/models/mtp":
                 mt = b.get("mtp") or ""
                 if mt and mt not in list_mtp():
@@ -2075,6 +2160,15 @@ def watch_parent():
 
 def auto_load():
     s = load_settings()
+    if s.get("quick_keep_loaded") and s.get("quick_model"):
+        def later():
+            for _ in range(240):  # espera o principal terminar de carregar (ele tem prioridade na VRAM)
+                if ENGINE_PROC.state != "loading":
+                    break
+                time.sleep(0.5)
+            time.sleep(2)
+            POOL.load_quick()
+        threading.Thread(target=later, daemon=True).start()
     if s.get("auto_load") and s.get("last_model") and installed_backends() and (MODELS / s["last_model"]).is_file():
         try:
             ENGINE_PROC.start(s["last_model"], s)
