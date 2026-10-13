@@ -28,6 +28,23 @@ const modelName = () => (S.status.models.find(m => m.path === S.status.engine.mo
 const extLang = p => ((p || "").split(".").pop() || "").toLowerCase();
 const baseName = p => (p || "").split(/[\\/]/).pop();
 
+// ------------------------------------------------------------------ etiquetas dos modelos
+function capsHTML(info, compact = false) {
+  if (!info) return "";
+  const caps = (info.caps || []).map(c => `<span class="cap cap-${c.key}" title="${esc(c.label + ": " + c.tip)}">${c.icon}${compact ? "" : " " + esc(c.label)}</span>`).join("");
+  const meta = compact ? "" : [info.params && `<span class="meta-pill" title="Tamanho do modelo em parâmetros. Mais parâmetros = mais inteligente e mais pesado.">🧩 ${esc(info.params)}</span>`,
+    info.ctx && `<span class="meta-pill" title="Contexto máximo que o modelo suporta (quanto texto ele consegue considerar de uma vez).">📏 ${esc(info.ctx)}</span>`,
+    info.license && `<span class="meta-pill" title="Licença de uso">📜 ${esc(info.license)}</span>`].filter(Boolean).join("");
+  return `<span class="caps">${caps}${meta}</span>`;
+}
+const capIcons = info => (info?.caps || []).filter(c => ["vision", "audio", "tools", "reasoning", "uncensored", "moe"].includes(c.key)).map(c => c.icon).join("");
+function starsHTML(q) {
+  if (!q?.stars) return "";
+  return `<span class="stars" title="${esc(q.tip)}">${"★".repeat(q.stars)}<span class="off">${"★".repeat(5 - q.stars)}</span></span>`;
+}
+// estimativa de tamanho em Q4_K_M a partir dos parâmetros (≈ 0,6 byte por parâmetro)
+const q4Size = info => info?.params_n ? info.params_n * 0.6 : 0;
+
 // ------------------------------------------------------------------ status
 async function refreshStatus() {
   try {
@@ -50,7 +67,7 @@ async function loadMedia() {
 function renderTopbar() {
   const st = S.status; const e = st.engine;
   const sel = $("#modelSelect"); const prev = sel.value || e.model || st.settings.last_model;
-  const opts = st.models.map(m => `<option value="${esc(m.path)}">${esc(m.name)}${m.mmproj ? " 👁" : ""} (${fmtSize(m.size)})</option>`).join("");
+  const opts = st.models.map(m => { const ic = capIcons(m.info).replace("👁", m.mmproj ? "👁" : ""); return `<option value="${esc(m.path)}">${esc(m.name)} ${ic} (${fmtSize(m.size)})</option>`; }).join("");
   if (sel.dataset.sig !== opts) {
     sel.innerHTML = opts || '<option value="">Nenhum modelo baixado</option>';
     sel.dataset.sig = opts;
@@ -685,6 +702,7 @@ $("#toggleSide").onclick = () => $("#app").classList.toggle("side-hidden");
 function openModal(id) {
   $("#" + id).classList.add("open");
   if (id === "settingsModal") fillSettings();
+  if (id === "backupModal") { loadBackupInfo(); $("#restoreResult").textContent = ""; }
   if (id === "modelsModal") { renderLocalModels(); renderEngine(); loadLog(); loadMedia(); }
 }
 $$("[data-open]").forEach(b => b.onclick = () => openModal(b.dataset.open));
@@ -706,8 +724,11 @@ function renderLocalModels() {
     const on = st.engine.model === m.path && st.engine.state === "ready";
     const vis = mms.length ? `<select class="input small-input" data-mm="${esc(m.path)}" title="Arquivo de visão (mmproj): permite o modelo ver imagens">
         <option value="">Sem visão</option>${mms.map(x => `<option value="${esc(x)}" ${x === m.mmproj ? "selected" : ""}>👁 ${esc(baseName(x))}</option>`).join("")}</select>` : "";
-    return `<div class="item"><span class="name" title="${esc(m.path)}">${esc(m.name)}</span>${on ? '<span class="tag on">carregado</span>' : ""}
-      ${m.mmproj ? '<span class="tag vis">👁 visão</span>' : ""}${fitTag(m.size)}<span class="meta">${fmtSize(m.size)}</span>${vis}
+    const visionNoFile = (m.info?.caps || []).some(c => c.key === "vision") && !m.mmproj;
+    return `<div class="item model-item"><div class="name-col"><span class="name" title="${esc(m.path)}">${esc(m.name)}</span>
+      <div class="sub">${capsHTML(m.info, true)}${m.info?.params ? `<span class="meta-pill">🧩 ${esc(m.info.params)}</span>` : ""}${m.quant?.quant ? `<span class="meta-pill" title="${esc(m.quant.tip)}">${esc(m.quant.quant)} ${starsHTML(m.quant)}</span>` : ""}
+      ${visionNoFile ? '<span class="warn-pill" title="Este modelo tem visão, mas o arquivo mmproj não foi baixado. Baixe de novo com Incluir visão ou escolha o arquivo ao lado.">👁 sem arquivo de visão</span>' : ""}</div></div>
+      ${on ? '<span class="tag on">carregado</span>' : ""}${m.mmproj ? '<span class="tag vis">👁 visão</span>' : ""}${fitTag(m.size)}<span class="meta">${fmtSize(m.size)}</span>${vis}
       <button class="btn small" data-load="${esc(m.path)}">${on ? "Recarregar" : "Carregar"}</button>
       <button class="btn small danger" data-del="${esc(m.path)}">Excluir</button></div>`;
   }).join("") : '<p class="muted">Nenhum modelo ainda. Vá na aba <b>Baixar modelos</b>.</p>';
@@ -743,13 +764,30 @@ $("#hfChips").onclick = e => { if (e.target.classList.contains("chip")) { $("#hf
 $("#hfSearchBtn").onclick = () => hfSearch($("#hfQuery").value);
 $("#hfQuery").onkeydown = e => { if (e.key === "Enter") hfSearch($("#hfQuery").value); };
 
+const CAP_FILTERS = [["vision", "👁 Visão"], ["audio", "🎧 Áudio"], ["tools", "🛠️ Codex"], ["reasoning", "🧠 Raciocínio"],
+  ["code", "💻 Programação"], ["uncensored", "🔓 Sem censura"], ["moe", "⚡ MoE rápido"], ["fits", "🖥️ Cabe na minha GPU"]];
+S.capFilter = new Set(); S.hfResults = [];
+$("#capFilters").innerHTML = '<span class="muted small-note">Filtrar:</span>' + CAP_FILTERS.map(([k, l]) => `<span class="chip" data-cap="${k}">${l}</span>`).join("");
+$("#capFilters").onclick = e => {
+  const k = e.target.dataset?.cap; if (!k) return;
+  S.capFilter.has(k) ? S.capFilter.delete(k) : S.capFilter.add(k);
+  e.target.classList.toggle("on", S.capFilter.has(k)); renderHfResults();
+};
+function fitsGpu(sizeBytes) { const vram = S.status?.gpu?.vram_mb; return vram && sizeBytes && sizeBytes / 1073741824 + 1.2 <= vram / 1024 * 0.92; }
+function renderHfResults() {
+  const box = $("#hfResults");
+  const list = S.hfResults.filter(r => [...S.capFilter].every(k => k === "fits" ? fitsGpu(q4Size(r)) : (r.caps || []).some(c => c.key === k)));
+  box.innerHTML = list.length ? list.map(r => `<div class="item clickable hf-item ${r.chat ? "" : "not-chat"}" data-repo="${esc(r.id)}">
+      <div class="name-col"><span class="name" title="${esc(r.id)}">${esc(r.id)}</span>
+      <div class="sub">${capsHTML(r, true)}${r.params ? `<span class="meta-pill">🧩 ${esc(r.params)}</span>` : ""}${r.ctx ? `<span class="meta-pill">📏 ${esc(r.ctx)}</span>` : ""}
+      ${r.chat && q4Size(r) ? (fitsGpu(q4Size(r)) ? '<span class="tag fit" title="Em Q4_K_M cabe inteiro na sua placa">cabe</span>' : '<span class="tag tight" title="Em Q4_K_M não cabe inteiro na VRAM: vai ficar mais lento">pesado</span>') : ""}</div></div>
+      <span class="meta">⤓ ${fmtNum(r.downloads)}<br>♥ ${fmtNum(r.likes)}</span></div>`).join("")
+    : `<p class="muted">${S.hfResults.length ? "Nenhum resultado com esses filtros." : "Nada encontrado."}</p>`;
+}
 async function hfSearch(q) {
   const box = $("#hfResults"); box.innerHTML = '<p class="muted">Buscando...</p>'; $("#hfFiles").innerHTML = "";
-  try {
-    const res = await api("/api/hf/search?q=" + encodeURIComponent(q.trim()));
-    box.innerHTML = res.length ? res.map(r => `<div class="item clickable" data-repo="${esc(r.id)}"><span class="name" title="${esc(r.id)}">${esc(r.id)}</span>
-      <span class="meta">⤓ ${fmtNum(r.downloads)} · ♥ ${fmtNum(r.likes)}</span></div>`).join("") : '<p class="muted">Nada encontrado.</p>';
-  } catch (e) { box.innerHTML = `<p class="muted">Erro: ${esc(e.message)}</p>`; }
+  try { S.hfResults = await api("/api/hf/search?q=" + encodeURIComponent(q.trim())); renderHfResults(); }
+  catch (e) { box.innerHTML = `<p class="muted">Erro: ${esc(e.message)}</p>`; }
 }
 $("#hfResults").addEventListener("click", async e => {
   const it = e.target.closest("[data-repo]"); if (!it) return;
@@ -757,12 +795,18 @@ $("#hfResults").addEventListener("click", async e => {
   S.selectedRepo = it.dataset.repo;
   const box = $("#hfFiles"); box.innerHTML = '<p class="muted">Carregando arquivos...</p>';
   try {
-    const { files, mmproj } = await api("/api/hf/files?repo=" + encodeURIComponent(S.selectedRepo));
-    box.innerHTML = `<div class="row between"><b>${esc(S.selectedRepo)}</b><a href="https://huggingface.co/${esc(S.selectedRepo)}" target="_blank" rel="noopener" class="meta">ver página ↗</a></div>
-      <p class="muted" style="margin:0;font-size:13px">Dica: <b>Q4_K_M</b> é o melhor equilíbrio. Q5/Q6/Q8 = mais qualidade e mais pesado.</p>
+    const { files, mmproj, info } = await api("/api/hf/files?repo=" + encodeURIComponent(S.selectedRepo));
+    // melhor arquivo para este PC: o de maior qualidade que cabe inteiro na VRAM
+    const fitting = files.filter(f => fitsGpu(f.size) && f.stars);
+    const best = fitting.sort((a, b) => b.stars - a.stars || a.size - b.size)[0]?.path; // entre os melhores, o menor (sobra VRAM para o contexto)
+    box.innerHTML = `<div class="repo-card"><div class="row between"><b>${esc(S.selectedRepo)}</b><a href="https://huggingface.co/${esc(S.selectedRepo)}" target="_blank" rel="noopener" class="meta">ver página ↗</a></div>
+      ${info ? capsHTML(info) : ""}
+      ${info && !info.chat ? `<div class="warn-box">${(info.caps || []).some(c => c.key === "imagegen") ? "🎨 Este é um modelo de <b>gerar imagens</b>, não de conversa. Use os modelos de imagem em Modelos → Mídia." : "🔎 Este modelo não serve para conversar."}</div>` : ""}
+      <p class="muted small-note">Passe o mouse nos ícones para ver o que significam. ⭐ = melhor qualidade que cabe na sua placa.</p></div>
       ${mmproj ? `<label class="check vis-check"><input type="checkbox" id="withMmproj" checked> 👁 Incluir visão (o modelo poderá ver imagens) <small class="muted">${esc(baseName(mmproj))}</small></label>` : ""}` +
-      (files.length ? files.map(f => `<div class="item"><span class="name" title="${esc(f.path)}">${esc(f.path.split("/").pop())}${f.parts > 1 ? ` <small class="muted">(${f.parts} partes)</small>` : ""}</span>
-        ${fitTag(f.size)}<span class="meta">${fmtSize(f.size)}</span><button class="btn small primary" data-dl="${esc(f.path)}">Baixar</button></div>`).join("")
+      (files.length ? files.map(f => `<div class="item file-item ${f.path === best ? "best" : ""}"><div class="name-col"><span class="name" title="${esc(f.path)}">${f.path === best ? "⭐ " : ""}${esc(f.path.split("/").pop())}${f.parts > 1 ? ` <small class="muted">(${f.parts} partes)</small>` : ""}</span>
+        <div class="sub">${f.quant ? `<span class="meta-pill">${esc(f.quant)}</span>` : ""}${starsHTML(f)}<small class="muted">${esc(f.quality || "")}</small></div></div>
+        ${fitTag(f.size)}<span class="meta">${fmtSize(f.size)}</span><button class="btn small ${f.path === best ? "primary" : ""}" data-dl="${esc(f.path)}">Baixar</button></div>`).join("")
         : '<p class="muted">Nenhum arquivo .gguf neste repositório.</p>');
   } catch (err) { box.innerHTML = `<p class="muted">Erro: ${esc(err.message)}</p>`; }
 });
@@ -861,16 +905,21 @@ async function loadLog() {
 }
 
 // ------------------------------------------------------------------ configurações
-const NUM_FIELDS = ["temperature", "top_p", "top_k", "min_p", "repeat_penalty", "max_tokens", "ctx_size", "gpu_layers", "threads",
+const NUM_FIELDS = ["temperature", "top_p", "top_k", "min_p", "repeat_penalty", "max_tokens", "ctx_size", "gpu_layers", "cpu_percent",
   "search_results", "agent_max_steps", "image_steps"];
 const DEFAULTS = { system_prompt: "", temperature: 0.7, top_p: 0.95, top_k: 40, min_p: 0.05, repeat_penalty: 1.0, max_tokens: 0,
-  ctx_size: 8192, gpu_layers: 999, threads: 0, backend: "auto", extra_args: "", search_provider: "duckduckgo",
+  ctx_size: 8192, gpu_layers: 999, cpu_percent: 0, backend: "auto", extra_args: "", search_provider: "duckduckgo",
   search_region: "br-pt", search_results: 4, auto_load: true, agent_confirm_commands: true, agent_confirm_writes: false,
   agent_max_steps: 40, whisper_language: "auto", image_steps: 0, image_enhance: true, image_offload: true, image_unload_llm: false };
+function cpuLabel() {
+  const pct = +$("#cpuRange").value; const n = S.status?.gpu?.cpu_count || 0;
+  $("#cpuLabel").textContent = pct ? `${pct}% · ${Math.max(1, Math.round(n * pct / 100))} de ${n} threads` : `Automático (${n} threads no PC)`;
+}
+$("#cpuRange").oninput = cpuLabel;
 function fillSettings(src = S.status.settings) {
   const f = $("#settingsForm");
   for (const el of f.elements) if (el.name && src[el.name] !== undefined) { if (el.type === "checkbox") el.checked = !!src[el.name]; else el.value = src[el.name]; }
-  S.wsEdit = [...(S.status.settings.workspaces || [])]; renderWorkspaceList();
+  S.wsEdit = [...(S.status.settings.workspaces || [])]; renderWorkspaceList(); cpuLabel();
   showProviderFields(); renderStatsSummary();
 }
 function renderWorkspaceList() {
@@ -941,11 +990,36 @@ $("#settingsForm").onsubmit = async e => {
     const old = S.status.settings;
     await api("/api/settings", { method: "PUT", body: data });
     $("#settingsModal").classList.remove("open");
-    const reloadKeys = ["ctx_size", "gpu_layers", "threads", "backend", "extra_args"];
+    data.threads = 0; // a porcentagem de CPU substitui o antigo numero fixo de threads
+    const reloadKeys = ["ctx_size", "gpu_layers", "cpu_percent", "backend", "extra_args"];
     const needReload = S.status.engine.state === "ready" && reloadKeys.some(k => String(old[k]) !== String(data[k]));
     toast(needReload ? "Salvo. Recarregue o modelo para aplicar contexto/GPU." : "Configurações salvas");
     refreshStatus();
   } catch (err) { toast(err.message, 5000); }
+};
+
+// ------------------------------------------------------------------ backup
+async function loadBackupInfo() {
+  try {
+    const i = await api("/api/backup/info");
+    $("#backupInfo").textContent = `${i.chats} conversas (${fmtSize(i.chats_size)})` + (i.files ? ` · ${i.files} anexos e imagens (${fmtSize(i.files_size)})` : "");
+  } catch {}
+}
+$("#backupBtn").onclick = () => {
+  const a = document.createElement("a");
+  a.href = `/api/backup?attachments=${$("#backupFiles").checked ? 1 : 0}`; a.click();
+  toast("Escolha onde salvar o arquivo de backup.");
+};
+$("#restoreBtn").onclick = () => $("#restoreInput").click();
+$("#restoreInput").onchange = async e => {
+  const file = e.target.files[0]; e.target.value = ""; if (!file) return;
+  const out = $("#restoreResult"); out.className = "small-note"; out.textContent = "Restaurando...";
+  try {
+    const r = await fetch(`/api/restore?settings=${$("#restoreSettings").checked ? 1 : 0}`, { method: "POST", body: file });
+    const j = await r.json(); if (!r.ok) throw new Error(j.error);
+    out.textContent = `✅ ${j.added} conversas novas, ${j.updated} atualizadas, ${j.skipped} já estavam em dia, ${j.files} arquivos restaurados.`;
+    refreshStatus(); loadBackupInfo();
+  } catch (err) { out.className = "small-note err-text"; out.textContent = "⚠ " + err.message; }
 };
 
 // ------------------------------------------------------------------ inicio

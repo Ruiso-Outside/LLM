@@ -28,6 +28,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import agent
+import catalog
 import media
 import websearch
 
@@ -41,6 +42,8 @@ CHATS = DATA / "chats"
 SETTINGS_FILE = DATA / "settings.json"
 STATS_FILE = DATA / "stats.json"
 MMPROJ_FILE = DATA / "mmproj.json"
+MODEL_INFO_FILE = DATA / "model_info.json"
+CPU_COUNT = os.cpu_count() or 4
 
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("LLM_PORT", "8765"))
@@ -61,7 +64,8 @@ DEFAULT_SETTINGS = {
     "max_tokens": 0,  # 0 = sem limite
     "ctx_size": 8192,
     "gpu_layers": 999,  # 999 = tudo na GPU
-    "threads": 0,  # 0 = automatico
+    "threads": 0,  # (antigo) numero fixo de threads; 0 = usa cpu_percent
+    "cpu_percent": 0,  # 0 = automatico (llama.cpp usa os nucleos fisicos, ~50%)
     "backend": "auto",
     "extra_args": "",
     "hf_token": "",
@@ -409,8 +413,9 @@ class EngineProcess:
         mm = mmproj_for(model_rel)
         if mm:
             cmd += ["--mmproj", str(mm)]
-        if int(s.get("threads") or 0) > 0:
-            cmd += ["-t", str(int(s["threads"]))]
+        threads = cpu_threads(s)
+        if threads:
+            cmd += ["-t", str(threads), "-tb", str(threads)]
         if s.get("extra_args", "").strip():
             cmd += [a.strip('"') for a in shlex.split(s["extra_args"], posix=False)]
         self.log.clear()
@@ -478,9 +483,36 @@ SPLIT_RE = re.compile(r"^(.*)-(\d{5})-of-(\d{5})\.gguf$", re.I)
 MEDIA_DIRS = ("image", "whisper", "mmproj")
 
 
+def cpu_threads(s):
+    """Threads da CPU pela porcentagem escolhida (0 = deixa o motor decidir)."""
+    if int(s.get("threads") or 0) > 0:
+        return int(s["threads"])
+    pct = int(s.get("cpu_percent") or 0)
+    return max(1, round(CPU_COUNT * min(pct, 100) / 100)) if pct > 0 else 0
+
+
+def load_model_info():
+    try:
+        return json.loads(MODEL_INFO_FILE.read_text("utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def save_model_info(model_rel, info):
+    d = load_model_info()
+    d[model_rel] = info
+    MODEL_INFO_FILE.write_text(json.dumps(d, ensure_ascii=False, indent=1), "utf-8")
+
+
+def hf_model_info(repo):
+    m = get_json(f"https://huggingface.co/api/models/{urllib.parse.quote(repo, safe='/')}?{catalog.HF_EXPAND}")
+    return {"repo": repo, **catalog.model_caps(m)}
+
+
 def list_models():
     out = []
     mm = load_mmproj_map()
+    infos = load_model_info()
     for p in sorted(MODELS.rglob("*.gguf"), key=lambda x: x.name.lower()):
         rel_parts = p.relative_to(MODELS).parts
         if "mmproj" in p.name.lower() or (len(rel_parts) > 1 and rel_parts[0] in MEDIA_DIRS):
@@ -492,8 +524,10 @@ def list_models():
                 continue
             size = sum(q.stat().st_size for q in p.parent.glob(f"{m.group(1)}-*-of-{m.group(3)}.gguf"))
         rel = p.relative_to(MODELS).as_posix()
+        info = infos.get(rel) or {"repo": "", **catalog.model_caps({"id": p.name})}
         out.append({"name": p.stem if not m else m.group(1), "path": rel, "size": size,
-                    "mmproj": mm.get(rel, "") if (MODELS / mm.get(rel, "_")).is_file() else ""})
+                    "mmproj": mm.get(rel, "") if (MODELS / mm.get(rel, "_")).is_file() else "",
+                    "info": info, "quant": catalog.quant_info(p.name)})
     return out
 
 
@@ -555,6 +589,10 @@ def pick_mmproj(files):
 
 def download_model(task, repo, path, with_mmproj=False):
     files = hf_tree(repo)
+    try:
+        info = hf_model_info(repo)
+    except Exception:  # noqa: BLE001
+        info = None
     m = SPLIT_RE.match(path)
     if m:
         parts = sorted((f["path"], f["size"]) for f in files
@@ -563,6 +601,8 @@ def download_model(task, repo, path, with_mmproj=False):
         parts = [(path, next((f["size"] for f in files if f["path"] == path), 0))]
     task["total"] = sum(s for _, s in parts)
     folder = MODELS / repo.split("/")[-1] if m else MODELS
+    if info:
+        save_model_info((folder / Path(parts[0][0]).name).relative_to(MODELS).as_posix(), info)
     folder.mkdir(parents=True, exist_ok=True)
     done = 0
     for p, _ in parts:
@@ -682,6 +722,95 @@ def build_history(msgs, mod, agent_mode=False):
     return out
 
 
+# ---------------------------------------------------------------- backup das conversas
+
+BACKUP_FORMAT = 1
+
+
+def backup_info():
+    chats = list(CHATS.glob("*.json"))
+    ids = set()
+    for f in chats:
+        try:
+            ids |= upload_ids(json.loads(f.read_text("utf-8")))
+        except (OSError, ValueError):
+            pass
+    files = [media.UPLOADS / i for i in ids if (media.UPLOADS / i).is_file()]
+    return {"chats": len(chats), "chats_size": sum(f.stat().st_size for f in chats),
+            "files": len(files), "files_size": sum(f.stat().st_size for f in files)}
+
+
+def build_backup(dest, with_files):
+    chats = sorted(CHATS.glob("*.json"))
+    ids = set()
+    with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as z:
+        for f in chats:
+            z.write(f, f"chats/{f.name}")
+            try:
+                ids |= upload_ids(json.loads(f.read_text("utf-8")))
+            except (OSError, ValueError):
+                pass
+        n_files = 0
+        if with_files:
+            for i in sorted(ids):
+                fp = media.UPLOADS / i
+                if fp.is_file():
+                    # midia ja comprimida nao precisa de nova compressao
+                    z.write(fp, f"uploads/{i}", compress_type=zipfile.ZIP_STORED if fp.suffix in (".png", ".jpg", ".jpeg", ".webp", ".mp3") else zipfile.ZIP_DEFLATED)
+                    n_files += 1
+        s = {k: v for k, v in load_settings().items() if k not in SECRETS}
+        z.writestr("settings.json", json.dumps(s, ensure_ascii=False, indent=1))
+        z.writestr("manifest.json", json.dumps({"app": "LLM Local", "format": BACKUP_FORMAT, "created": time.time(),
+                                                "chats": len(chats), "files": n_files}, indent=1))
+
+
+def restore_backup(src, with_settings=False):
+    added = updated = skipped = files = 0
+    with zipfile.ZipFile(src) as z:
+        try:
+            manifest = json.loads(z.read("manifest.json"))
+        except (KeyError, ValueError):
+            raise ValueError("Este arquivo nao e um backup do LLM Local.")
+        if manifest.get("app") != "LLM Local":
+            raise ValueError("Este arquivo nao e um backup do LLM Local.")
+        for name in z.namelist():
+            m = re.match(r"^chats/([A-Za-z0-9_-]{1,64})\.json$", name)
+            if m:
+                try:
+                    chat = json.loads(z.read(name).decode("utf-8"))
+                except ValueError:
+                    skipped += 1
+                    continue
+                chat["id"] = m.group(1)
+                dest = CHATS / f"{m.group(1)}.json"
+                if dest.exists():
+                    try:
+                        cur = json.loads(dest.read_text("utf-8"))
+                    except (OSError, ValueError):
+                        cur = {}
+                    if float(chat.get("updated") or 0) <= float(cur.get("updated") or 0):
+                        skipped += 1
+                        continue
+                    updated += 1
+                else:
+                    added += 1
+                dest.write_text(json.dumps(chat, ensure_ascii=False, indent=1), "utf-8")
+                continue
+            m = re.match(r"^uploads/([a-f0-9]{20}\.[a-z0-9]{1,6})$", name)
+            if m and not (media.UPLOADS / m.group(1)).exists():
+                with z.open(name) as fsrc, open(media.UPLOADS / m.group(1), "wb") as fdst:
+                    shutil.copyfileobj(fsrc, fdst)
+                files += 1
+        if with_settings and "settings.json" in z.namelist():
+            try:
+                s = json.loads(z.read("settings.json"))
+                s.pop("workspaces", None)  # pastas do outro PC podem nao existir aqui
+                save_settings({k: v for k, v in s.items() if k not in SECRETS})
+            except ValueError:
+                pass
+    return {"added": added, "updated": updated, "skipped": skipped, "files": files}
+
+
 def upload_ids(obj):
     return set(re.findall(r'"([a-f0-9]{20}\.[a-z0-9]{1,6})"', json.dumps(obj)))
 
@@ -727,12 +856,17 @@ class Handler(BaseHTTPRequestHandler):
         p, q = url.path, urllib.parse.parse_qs(url.query)
         try:
             if p == "/api/status":
-                return self.send_json({"engine": ENGINE_PROC.status(), "backends": installed_backends(), "gpu": GPU,
+                return self.send_json({"engine": ENGINE_PROC.status(), "backends": installed_backends(),
+                                       "gpu": GPU | {"cpu_count": CPU_COUNT},
                                        "models": list_models(), "tasks": public_tasks(),
                                        "settings": masked(load_settings()), "chats": list_chats(),
                                        "stats": load_stats()})
             if p == "/api/log":
                 return self.send_json({"log": list(ENGINE_PROC.log)})
+            if p == "/api/backup/info":
+                return self.send_json(backup_info())
+            if p == "/api/backup":
+                return self.send_backup(q.get("attachments", ["1"])[0] == "1")
             if p == "/api/media":
                 return self.send_json({"whisper": media.whisper_status(), "image": media.image_status(),
                                        "mmproj": list_mmproj()})
@@ -752,14 +886,20 @@ class Handler(BaseHTTPRequestHandler):
             if p == "/api/hf/search":
                 term = q.get("q", [""])[0]
                 res = get_json("https://huggingface.co/api/models?" + urllib.parse.urlencode(
-                    {"search": term, "filter": "gguf", "sort": "downloads", "direction": "-1", "limit": "40"}))
-                return self.send_json([{"id": r["id"], "downloads": r.get("downloads", 0), "likes": r.get("likes", 0)}
-                                       for r in res])
+                    {"search": term, "filter": "gguf", "sort": "downloads", "direction": "-1", "limit": "40"})
+                    + "&" + catalog.HF_EXPAND)
+                return self.send_json([{"id": r["id"], "downloads": r.get("downloads", 0), "likes": r.get("likes", 0),
+                                        "updated": r.get("lastModified", ""), **catalog.model_caps(r)} for r in res])
             if p == "/api/hf/files":
                 repo = q.get("repo", [""])[0]
                 tree = hf_tree(repo)
                 mm = pick_mmproj(tree)
-                return self.send_json({"files": hf_files(repo, tree), "mmproj": mm["path"] if mm else ""})
+                files = [f | catalog.quant_info(f["path"].rsplit("/", 1)[-1]) for f in hf_files(repo, tree)]
+                try:
+                    info = hf_model_info(repo)
+                except (urllib.error.URLError, OSError, ValueError):
+                    info = None
+                return self.send_json({"files": files, "mmproj": mm["path"] if mm else "", "info": info})
             return self.static(p)
         except urllib.error.HTTPError as e:
             self.send_json({"error": f"HTTP {e.code}: {e.reason}"}, 502)
@@ -789,6 +929,8 @@ class Handler(BaseHTTPRequestHandler):
         p = urllib.parse.urlparse(self.path).path
         if p == "/api/upload":
             return self.handle_upload()
+        if p == "/api/restore":
+            return self.handle_restore(urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query))
         try:
             b = self.body()
             if p == "/api/chat":
@@ -802,7 +944,8 @@ class Handler(BaseHTTPRequestHandler):
             if p == "/api/transcribe":
                 s = load_settings()
                 try:
-                    text = media.transcribe(b.get("id", ""), s.get("whisper_model", ""), s.get("whisper_language", "auto"))
+                    text = media.transcribe(b.get("id", ""), s.get("whisper_model", ""), s.get("whisper_language", "auto"),
+                                            cpu_threads(s))
                 except RuntimeError as e:
                     return self.send_json({"error": str(e)}, 400)
                 return self.send_json({"text": text})
@@ -1054,6 +1197,44 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError as e:
             return self.send_json({"error": str(e)}, 400)
 
+    # ---- backup ----
+    def send_backup(self, with_files):
+        tmp = DATA / f"_backup_{uuid.uuid4().hex[:8]}.zip"
+        try:
+            build_backup(tmp, with_files)
+            name = f"LLM-Local-backup-{datetime.now():%Y-%m-%d_%H%M}.zip"
+            self.send_response(200)
+            self.send_header("Content-Type", "application/zip")
+            self.send_header("Content-Length", str(tmp.stat().st_size))
+            self.send_header("Content-Disposition", f'attachment; filename="{name}"')
+            self.end_headers()
+            with open(tmp, "rb") as f:
+                shutil.copyfileobj(f, self.wfile, 1 << 20)
+        except OSError:
+            pass
+        finally:
+            tmp.unlink(missing_ok=True)
+
+    def handle_restore(self, q):
+        if not self.check_origin():
+            return self.send_json({"error": "origem bloqueada"}, 403)
+        n = int(self.headers.get("Content-Length") or 0)
+        tmp = DATA / f"_restore_{uuid.uuid4().hex[:8]}.zip"
+        try:
+            with open(tmp, "wb") as f:
+                left = n
+                while left > 0:
+                    chunk = self.rfile.read(min(1 << 20, left))
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    left -= len(chunk)
+            return self.send_json(restore_backup(tmp, q.get("settings", ["0"])[0] == "1"))
+        except (ValueError, zipfile.BadZipFile) as e:
+            return self.send_json({"error": str(e) if isinstance(e, ValueError) else "Arquivo de backup invalido ou corrompido."}, 400)
+        finally:
+            tmp.unlink(missing_ok=True)
+
     # ---- geracao de imagem ----
     def enhance_prompt(self, prompt):
         """Usa o LLM carregado para transformar o pedido num prompt detalhado em ingles."""
@@ -1103,7 +1284,8 @@ class Handler(BaseHTTPRequestHandler):
             fid, out = media.generate_image(
                 preset, final, b.get("negative", ""), b.get("width") or s.get("image_width"),
                 b.get("height") or s.get("image_height"), b.get("steps") or s.get("image_steps"), 0, seed,
-                s.get("image_offload", True), on_progress=lambda pr: emit({"image": {"stage": "progress", **pr}}),
+                s.get("image_offload", True), threads=cpu_threads(s),
+                on_progress=lambda pr: emit({"image": {"stage": "progress", **pr}}),
                 cancel=lambda: not alive["ok"])
             emit({"image": {"stage": "done", "id": fid, "path": str(out), "prompt": prompt, "final_prompt": final,
                             "seed": seed, "preset": preset, "seconds": round(time.time() - t0, 1)}})

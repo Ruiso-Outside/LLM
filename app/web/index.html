@@ -16,6 +16,7 @@
     <div class="side-foot">
       <button class="btn ghost wide" data-open="modelsModal">Modelos</button>
       <button class="btn ghost wide" data-open="settingsModal">Configurações</button>
+      <button class="btn ghost wide" data-open="backupModal">Backup</button>
     </div>
   </aside>
 
@@ -97,6 +98,7 @@
           <button id="hfSearchBtn" class="btn primary">Buscar</button>
         </div>
         <div class="chips" id="hfChips"></div>
+        <div class="chips cap-filters" id="capFilters"></div>
         <div class="hf-cols">
           <div id="hfResults" class="list"></div>
           <div id="hfFiles" class="list"></div>
@@ -159,7 +161,10 @@
         <div class="grid">
           <label>Contexto (tokens) <input name="ctx_size" type="number" step="1024" min="512" class="input"></label>
           <label>Camadas na GPU (999 = todas) <input name="gpu_layers" type="number" step="1" min="0" class="input"></label>
-          <label>Threads da CPU (0 = auto) <input name="threads" type="number" step="1" min="0" class="input"></label>
+          <label>Uso da CPU <span id="cpuLabel" class="muted"></span>
+            <input name="cpu_percent" id="cpuRange" type="range" min="0" max="100" step="5" class="range">
+            <small class="muted">0 = automático (o motor usa os núcleos físicos, cerca de 50%). Acima de 75% raramente acelera e deixa o PC lento.</small>
+          </label>
           <label>Motor
             <select name="backend" class="input">
               <option value="auto">Automático</option><option value="cuda">CUDA (NVIDIA)</option>
@@ -227,6 +232,31 @@
           <button type="submit" class="btn primary">Salvar</button>
         </div>
       </form>
+    </div>
+  </div>
+</div>
+
+<!-- Backup -->
+<div class="modal" id="backupModal">
+  <div class="modal-card">
+    <div class="modal-head"><h3>Backup das conversas</h3><button class="icon-btn" data-close>✕</button></div>
+    <div class="modal-body">
+      <div class="backup-sec">
+        <h4>💾 Criar backup</h4>
+        <p class="muted small-note">Gera um arquivo <code>.zip</code> com todas as conversas (inclusive as do Codex e as imagens geradas). Guarde na nuvem, num pendrive ou em outro PC.</p>
+        <p id="backupInfo" class="muted small-note"></p>
+        <label class="check"><input type="checkbox" id="backupFiles" checked> Incluir anexos e imagens geradas</label>
+        <div class="row end"><button class="btn primary" id="backupBtn">Criar backup...</button></div>
+      </div>
+      <div class="backup-sec">
+        <h4>📂 Restaurar backup</h4>
+        <p class="muted small-note">Junta as conversas do backup com as que já existem aqui. Se a mesma conversa estiver nos dois, fica a versão mais recente. Nada é apagado.</p>
+        <label class="check"><input type="checkbox" id="restoreSettings"> Restaurar também as configurações (prompt de sistema, geração etc.)</label>
+        <input type="file" id="restoreInput" accept=".zip" hidden>
+        <div class="row end"><button class="btn" id="restoreBtn">Escolher arquivo de backup...</button></div>
+        <p id="restoreResult" class="small-note"></p>
+      </div>
+      <p class="muted small-note">Os modelos não entram no backup (são arquivos grandes que podem ser baixados de novo). Tokens e chaves de API também ficam de fora.</p>
     </div>
   </div>
 </div>

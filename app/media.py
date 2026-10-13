@@ -243,7 +243,7 @@ def whisper_status():
             "models": models, "available": WHISPER_MODELS}
 
 
-def transcribe(fid, model_name="", language="auto"):
+def transcribe(fid, model_name="", language="auto", threads=0):
     exe = find_exe("whisper", WHISPER_EXE)
     if not exe:
         raise RuntimeError("Motor de audio (Whisper) nao instalado. Instale em Modelos > Midia.")
@@ -254,7 +254,7 @@ def transcribe(fid, model_name="", language="auto"):
     src = upload_path(fid)
     out_base = src.with_suffix("")
     cmd = [str(exe), "-m", str(MODELS / "whisper" / model), "-f", str(src), "-l", language or "auto",
-           "-nt", "-otxt", "-of", str(out_base), "-t", str(max(2, (os.cpu_count() or 4) - 2))]
+           "-nt", "-otxt", "-of", str(out_base), "-t", str(threads or max(2, (os.cpu_count() or 4) - 2))]
     r = subprocess.run(cmd, capture_output=True, cwd=str(exe.parent), timeout=3600, creationflags=NO_WINDOW)
     txt = out_base.with_suffix(".txt")
     if r.returncode != 0 or not txt.exists():
@@ -320,7 +320,7 @@ def image_status():
 
 
 def generate_image(key, prompt, negative="", width=0, height=0, steps=0, cfg=0, seed=-1, offload=True,
-                   on_progress=None, cancel=None):
+                   on_progress=None, cancel=None, threads=0):
     exe = find_exe("sd", SD_EXE)
     if not exe:
         raise RuntimeError("Motor de imagem nao instalado. Instale em Modelos > Midia.")
@@ -337,6 +337,8 @@ def generate_image(key, prompt, negative="", width=0, height=0, steps=0, cfg=0, 
         cmd += ["-n", negative]
     if offload:
         cmd.append("--offload-to-cpu")
+    if threads:
+        cmd += ["-t", str(int(threads))]
     cmd += p["args"]
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                             cwd=str(exe.parent), creationflags=NO_WINDOW)

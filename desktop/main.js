@@ -1,14 +1,14 @@
 // LLM Local - app desktop.
 // Roda o servidor Python escondido, fica na bandeja do sistema e abre a
 // "pergunta rapida" por um atalho global.
-const { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain, nativeImage, screen, shell, dialog, Notification } = require("electron");
+const { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain, nativeImage, screen, shell, dialog, Notification, session } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const http = require("http");
 const { spawn, spawnSync } = require("child_process");
 const { autoUpdater } = require("electron-updater");
 
-const PORT = 8765;
+const PORT = Number(process.env.LLM_PORT) || 8765; // LLM_PORT: porta alternativa (desenvolvimento)
 const BASE = `http://127.0.0.1:${PORT}`;
 const PY_APP = app.isPackaged ? path.join(process.resourcesPath, "server") : path.join(__dirname, "..", "app");
 const ICON = path.join(__dirname, "icon.png");
@@ -343,6 +343,11 @@ app.whenReady().then(async () => {
   const firstRun = !config.homeDir;
   if (firstRun) { config.homeDir = await askHomeDir(true); saveConfig(); applyAutoStart(); }
   if (!(await startServer())) { quitting = true; return app.quit(); }
+
+  // downloads (backup, imagens): sempre pergunta onde salvar, comecando em Documentos
+  session.defaultSession.on("will-download", (_e, item) => {
+    item.setSaveDialogOptions({ title: "Salvar arquivo", defaultPath: path.join(app.getPath("documents"), item.getFilename()) });
+  });
 
   tray = new Tray(nativeImage.createFromPath(TRAY_ICON));
   tray.on("click", () => showMain());

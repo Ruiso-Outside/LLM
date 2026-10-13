@@ -4,7 +4,7 @@ Um app seu para rodar modelos de IA no seu PC. Sem conta, sem plano pago, sem te
 
 ## Instalação
 
-Rode **`desktop\dist\LLM Local Setup 1.2.0.exe`**. Ele cria atalhos no Menu Iniciar e na Área de Trabalho. Como o instalador não é assinado digitalmente, o Windows pode mostrar a tela "O Windows protegeu o computador". Clique em *Mais informações → Executar assim mesmo*. O executável do app é o do Electron oficial, sem modificações, para que o **Controle Inteligente de Aplicativos** do Windows não o bloqueie. Por isso o arquivo .exe mostra o ícone do Electron, mas os atalhos e a janela usam o ícone do LLM Local.
+Rode **`desktop\dist\LLM Local Setup 1.3.0.exe`**. Ele cria atalhos no Menu Iniciar e na Área de Trabalho. Como o instalador não é assinado digitalmente, o Windows pode mostrar a tela "O Windows protegeu o computador". Clique em *Mais informações → Executar assim mesmo*. O executável do app é o do Electron oficial, sem modificações, para que o **Controle Inteligente de Aplicativos** do Windows não o bloqueie. Por isso o arquivo .exe mostra o ícone do Electron, mas os atalhos e a janela usam o ícone do LLM Local.
 
 ### Segundo plano e pergunta rápida
 - Fechar a janela **não encerra** o app: ele continua no ícone perto do relógio. Para sair de verdade, clique com o botão direito no ícone e escolha **Sair**.
@@ -41,7 +41,22 @@ npm run dist
 
 1. Abra o **LLM Local**.
 2. **Modelos → Motor**: clique em *Instalar* no **CUDA** (para placa NVIDIA). Isso baixa o `llama.cpp` direto do GitHub oficial.
-3. **Modelos → Baixar modelos**: busque um modelo (ex.: `Qwen`, `gemma`) e baixe um arquivo **Q4_K_M**. A etiqueta verde "cabe na GPU" mostra o que roda rápido na sua placa.
+3. **Modelos → Baixar modelos**: busque um modelo (ex.: `Qwen`, `gemma`). Cada resultado mostra o que o modelo sabe fazer e se cabe na sua placa. Ao abrir um, o arquivo marcado com ⭐ é o de melhor qualidade que cabe na sua GPU.
+
+   | Ícone | Significado |
+   |---|---|
+   | 👁 Visão / 🎬 Vídeo | Enxerga imagens (e vídeos, pelos quadros). Baixe com "Incluir visão" |
+   | 🎧 Áudio | Entende áudio direto (sem isso, o app usa o Whisper) |
+   | 🛠️ Ferramentas | Funciona no modo Codex |
+   | 🧠 Raciocínio | Pensa antes de responder |
+   | 💻 Programação | Especializado em código |
+   | 🔓 Sem censura | Ajustado para recusar menos |
+   | ⚡ MoE rápido | Usa só parte dos parâmetros por vez: roda mais rápido do que o tamanho sugere |
+   | ✨ Otimizado | Quantização com imatrix/dinâmica: mais qualidade no mesmo tamanho |
+   | 🎨 Gera imagens / 🔎 Embedding | Não são modelos de conversa |
+   | 🧩 / 📏 / ★ | Parâmetros, contexto máximo e qualidade do arquivo (quantização) |
+
+   Use os filtros (👁 Visão, 🛠️ Codex, 🖥️ Cabe na minha GPU...) para achar mais rápido.
 4. Escolha o modelo no topo, clique em **Carregar** e converse.
 
 Para encerrar de vez, clique com o botão direito no ícone perto do relógio e escolha **Sair**. O modelo é descarregado junto.
@@ -114,6 +129,8 @@ Enquanto o modelo escreve, a velocidade aparece ao vivo (⚡ tok/s) no topo da r
 ## Dicas
 
 - **Prompt de sistema** (Configurações): instruções fixas que o modelo segue em toda conversa.
+- **Backup**: o botão **Backup** na barra lateral gera um `.zip` com todas as conversas, anexos e imagens geradas. Em outro PC (ou depois de reinstalar), use **Restaurar backup**: as conversas são juntadas e nada é apagado.
+- **Uso da CPU** (Configurações → Carregamento do modelo): por padrão o motor usa só os núcleos físicos (~50%). Aumente para 70% se o modelo roda total ou parcialmente na CPU. Acima de ~75% raramente fica mais rápido.
 - **Contexto**: quanto o modelo "lembra" da conversa. Mais contexto usa mais VRAM. Com 16 GB, 8k–32k vai bem para modelos de 7B–14B.
 - **Recusas**: o app não filtra nada. Se um modelo recusar pedidos, isso vem do treino do próprio modelo. Versões *abliterated* ou *uncensored* do Hugging Face são ajustadas para recusar menos.
 - **Modelos com raciocínio** (Qwen3, DeepSeek-R1...): o "pensamento" aparece em um bloco recolhível.
@@ -132,5 +149,6 @@ Enquanto o modelo escreve, a velocidade aparece ao vivo (⚡ tok/s) no topo da r
 | `app/server.py` | Servidor interno (iniciado escondido pelo app): motor, modelos, chat e downloads |
 | `app/websearch.py` | Pesquisa na web e leitura das páginas |
 | `app/agent.py` | Codex: ferramentas, limite de pasta e confirmações |
+| `app/catalog.py` | Etiquetas dos modelos (capacidades, tamanho, qualidade dos arquivos) |
 | `app/media.py` | Whisper, stable-diffusion.cpp, anexos e extração de texto de documentos |
 | `app/web/` | Interface: `index.html` (janela principal), `quick.html` (pergunta rápida), `common.js` (código compartilhado), `attach.js` (processamento dos anexos), `vendor/pdfjs` (leitor de PDF da Mozilla) |
