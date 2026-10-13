@@ -367,7 +367,8 @@ async function downloadPatch(m) {
   await new Promise((res, rej) => out.end(err => err ? rej(err) : res()));
   if (hash.digest("base64") !== m.sha512) throw new Error("o arquivo baixado está corrompido (SHA-512 diferente). Tente de novo.");
   // tar.exe vem com o Windows 10/11 e extrai .zip
-  const x = spawnSync("tar", ["-xf", zip, "-C", staging], { windowsHide: true, encoding: "utf8" });
+  const tarExe = path.join(process.env.SystemRoot || "C:\\Windows", "System32", "tar.exe"); // nao depende do PATH
+  const x = spawnSync(tarExe, ["-xf", zip, "-C", staging], { windowsHide: true, encoding: "utf8" });
   if (x.status !== 0) throw new Error("falha ao extrair a atualização: " + (x.stderr || "").trim().split("\n")[0]);
   fs.rmSync(zip, { force: true });
   const pkg = JSON.parse(fs.readFileSync(path.join(staging, "app", "package.json"), "utf8"));

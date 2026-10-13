@@ -23,8 +23,9 @@ if (!fs.existsSync(path.join(res, "server", "server.py"))) fail("resources/serve
 
 const zip = path.join(dist, file);
 fs.rmSync(zip, { force: true });
-// tar.exe (Windows 10/11) cria .zip com -a
-const t = spawnSync("tar", ["-a", "-c", "-f", zip, "-C", res, "app", "server"], { encoding: "utf8" });
+// tar.exe do Windows (o "tar" do Git Bash e o GNU tar, que nao cria .zip)
+const TAR = path.join(process.env.SystemRoot || "C:\\Windows", "System32", "tar.exe");
+const t = spawnSync(TAR, ["-a", "-c", "-f", zip, "-C", res, "app", "server"], { encoding: "utf8" });
 if (t.status !== 0) fail("tar falhou: " + t.stderr);
 const data = fs.readFileSync(zip);
 const manifest = { version, electron, file, size: data.length,
