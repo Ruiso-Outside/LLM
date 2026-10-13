@@ -26,6 +26,10 @@
   .foot button { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 12px; padding: 4px 8px; border-radius: 7px; white-space: nowrap; }
   .foot button:hover { background: #ffffff12; color: var(--text); }
   .foot button.on { color: var(--accent2); }
+  .mic-btn { border: 0; background: none; font-size: 18px; cursor: pointer; padding: 0 4px; line-height: 30px; opacity: .8; }
+  .mic-btn:hover { opacity: 1; }
+  .mic-btn.rec { animation: pulse 1s infinite; opacity: 1; }
+  @keyframes pulse { 50% { transform: scale(1.18); filter: drop-shadow(0 0 6px #f2686a); } }
   kbd { font: 11px var(--mono); background: #ffffff14; border-radius: 4px; padding: 1px 4px; color: #aeb1c0; }
 </style>
 </head>
@@ -34,6 +38,7 @@
   <div class="ask">
     <span class="bolt">⚡</span>
     <textarea id="q" rows="1" placeholder="Pergunte qualquer coisa..." spellcheck="false"></textarea>
+    <button id="micBtn" class="mic-btn" title="Falar (Ctrl+M). Aperte de novo para enviar.">🎤</button>
     <button id="webBtn" class="web-toggle" title="Pesquisar na web antes de responder">🌐 Web</button>
   </div>
   <div id="answer"></div>
@@ -42,16 +47,19 @@
     <button id="copyBtn" title="Copiar a última resposta (Ctrl+Shift+C)">Copiar</button>
     <button id="newBtn" title="Nova conversa (Ctrl+N)">Nova</button>
     <button id="openBtn" title="Continuar no app (Ctrl+O)">Abrir no app ↗</button>
+    <button id="speakBtn" title="Ler as respostas em voz alta">🔇</button>
     <button id="pinBtn" title="Fixar: não esconder ao clicar fora">📌</button>
   </div>
 </div>
 <script src="i18n.js"></script>
 <script src="common.js"></script>
+<script src="attach.js"></script>
 <script>
 "use strict";
-const Q = { chat: null, generating: false, abort: null, status: null, pinned: false,
+const Q = { chat: null, generating: false, abort: null, status: null, pinned: false, rec: null, speak: ls2("speak") === "1",
   web: (() => { try { return localStorage.getItem("web") === "1"; } catch { return false; } })() };
 
+function ls2(k) { try { return localStorage.getItem(k); } catch { return null; } }
 const resize = () => desktop.resizeQuick(Math.ceil($("#card").getBoundingClientRect().height) + 20);
 new ResizeObserver(resize).observe($("#card"));
 
@@ -158,9 +166,36 @@ async function ask() {
   Q.generating = false; Q.abort = null;
   if (msg.web && !["done", "error"].includes(msg.web.stage)) delete msg.web;
   render();
+  if (Q.speak && !msg.error) speakText(splitThink(msg).content);
   if (msg.stats) setStatus(`● ${msg.model} · ${msg.stats.tps.toFixed(1)} tok/s · ${fmtNum(msg.stats.tokens)} tokens`, "ok");
   else refresh();
   api("/api/chats/" + Q.chat.id, { method: "PUT", body: Q.chat }).catch(() => {});
+}
+
+// ---- voz: gravar, transcrever (Whisper) e perguntar
+async function toggleVoice() {
+  if (Q.generating) return;
+  if (Q.rec) {
+    const rec = Q.rec; Q.rec = null; $("#micBtn").classList.remove("rec");
+    setStatus(t("Transcrevendo..."), "warn");
+    try {
+      const text = (await transcribeBlob(await rec.stop())).trim();
+      if (!text) return setStatus(t("Não entendi nada. Tente de novo."), "err");
+      $("#q").value = text; grow(); ask();
+    } catch (e) { setStatus(trText(e.message), "err"); }
+    return;
+  }
+  stopSpeaking();
+  try {
+    Q.rec = await startRecording();
+    $("#micBtn").classList.add("rec");
+    setStatus(t("🔴 Gravando... aperte 🎤, Ctrl+M ou o atalho de novo para enviar"), "err");
+  } catch (e) { Q.rec = null; setStatus(t("Microfone indisponível: {e}", { e: e.message }), "err"); }
+}
+function setSpeak(on) {
+  Q.speak = on; try { localStorage.setItem("speak", on ? "1" : "0"); } catch {}
+  $("#speakBtn").textContent = on ? "🔊" : "🔇"; $("#speakBtn").classList.toggle("on", on);
+  if (!on) stopSpeaking();
 }
 
 function newConversation() { if (Q.generating) Q.abort?.abort(); Q.chat = null; render(); $("#q").focus(); refresh(); }
@@ -174,6 +209,8 @@ function setWeb(on) { Q.web = on; $("#webBtn").classList.toggle("on", on); try {
 $("#q").addEventListener("input", grow);
 $("#q").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); ask(); } });
 $("#webBtn").onclick = () => { setWeb(!Q.web); $("#q").focus(); };
+$("#micBtn").onclick = toggleVoice;
+$("#speakBtn").onclick = () => { setSpeak(!Q.speak); $("#q").focus(); };
 $("#newBtn").onclick = newConversation;
 $("#copyBtn").onclick = copyLast;
 $("#openBtn").onclick = openInApp;
@@ -183,7 +220,8 @@ $("#answer").addEventListener("click", async e => {
   if (cb) { await navigator.clipboard.writeText(cb.closest(".code").querySelector("code").textContent); cb.textContent = "Copiado!"; }
 });
 document.addEventListener("keydown", e => {
-  if (e.key === "Escape") { e.preventDefault(); if (Q.generating) Q.abort?.abort(); else desktop.hideQuick(); }
+  if (e.key === "Escape") { e.preventDefault(); stopSpeaking(); if (Q.rec) { Q.rec.stop(); Q.rec = null; $("#micBtn").classList.remove("rec"); refresh(); } else if (Q.generating) Q.abort?.abort(); else desktop.hideQuick(); }
+  else if (e.ctrlKey && e.key.toLowerCase() === "m") { e.preventDefault(); toggleVoice(); }
   else if (e.ctrlKey && e.key.toLowerCase() === "n") { e.preventDefault(); newConversation(); }
   else if (e.ctrlKey && e.key.toLowerCase() === "o") { e.preventDefault(); openInApp(); }
   else if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "c") { e.preventDefault(); copyLast(); }
@@ -196,7 +234,8 @@ desktop.onQuickShow(({ hiddenFor }) => {
   refresh(); $("#q").focus(); $("#q").select();
 });
 
-setWeb(Q.web); refresh(); setInterval(() => { if (document.hasFocus()) refresh(); }, 3000);
+setWeb(Q.web); setSpeak(Q.speak); refresh();
+desktop.onQuickVoice?.(() => toggleVoice()); setInterval(() => { if (document.hasFocus()) refresh(); }, 3000);
 $("#q").focus(); resize();
 </script>
 </body>

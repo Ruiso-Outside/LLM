@@ -139,3 +139,41 @@ async function streamChat(body, signal, onEvent, url = "/api/chat") {
 
 // Ponte com o processo principal do Electron (desktop/preload.js).
 const desktop = window.llmDesktop;
+
+// ------------------------------------------------------------------ voz: ler respostas (vozes do Windows) e gravar fala
+function pickVoice() {
+  const vs = speechSynthesis.getVoices(); let want = null;
+  try { want = localStorage.getItem("ttsVoice"); } catch {}
+  const lang = (typeof LANG !== "undefined" ? LANG : "pt-BR").toLowerCase().slice(0, 2);
+  return vs.find(v => v.voiceURI === want) || vs.find(v => v.lang.toLowerCase().startsWith(lang)) || null;
+}
+function speakText(text) {
+  speechSynthesis.cancel();
+  const clean = String(text || "").replace(/<think>[\s\S]*?(<\/think>|$)/g, " ").replace(/```[\s\S]*?```/g, " ").replace(/`([^`]+)`/g, "$1")
+    .replace(/https?:\/\/\S+/g, " ").replace(/\[(D?\d+)\]/g, " ").replace(/[*_#>|~\[\]]/g, " ").replace(/\s+/g, " ").trim();
+  if (!clean) return;
+  const u = new SpeechSynthesisUtterance(clean.slice(0, 12000));
+  const v = pickVoice(); if (v) { u.voice = v; u.lang = v.lang; }
+  speechSynthesis.speak(u);
+}
+function stopSpeaking() { try { speechSynthesis.cancel(); } catch {} }
+
+// grava do microfone até stop(); devolve um Blob de áudio
+async function startRecording() {
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  const rec = new MediaRecorder(stream); const chunks = [];
+  rec.ondataavailable = e => chunks.push(e.data);
+  rec.start();
+  return {
+    stop: () => new Promise(res => {
+      rec.onstop = () => { stream.getTracks().forEach(tr => tr.stop()); res(new Blob(chunks, { type: rec.mimeType })); };
+      rec.stop();
+    }),
+  };
+}
+// fala gravada -> texto (WAV 16 kHz -> Whisper no servidor). Usa funções do attach.js.
+async function transcribeBlob(blob) {
+  const { samples } = await decodeTo16k(await blob.arrayBuffer());
+  const up = await uploadBlob(wavBlob(samples), "voz.wav");
+  return (await post("/api/transcribe", { id: up.id })).text;
+}

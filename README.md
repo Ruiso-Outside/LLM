@@ -15,6 +15,7 @@ Um app seu para rodar modelos de IA no seu PC. Sem conta, sem plano pago, sem te
 - **`Ctrl+Shift+Espaço`**, de qualquer lugar do Windows, abre a **pergunta rápida**: uma janelinha flutuante para perguntar e receber a resposta na hora.
   - `Enter` envia · `Esc` para a resposta ou esconde a janela · `Ctrl+N` começa uma nova conversa · `Ctrl+Shift+C` copia a resposta · `Ctrl+O` continua a conversa no app completo
   - 📌 fixa a janela, para ela não sumir ao clicar fora
+  - **Voz:** 🎤 (ou `Ctrl+M`) grava sua pergunta, o Whisper transcreve e envia. O atalho global **`Ctrl+Alt+Espaço`** abre a janela já gravando; aperte de novo para enviar. 🔊 lê as respostas em voz alta com as vozes do Windows (escolha a voz em Configurações → App desktop)
   - Dá para escolher um **modelo próprio** para ela (Configurações → App desktop → Modelo da pergunta rápida), por exemplo um modelo pequeno e rápido, e onde ele roda (GPU ou CPU). Ele é carregado junto com o principal, sem trocar o modelo do app
   - Sem modelo próprio, ela usa o principal (e carrega o último usado se estiver descarregado)
 - Em **Configurações → App desktop** você troca o atalho, liga ou desliga "Iniciar com o Windows" e muda a pasta de dados.
@@ -108,6 +109,8 @@ O modelo cria e edita projetos de software sozinho, **somente** dentro das pasta
 - Caminhos fora da pasta liberada são bloqueados.
 - Funciona melhor com modelos bons em programação e em "tool calling", como Qwen3, Qwen3-Coder ou Devstral, e com contexto de 32k ou mais.
 
+**Desfazer o que o Codex fez:** antes de alterar um arquivo, o Codex guarda a versão original. Na resposta aparecem **🔍 Ver alterações** (as diferenças, linha por linha) e **↩ Desfazer alterações** (tudo volta a ficar como antes do pedido; arquivos criados são removidos). Comandos executados não são desfeitos. Os pontos de restauração ficam 30 dias.
+
 ### 🎨 Imagem
 Descreva a imagem (em português mesmo). O modelo de texto carregado melhora a descrição antes de gerar.
 - Instale em **Modelos → Mídia**: o motor (*stable-diffusion.cpp*; Vulkan é o recomendado) e um modelo: **Z-Image Turbo** (melhor qualidade, ~6 GB) ou **SDXL Turbo** (mais rápido).
@@ -123,6 +126,22 @@ Crie agentes com uma **função** própria e junte vários num **grupo** que tra
 - **Modelos prontos:** 🧮 Matemática (cria o cálculo → resolve → valida), 📝 Redação (pesquisa na web → escreve → revisa) e 💻 Programação (planeja → programa → revisa).
 - **Um modelo por agente:** cada agente pode usar um modelo diferente (ex.: um leve e rápido para criar, um mais forte para validar). Os modelos diferentes do principal são carregados **ao mesmo tempo**, cada um no seu motor. Em **Onde rodar** você escolhe **GPU** (mais rápido), **CPU** (usa a RAM e não disputa a GPU, ótimo para modelos leves) ou **Automático** (GPU se couber, senão CPU). Se faltar memória, os extras usados há mais tempo são descarregados. Em Modelos → Meus modelos aparece quanto de VRAM e de RAM os modelos estão usando. Extras parados também são descarregados depois de alguns minutos (Configurações → Carregamento do modelo).
 - Para usar, escolha o modo **👥 Agentes** e selecione um grupo ou um agente sozinho. Agentes e grupos entram no backup.
+
+## Bases de conhecimento 📚
+
+A IA responde com base nos **seus documentos**, sem mandar nada para fora do PC.
+1. Abra **Conhecimento** na barra lateral e baixe o modelo de embeddings (Qwen3-Embedding 0.6B, ~610 MB, multilíngue).
+2. Crie uma base escolhendo uma ou mais pastas e clique em **Indexar**. Lê texto, código, Markdown, PDF, Word, Excel e PowerPoint. Depois, **Atualizar índice** só processa o que mudou.
+3. No chat (ou no modo 👥 Agentes), escolha a base no **📚** ao lado do 🌐 Web. A resposta cita os trechos como [D1], [D2]; clique para ver o arquivo.
+4. Cada agente também pode ter uma base própria (campo *Base de conhecimento* no editor de agentes).
+
+## Conversas longas
+
+Quando o contexto passa de ~80%, o app **resume a parte antiga da conversa** e continua dali, sem estourar o limite (Configurações → *Resumir a conversa antiga...*). O resumo aparece num divisor recolhível na conversa.
+
+## Ajustes por modelo ⚙️
+
+Em **Modelos → Meus modelos → ⚙️**, cada modelo pode ter contexto, camadas na GPU, temperatura, top P/K, min P e penalidade próprios. Sem ajustes, o app usa a **amostragem recomendada da família** (Qwen3, Gemma, Llama, Mistral, DeepSeek R1...) e o resto vem das configurações globais.
 
 ## Pesquisa na web 🌐
 
@@ -174,6 +193,8 @@ Em **Configurações → Idioma** escolha a língua do app: **Português (Brasil
 | `app/agent.py` | Codex: ferramentas, limite de pasta e confirmações |
 | `app/catalog.py` | Etiquetas dos modelos (capacidades, tamanho, qualidade dos arquivos) |
 | `app/agents.py` | Agentes personalizados, grupos e o validador com novas tentativas |
+| `app/kb.py` | Bases de conhecimento: índice, trechos e busca por embeddings |
+| `app/modelsettings.py` | Ajustes por modelo e amostragem recomendada por família |
 | `app/media.py` | Whisper, stable-diffusion.cpp, anexos e extração de texto de documentos |
 | `app/web/i18n.js` | Traduções da interface (PT-BR, EN, ES) |
 | `app/web/` | Interface: `index.html` (janela principal), `quick.html` (pergunta rápida), `common.js` (código compartilhado), `attach.js` (processamento dos anexos), `agents.js` (editor de agentes e grupos), `vendor/pdfjs` (leitor de PDF da Mozilla) |

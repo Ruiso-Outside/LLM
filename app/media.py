@@ -78,8 +78,13 @@ def _xml_text(xml, para_tag):
 
 
 def extract_text(fid):
-    """Extrai texto de .docx, .pptx, .xlsx e .odt."""
-    p = upload_path(fid)
+    """Extrai texto de .docx, .pptx, .xlsx e .odt enviados pelo usuario."""
+    return extract_text_path(upload_path(fid))
+
+
+def extract_text_path(p):
+    """Extrai texto de um arquivo .docx, .pptx, .xlsx ou .odt no disco."""
+    p = Path(p)
     ext = p.suffix.lower()
     with zipfile.ZipFile(p) as z:
         names = z.namelist()
@@ -207,6 +212,24 @@ def _hf_size(repo, path):
         return (it.get("lfs") or {}).get("size") or it.get("size", 0)
     except Exception:  # noqa: BLE001
         return 0
+
+
+# ---------------------------------------------------------------- embeddings (bases de conhecimento)
+
+EMBED_MODEL = ("Qwen/Qwen3-Embedding-0.6B-GGUF", "Qwen3-Embedding-0.6B-Q8_0.gguf")
+
+
+def embed_model_path():
+    d = MODELS / "embed"
+    p = d / EMBED_MODEL[1]
+    if p.is_file():
+        return p
+    return next(iter(sorted(d.glob("*.gguf"))), None) if d.is_dir() else None
+
+
+def install_embed_model(task, _value=""):
+    repo, path = EMBED_MODEL
+    _hf_download(task, [(repo, path, _hf_size(repo, path))], MODELS / "embed")
 
 
 # ---------------------------------------------------------------- audio: whisper.cpp

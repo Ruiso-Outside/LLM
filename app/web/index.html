@@ -15,6 +15,7 @@
     <nav id="chatList"></nav>
     <div class="side-foot">
       <button class="btn ghost wide" data-open="agentsModal">Agentes</button>
+      <button class="btn ghost wide" data-open="kbModal">Conhecimento</button>
       <button class="btn ghost wide" data-open="modelsModal">Modelos</button>
       <button class="btn ghost wide" data-open="settingsModal">Configurações</button>
       <button class="btn ghost wide" data-open="backupModal">Backup</button>
@@ -60,6 +61,7 @@
             </select>
           </div>
           <div class="spacer"></div>
+          <select id="kbSelect" class="input small-input kb-select" title="Responder com base nos seus documentos (bases de conhecimento)"></select>
           <button id="webBtn" class="web-toggle" title="Pesquisar na web antes de responder">🌐 Web</button>
         </div>
         <div id="attachTray" class="attach-tray"></div>
@@ -163,6 +165,14 @@
               <label class="check"><input type="checkbox" id="autoStart"> Iniciar junto com o Windows</label>
               <label class="check"><input type="checkbox" id="hideOnBlur"> Esconder a pergunta rápida ao clicar fora</label>
             </div>
+            <label>Atalho para falar na pergunta rápida
+              <div class="row"><input id="voiceHotkeyInput" class="input" readonly><button type="button" class="btn" id="voiceHotkeySave">Salvar</button></div>
+              <small class="muted">Aperte uma vez para começar a falar e de novo para enviar. Precisa do Whisper (Modelos → Mídia).</small>
+            </label>
+            <label>Voz para ler as respostas
+              <select id="ttsVoice" class="input"></select>
+              <small class="muted">Usa as vozes instaladas no Windows (funciona sem internet).</small>
+            </label>
             <div class="full update-box">
               <span id="updateText" class="grow muted">Versão —</span>
               <button type="button" class="btn small" id="updateBtn">Verificar atualizações</button>
@@ -200,6 +210,9 @@
             </select>
           </label>
           <label class="check full"><input type="checkbox" name="auto_load"> Carregar o último modelo automaticamente ao abrir o app</label>
+          <label class="check full"><input type="checkbox" name="use_recommended"> Usar a amostragem recomendada para cada família de modelo (Qwen, Gemma, Llama...)</label>
+          <label class="check full"><input type="checkbox" name="auto_summarize"> Resumir a conversa antiga quando o contexto passar de 80% (a conversa continua sem estourar)</label>
+          <small class="muted full">Cada modelo também pode ter ajustes próprios em Modelos → Meus modelos → ⚙️.</small>
           <label>Descarregar modelos extras parados há (minutos)
             <input name="extra_idle_minutes" type="number" min="0" max="1440" class="input">
             <small class="muted">Modelos extras são os usados por agentes ou pela pergunta rápida além do principal. 0 = só ao fechar o app.</small>
@@ -297,6 +310,52 @@
   </div>
 </div>
 
+<!-- Ajustes de um modelo -->
+<div class="modal" id="modelSettingsModal">
+  <div class="modal-card">
+    <div class="modal-head"><h3 id="msTitle">Ajustes do modelo</h3><button class="icon-btn" data-close>✕</button></div>
+    <div class="modal-body">
+      <p class="muted small-note" id="msFamily"></p>
+      <p class="muted small-note">Deixe um campo vazio para usar o valor recomendado (ou o das configurações globais). Contexto e camadas na GPU valem ao carregar o modelo.</p>
+      <form id="msForm" class="grid">
+        <label>Contexto (tokens) <input name="ctx_size" type="number" step="any" min="512" max="1048576" class="input"></label>
+        <label>Camadas na GPU (999 = todas) <input name="gpu_layers" type="number" step="1" min="0" class="input"></label>
+        <label>Temperatura <input name="temperature" type="number" step="any" min="0" max="5" class="input"></label>
+        <label>Top P <input name="top_p" type="number" step="any" min="0" max="1" class="input"></label>
+        <label>Top K <input name="top_k" type="number" step="1" min="0" class="input"></label>
+        <label>Min P <input name="min_p" type="number" step="any" min="0" max="1" class="input"></label>
+        <label>Penalidade de repetição <input name="repeat_penalty" type="number" step="any" min="0" max="5" class="input"></label>
+      </form>
+      <div class="row end">
+        <button type="button" class="btn" id="msUseRec">Preencher com os recomendados</button>
+        <button type="button" class="btn" id="msClear">Limpar (usar padrões)</button>
+        <button type="button" class="btn primary" id="msSave">Salvar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Alteracoes do Codex -->
+<div class="modal" id="diffModal">
+  <div class="modal-card large">
+    <div class="modal-head"><h3>Alterações feitas pelo Codex</h3><button class="icon-btn" data-close>✕</button></div>
+    <div class="modal-body" id="diffBody"></div>
+  </div>
+</div>
+
+<!-- Bases de conhecimento -->
+<div class="modal" id="kbModal">
+  <div class="modal-card large">
+    <div class="modal-head"><h3>Bases de conhecimento</h3><button class="icon-btn" data-close>✕</button></div>
+    <div class="modal-body">
+      <p class="muted small-note">A IA responde com base nos seus documentos: escolha pastas, o app cria um índice local (nada sai do seu PC) e, no chat, selecione a base no 📚 ao lado do 🌐 Web. Lê texto, código, Markdown, PDF, Word, Excel e PowerPoint.</p>
+      <div id="kbEmbed" class="kb-embed"></div>
+      <div class="row between"><b>Suas bases</b><button class="btn small" id="kbNew">+ Nova base</button></div>
+      <div id="kbList" class="list"></div>
+    </div>
+  </div>
+</div>
+
 <!-- Backup -->
 <div class="modal" id="backupModal">
   <div class="modal-card">
@@ -327,6 +386,7 @@
 <script src="common.js"></script>
 <script src="attach.js"></script>
 <script src="agents.js"></script>
+<script src="features.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

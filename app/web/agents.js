@@ -87,6 +87,9 @@ function renderAgentEditor() {
             <select class="input" id="agDevice" ${d.model ? "" : "disabled"}><option value="auto" ${d.device === "auto" || !d.device ? "selected" : ""}>Automático (GPU se couber, senão CPU)</option><option value="gpu" ${d.device === "gpu" ? "selected" : ""}>GPU (VRAM): mais rápido</option><option value="cpu" ${d.device === "cpu" ? "selected" : ""}>CPU (RAM): não ocupa a GPU</option></select></label>
           <small class="muted full">Cada agente pode usar um modelo diferente. Os diferentes do principal são carregados juntos: na GPU se couberem, ou na CPU usando a RAM (bom para modelos leves, sem disputar a GPU). ${d.model ? "" : "Com o modelo principal, ele roda onde o principal estiver."}</small>
         </div>
+        <label>Base de conhecimento
+          <select class="input" id="agKb"><option value="">${t("Nenhuma")}</option>${KB.list.map(k => `<option value="${k.id}" ${k.id === d.kb ? "selected" : ""}>📚 ${esc(k.name)}</option>`).join("")}</select>
+          <small class="muted">O agente consulta esta base antes de responder (crie bases em Conhecimento).</small></label>
         <label>Função do agente (instruções)
           <textarea class="input" id="agInstr" rows="9" placeholder="Descreva o que este agente faz, como deve responder e o que NÃO deve fazer.&#10;Ex.: Você resolve o problema do agente anterior mostrando o passo a passo e destaca a resposta final.">${esc(d.instructions)}</textarea></label>
         <div class="grid">
@@ -131,7 +134,7 @@ function syncDraft() {
   const d = AG.draft; if (!d) return;
   if (AG.edit.type === "agent") {
     d.name = $("#agName").value.trim(); d.icon = $("#agIcon").value.trim() || "🤖"; d.instructions = $("#agInstr").value;
-    d.temperature = $("#agTempOn").checked ? +$("#agTemp").value : null; d.web = $("#agWeb").checked; d.model = $("#agModel").value; d.device = $("#agDevice").value;
+    d.temperature = $("#agTempOn").checked ? +$("#agTemp").value : null; d.web = $("#agWeb").checked; d.model = $("#agModel").value; d.device = $("#agDevice").value; d.kb = $("#agKb").value;
   } else {
     d.name = $("#grName").value.trim(); d.icon = $("#grIcon").value.trim() || "👥"; d.description = $("#grDesc").value.trim();
     d.max_retries = Math.max(0, Math.min(5, +$("#grRetries").value || 0));
@@ -221,6 +224,7 @@ async function runGroup(group) {
         msg.stats = { tps: j.timings.predicted_per_second || 0, tokens: base + lastPred, lastOut: lastPred, prompt: j.timings.prompt_n || 0, cached: j.timings.cache_n || 0 };
       }
       if (j.llmlocal && cur) cur.web = { ...cur.web, ...j.llmlocal };
+      if (j.kb && cur) cur.kb = { ...cur.kb, ...j.kb };
       const g = j.group;
       if (g?.type === "loading") msg.loadingModel = { index: g.index, model: g.model };
       if (g?.type === "step_start") { msg.loadingModel = null; base += lastPred; lastPred = 0; cur = { index: g.index, agent: g.agent, role: g.role, attempt: g.attempt, model: g.model, device: g.device, text: "", reasoning: "", status: "running" }; msg.steps.push(cur); }
@@ -249,10 +253,11 @@ function groupMsgHTML(msg, idx, isLast, streaming) {
     const tag = s.role === "validator" ? t("validador") : t("etapa {n}", { n: s.index + 1 });
     h += `<div class="g-step" style="--c:${esc(s.agent.color)}"><div class="g-head"><span class="ag-dot" style="--c:${esc(s.agent.color)}">${esc(s.agent.icon)}</span>
       <b>${esc(s.agent.name)}</b><small class="muted">${tag}${s.attempt > 1 ? " · " + t("tentativa {n}", { n: s.attempt }) : ""}${s.model ? ` · ${esc(s.model)}` : ""}${s.device ? ` <span class="dev-tag dev-${esc(s.device)}">${esc(s.device.toUpperCase())}</span>` : ""}</small><span class="spacer"></span>${s.status === "running" ? '<span class="spin"></span>' : verdict}</div>`;
+    if (s.kb) h += kbBoxHTML(s.kb, s.status === "running");
     if (s.web) h += webBoxHTML(s.web, s.status === "running");
     if (s.reasoning) h += `<details class="think"><summary>Raciocínio</summary><div class="think-body">${esc(s.reasoning)}</div></details>`;
     const shown = s.role === "validator" ? s.text.replace(/\n?\**\s*VEREDITO\s*[:\-–][^\n]*/gi, "").trim() : s.text;
-    h += `<div class="content ${s.status === "running" ? "cursor" : ""}">${linkCitations(md(shown), s.web?.sources)}</div></div>`;
+    h += `<div class="content ${s.status === "running" ? "cursor" : ""}">${linkDocCitations(linkCitations(md(shown), s.web?.sources), s.kb?.sources)}</div></div>`;
   }
   if (streaming && msg.loadingModel) h += `<div class="g-loading"><span class="spin"></span> ${t("Carregando o modelo {model} para a etapa {n}...", { model: `<b>${esc(msg.loadingModel.model)}</b>`, n: msg.loadingModel.index + 1 })}</div>`;
   h += "</div>";

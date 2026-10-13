@@ -53,7 +53,7 @@ async function refreshStatus() {
   // recarrega o status de mídia quando uma instalação termina
   const finished = S.status.tasks.filter(t => t.status === "done" && !S.doneTasks.has(t.id));
   finished.forEach(t => S.doneTasks.add(t.id));
-  if (finished.length) loadMedia();
+  if (finished.length) { loadMedia(); loadKbs(); }
   const lang = S.status.settings.language; if (lang && lang !== LANG && !S.generating) return setLanguage(lang);
   renderTopbar(); renderChatList(); renderTasks(); renderStatsBar(); renderModeBars();
   if ($("#modelsModal").classList.contains("open")) { renderLocalModels(); renderEngine(); }
@@ -133,6 +133,7 @@ function setMode(mode) {
   $$("#modes button").forEach(b => b.classList.toggle("on", b.dataset.mode === mode));
   $("#input").placeholder = t(PLACEHOLDER[mode]);
   $("#webBtn").hidden = mode !== "chat";
+  if (typeof renderKbSelect === "function") renderKbSelect();
   $("#attachBtn").hidden = mode === "image";
   if (mode === "image" && S.attachments.length) { S.attachments = []; renderAttachTray(); }
   renderModeBars(); updateHint();
@@ -324,11 +325,12 @@ function msgHTML(msg, idx, isLast) {
   }
   const who = msg.agent ? `<span class="ag-dot" style="--c:${esc(msg.agent.color)}">${esc(msg.agent.icon)}</span> ${esc(msg.agent.name)} <small class="muted">· ${esc(msg.model || "")}</small>` : esc(msg.model || "Assistente");
   let html = `<div class="msg assistant ${isLast ? "last" : ""}" data-i="${idx}"><div class="role">${who}${live ? `<span class="live">${live}</span>` : ""}</div>`;
+  if (msg.kb) html += kbBoxHTML(msg.kb, streaming);
   if (msg.web) html += webBoxHTML(msg.web, streaming);
   if (reasoning) html += `<details class="think" ${thinking ? "open" : ""}><summary>${thinking ? "Pensando..." : "Raciocínio"}</summary><div class="think-body">${esc(reasoning)}</div></details>`;
-  html += `<div class="content ${streaming ? "cursor" : ""}">${linkCitations(md(content), msg.web?.sources)}</div>`;
+  html += `<div class="content ${streaming ? "cursor" : ""}">${linkDocCitations(linkCitations(md(content), msg.web?.sources), msg.kb?.sources)}</div>`;
   if (msg.error) html += `<div class="err">${esc(msg.error)}</div>`;
-  if (!streaming) html += `<div class="actions"><button data-act="copy">Copiar</button>${isLast ? '<button data-act="regen">Regenerar</button><button data-act="continue">Continuar</button>' : ""}<button data-act="del">Excluir</button>${statsHTML(msg.stats)}</div>`;
+  if (!streaming) html += `<div class="actions"><button data-act="copy">Copiar</button><button data-act="speak" title="Ler em voz alta">🔊</button>${isLast ? '<button data-act="regen">Regenerar</button><button data-act="continue">Continuar</button>' : ""}<button data-act="del">Excluir</button>${statsHTML(msg.stats)}</div>`;
   return html + "</div>";
 }
 
@@ -370,7 +372,9 @@ function codexMsgHTML(msg, idx, isLast, streaming) {
   let h = `<div class="msg assistant codex ${isLast ? "last" : ""}" data-i="${idx}"><div class="role">🛠️ Codex · ${esc(msg.model || "")} <span class="ws-tag" title="${esc(msg.workspace)}">📁 ${esc(baseName(msg.workspace))}</span>${live ? `<span class="live">${live}</span>` : ""}</div>`;
   h += `<div class="steps">${(msg.steps || []).map(stepHTML).join("")}${streaming ? '<div class="cursor"></div>' : ""}</div>`;
   if (msg.error) h += `<div class="err">${esc(msg.error)}</div>`;
-  if (!streaming) h += `<div class="actions"><button data-act="copy">Copiar</button><button data-act="open-ws">Abrir pasta</button>${isLast ? '<button data-act="regen">Refazer</button>' : ""}<button data-act="del">Excluir</button>${statsHTML(msg.stats)}</div>`;
+  if (!streaming) h += checkpointHTML(msg);
+  const ck = msg.checkpoint?.changes?.length ? `<button data-act="ck-diff">🔍 Ver alterações</button>${msg.checkpoint.undone ? "" : '<button data-act="ck-undo">↩ Desfazer alterações</button>'}` : "";
+  if (!streaming) h += `<div class="actions"><button data-act="copy">Copiar</button>${ck}<button data-act="open-ws">Abrir pasta</button>${isLast ? '<button data-act="regen">Refazer</button>' : ""}<button data-act="del">Excluir</button>${statsHTML(msg.stats)}</div>`;
   return h + "</div>";
 }
 
@@ -409,7 +413,8 @@ function renderMessages() {
     return;
   }
   const n = S.chat.messages.length;
-  box.innerHTML = S.chat.messages.map((m, i) => msgHTML(m, i, i === n - 1)).join("");
+  const sum = S.chat.summary;
+  box.innerHTML = S.chat.messages.map((m, i) => (sum && i === sum.upto ? summaryDividerHTML(sum) : "") + msgHTML(m, i, i === n - 1)).join("");
   box.scrollTop = box.scrollHeight;
   renderStatsBar();
 }
@@ -495,6 +500,9 @@ $("#messages").addEventListener("click", async ev => {
     case "regen": S.chat.messages.pop(); renderMessages(); dispatch(msg.mode || "chat", { workspace: msg.workspace, prompt: msg.request, group: msg.group?.id, agent: msg.agent?.id }); break;
     case "continue": generate(true, msg.agent ? agentById(msg.agent.id) : null); break;
     case "open-ws": desktop.openPath(msg.workspace); break;
+    case "ck-diff": showCodexDiff(msg); break;
+    case "ck-undo": undoCodex(msg); break;
+    case "speak": speakText(msg.mode === "group" ? msg.content : splitThink(msg).content || msg.content); break;
     case "img-again": genImage(msg.request, { preset: msg.image.preset }); break;
     case "img-show": desktop.showItem(msg.image.path); break;
     case "img-save": { const a = document.createElement("a"); a.href = "/api/uploads/" + msg.image.id; a.download = `imagem-${msg.image.seed}.png`; a.click(); break; }
@@ -524,9 +532,10 @@ function openLightbox(src) {
 
 // ------------------------------------------------------------------ envio
 function buildMessages() {
-  const out = []; const sp = S.status.settings.system_prompt;
-  if (sp && sp.trim()) out.push({ role: "system", content: sp });
-  for (const m of S.chat.messages) {
+  const out = []; const sp = S.status.settings.system_prompt; const sum = S.chat.summary;
+  const sys = [sp && sp.trim(), sum && "Resumo da parte anterior desta conversa (as mensagens antigas foram resumidas para caber no contexto):\n" + sum.text].filter(Boolean).join("\n\n");
+  if (sys) out.push({ role: "system", content: sys });
+  for (const m of S.chat.messages.slice(sum ? sum.upto : 0)) {
     if (m.role === "user") out.push({ role: "user", content: m.content, attachments: m.attachments });
     else if (m.mode === "codex") out.push({ role: "assistant", content: m.content, trace: m.trace });
     else if (m.mode === "image") { if (m.image?.id) out.push({ role: "assistant", image: { prompt: m.image.final_prompt || m.image.prompt } }); }
@@ -560,6 +569,7 @@ async function send() {
   S.chat.messages.push({ role: "user", content: text, ...(atts.length ? { attachments: atts } : {}) });
   inp.value = ""; autoGrow(); S.attachments = []; renderAttachTray();
   renderMessages();
+  if (mode !== "image") await maybeSummarize();
   await dispatch(mode, { prompt: text });
 }
 
@@ -596,7 +606,9 @@ async function generate(isContinue = false, agent = null) {
   startGenerating();
   const t0 = performance.now(); let tokens = 0;
   try {
-    await streamChat({ messages, web: S.web && !isContinue && !agent, ...sampling(), ...(agent ? { agent_id: agent.id } : {}) }, S.abort.signal, j => {
+    if (S.kb && !isContinue && !agent?.kb) msg.kb = { stage: "searching", name: (KB.list.find(k => k.id === S.kb) || {}).name };
+    await streamChat({ messages, web: S.web && !isContinue && !agent, kb: isContinue ? "" : S.kb, ...sampling(), ...(agent ? { agent_id: agent.id } : {}) }, S.abort.signal, j => {
+      if (j.kb) { msg.kb = { ...msg.kb, ...j.kb }; renderLastMessage(); return; }
       if (j.engine) { msg.loadingModel = j.engine.stage === "loading" ? j.engine.model : null; if (j.engine.stage === "ready" && j.engine.model) msg.model = j.engine.model + (j.engine.device ? ` · ${j.engine.device.toUpperCase()}` : ""); renderLastMessage(); return; }
       if (j.llmlocal) { msg.web = { ...msg.web, ...j.llmlocal }; renderLastMessage(); return; }
       const d = j.choices?.[0]?.delta || {};
@@ -643,6 +655,7 @@ async function runAgent(workspace) {
       else if (a.type === "tool_end") { const s = msg.steps.find(x => x.id === a.id); if (s) Object.assign(s, { status: a.ok ? "ok" : "error", ok: a.ok, result: a.result, image: a.image }); }
       else if (a.type === "step_end") { base += lastPred; lastPred = 0; }
       else if (a.type === "trace") msg.trace = a.trace;
+      else if (a.type === "checkpoint") msg.checkpoint = { id: a.id, changes: a.changes };
       renderLastMessage();
     }, "/api/agent");
   } catch (e) {
@@ -693,6 +706,7 @@ $("#input").addEventListener("keydown", e => {
 });
 document.addEventListener("keydown", e => {
   if (e.key === "Escape") {
+    stopSpeaking();
     const lb = $(".lightbox"); if (lb) return lb.remove();
     if (S.generating) S.abort?.abort();
     $$(".modal.open").forEach(m => m.classList.remove("open"));
@@ -720,6 +734,7 @@ function openModal(id) {
   if (id === "settingsModal") fillSettings();
   if (id === "backupModal") { loadBackupInfo(); $("#restoreResult").textContent = ""; }
   if (id === "agentsModal") { renderAgentsModal(); loadAgents(); }
+  if (id === "kbModal") { renderKb(); loadKbs(); }
   if (id === "modelsModal") { renderLocalModels(); renderEngine(); loadLog(); loadMedia(); }
 }
 $$("[data-open]").forEach(b => b.onclick = () => openModal(b.dataset.open));
@@ -756,13 +771,15 @@ function renderLocalModels() {
       <div class="sub">${capsHTML(m.info, true)}${m.info?.params ? `<span class="meta-pill">🧩 ${esc(m.info.params)}</span>` : ""}${m.quant?.quant ? `<span class="meta-pill" title="${esc(m.quant.tip)}">${esc(m.quant.quant)} ${starsHTML(m.quant)}</span>` : ""}
       ${visionNoFile ? '<span class="warn-pill" title="Este modelo tem visão, mas o arquivo mmproj não foi baixado. Baixe de novo com Incluir visão ou escolha o arquivo ao lado.">👁 sem arquivo de visão</span>' : ""}</div></div>
       ${on ? '<span class="tag on">carregado</span>' : ""}${extra ? `<span class="tag on" title="Carregado como modelo extra (agentes/pergunta rápida)">extra · ${(extra.device || "gpu").toUpperCase()}${extra.state === "loading" ? "…" : ""}</span><button class="btn small" data-unload-extra="${esc(m.path)}">Descarregar</button>` : ""}${m.mmproj ? '<span class="tag vis">👁 visão</span>' : ""}${fitTag(m.size)}<span class="meta">${fmtSize(m.size)}</span>${vis}
+      ${m.custom ? '<span class="tag on" title="Este modelo tem ajustes próprios">⚙ ajustes próprios</span>' : ""}<button class="btn small" data-msettings="${esc(m.path)}" title="Ajustes deste modelo (contexto, temperatura...)">⚙️</button>
       <button class="btn small" data-load="${esc(m.path)}">${on ? "Recarregar" : "Carregar"}</button>
       <button class="btn small danger" data-del="${esc(m.path)}">Excluir</button></div>`;
   }).join("") : '<p class="muted">Nenhum modelo ainda. Vá na aba <b>Baixar modelos</b>.</p>';
   if ($("#localModels").dataset.sig !== html) { $("#localModels").innerHTML = html; $("#localModels").dataset.sig = html; }
 }
 $("#localModels").addEventListener("click", async e => {
-  const l = e.target.dataset.load, d = e.target.dataset.del, ux = e.target.dataset.unloadExtra;
+  const l = e.target.dataset.load, d = e.target.dataset.del, ux = e.target.dataset.unloadExtra, msx = e.target.dataset.msettings;
+  if (msx) return openModelSettings(msx);
   if (ux) { await post("/api/unload", { extra: ux }); toast("Modelo extra descarregado"); return refreshStatus(); }
   try {
     if (l) { await post("/api/load", { model: l }); $("#modelSelect").value = l; toast("Carregando modelo..."); $("#modelsModal").classList.remove("open"); }
@@ -938,7 +955,7 @@ const NUM_FIELDS = ["temperature", "top_p", "top_k", "min_p", "repeat_penalty", 
 const DEFAULTS = { system_prompt: "", temperature: 0.7, top_p: 0.95, top_k: 40, min_p: 0.05, repeat_penalty: 1.0, max_tokens: 0,
   ctx_size: 8192, gpu_layers: 999, cpu_percent: 0, backend: "auto", extra_args: "", search_provider: "duckduckgo",
   search_region: "br-pt", search_results: 4, auto_load: true, agent_confirm_commands: true, agent_confirm_writes: false,
-  agent_max_steps: 40, quick_model: "", quick_device: "auto", reply_language: "auto", extra_idle_minutes: 10, whisper_language: "auto", image_steps: 0, image_enhance: true, image_offload: true, image_unload_llm: false };
+  agent_max_steps: 40, quick_model: "", quick_device: "auto", reply_language: "auto", auto_summarize: true, use_recommended: true, extra_idle_minutes: 10, whisper_language: "auto", image_steps: 0, image_enhance: true, image_offload: true, image_unload_llm: false };
 function cpuLabel() {
   const pct = +$("#cpuRange").value; const n = S.status?.gpu?.cpu_count || 0;
   $("#cpuLabel").textContent = pct ? t("{pct}% · {n} de {total} threads", { pct, n: Math.max(1, Math.round(n * pct / 100)), total: n }) : t("Automático ({n} threads no PC)", { n });
@@ -982,14 +999,15 @@ async function initDesktopSettings() {
   $("#hotkeyInput").value = cfg.hotkey; $("#autoStart").checked = cfg.autoStart;
   $("#hideOnBlur").checked = cfg.quickHideOnBlur; $("#dataDir").textContent = cfg.homeDir;
   // grava a combinacao de teclas pressionada
-  $("#hotkeyInput").onkeydown = e => {
+  const recordKeys = e => {
     e.preventDefault();
     if (["Control", "Shift", "Alt", "Meta"].includes(e.key)) return;
     const mods = [e.ctrlKey && "Ctrl", e.altKey && "Alt", e.shiftKey && "Shift", e.metaKey && "Super"].filter(Boolean);
     if (!mods.length) return toast("Use pelo menos um modificador (Ctrl, Alt ou Shift).");
     const key = e.code === "Space" ? "Space" : e.key.length === 1 ? e.key.toUpperCase() : e.key;
-    $("#hotkeyInput").value = [...mods, key].join("+");
+    e.target.value = [...mods, key].join("+");
   };
+  $("#hotkeyInput").onkeydown = recordKeys;
   $("#hotkeySave").onclick = async () => {
     const r = await desktop.setHotkey($("#hotkeyInput").value);
     toast(r.ok ? t("Atalho salvo: {k}", { k: r.hotkey }) : t("Esse atalho já está em uso por outro programa. Tente outro."), 4000);
@@ -998,6 +1016,21 @@ async function initDesktopSettings() {
   $("#autoStart").onchange = e => desktop.setOption("autoStart", e.target.checked);
   $("#hideOnBlur").onchange = e => desktop.setOption("quickHideOnBlur", e.target.checked);
   $("#changeDataDir").onclick = async () => { const d = await desktop.chooseHomeDir(); if (d) $("#dataDir").textContent = d; };
+  // atalho de voz (pergunta rápida)
+  $("#voiceHotkeyInput").value = cfg.voiceHotkey || "";
+  $("#voiceHotkeyInput").onkeydown = recordKeys;
+  $("#voiceHotkeySave").onclick = async () => {
+    const r = await desktop.setVoiceHotkey($("#voiceHotkeyInput").value);
+    toast(r.ok ? t("Atalho salvo: {k}", { k: r.hotkey }) : t("Esse atalho já está em uso por outro programa. Tente outro."), 4000);
+    if (!r.ok) $("#voiceHotkeyInput").value = r.hotkey;
+  };
+  // vozes do Windows para ler as respostas
+  const fillVoices = () => {
+    const vs = speechSynthesis.getVoices(); const cur = ls("ttsVoice", "");
+    $("#ttsVoice").innerHTML = `<option value="">${t("Automática (idioma do app)")}</option>` + vs.map(v => `<option value="${esc(v.voiceURI)}" ${v.voiceURI === cur ? "selected" : ""}>${esc(v.name)} (${esc(v.lang)})</option>`).join("");
+  };
+  fillVoices(); speechSynthesis.onvoiceschanged = fillVoices;
+  $("#ttsVoice").onchange = e => { lsSet("ttsVoice", e.target.value); speakText(t("Esta é a voz que vai ler as respostas.")); };
   // atualizações automáticas pelo GitHub
   let current = "";
   const showUpdate = s => {
@@ -1081,6 +1114,7 @@ window.addEventListener("hashchange", openChatFromHash);
   await refreshStatus();
   loadMedia();
   loadAgents().then(updateHint);
+  loadKbs();
   renderMessages();
   await openChatFromHash();
   initDesktopSettings();

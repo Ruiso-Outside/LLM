@@ -4,6 +4,7 @@ pastas que o usuario liberou nas Configuracoes.
 O modelo usa "tool calling" (llama-server com --jinja). Cada ferramenta valida
 o caminho; comandos e exclusoes pedem confirmacao do usuario pela interface.
 """
+import difflib
 import json
 import os
 import re
@@ -270,6 +271,132 @@ def tool_run_command(ws, command, cwd=None, timeout=120, heartbeat=None):
     return head + ("\n" + _trim_output(out) if out else "\n(sem saida)")
 
 
+# ---------------------------------------------------------------- pontos de restauracao
+# Antes do Codex alterar um arquivo pela primeira vez num pedido, a versao original e copiada para
+# data/checkpoints/<conversa>/<pedido>/. "Desfazer" devolve tudo como estava antes do pedido.
+# Comandos (run_command) nao sao desfeitos: o que um comando faz fora das ferramentas nao e rastreado.
+
+MAX_DIR_BACKUP = 300 * 1024 * 1024
+
+
+class Checkpoint:
+    def __init__(self, folder, workspace_root):
+        self.dir = Path(folder)
+        self.ws = Path(workspace_root)
+        self.entries = {}
+
+    def touch(self, abs_path):
+        """Guarda o estado original de abs_path (uma vez por pedido)."""
+        abs_path = Path(abs_path)
+        rel = abs_path.relative_to(self.ws).as_posix()
+        if rel in self.entries:
+            return
+        files = self.dir / "files"
+        if abs_path.is_file():
+            dest = files / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(abs_path, dest)
+            entry = {"path": rel, "existed": True, "kind": "file"}
+        elif abs_path.is_dir():
+            size = sum(f.stat().st_size for f in abs_path.rglob("*") if f.is_file())
+            if size > MAX_DIR_BACKUP:
+                raise ToolError("Pasta grande demais para guardar um ponto de restauração; apague por partes.")
+            shutil.copytree(abs_path, files / rel)
+            entry = {"path": rel, "existed": True, "kind": "dir"}
+        else:
+            entry = {"path": rel, "existed": False, "kind": "file"}
+        self.entries[rel] = entry
+        self.save()
+
+    def save(self):
+        self.dir.mkdir(parents=True, exist_ok=True)
+        (self.dir / "manifest.json").write_text(json.dumps({
+            "workspace": str(self.ws), "created": time.time(), "undone": False,
+            "entries": list(self.entries.values())}, ensure_ascii=False, indent=1), "utf-8")
+
+    def summary(self):
+        out = []
+        for e in self.entries.values():
+            now = (self.ws / e["path"]).exists()
+            status = ("modified" if now else "deleted") if e["existed"] else ("created" if now else None)
+            if status:
+                out.append({"path": e["path"], "status": status})
+        return out
+
+
+def _manifest(folder):
+    m = json.loads((Path(folder) / "manifest.json").read_text("utf-8"))
+    return m, Path(m["workspace"])
+
+
+def undo_checkpoint(folder):
+    """Devolve os arquivos ao estado de antes do pedido. Retorna o que foi restaurado."""
+    folder = Path(folder)
+    m, ws = _manifest(folder)
+    if m.get("undone"):
+        raise ToolError("Este pedido já foi desfeito.")
+    done = []
+    for e in m["entries"]:
+        target = (ws / e["path"]).resolve()
+        if ws.resolve() not in target.parents:
+            continue
+        backup = folder / "files" / e["path"]
+        if e["existed"]:
+            if e["kind"] == "dir":
+                if target.exists():
+                    shutil.rmtree(target)
+                shutil.copytree(backup, target)
+            else:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(backup, target)
+            done.append({"path": e["path"], "action": "restaurado"})
+        elif target.exists():
+            if target.is_dir():
+                shutil.rmtree(target)
+            else:
+                target.unlink()
+            done.append({"path": e["path"], "action": "removido"})
+    m["undone"] = True
+    (folder / "manifest.json").write_text(json.dumps(m, ensure_ascii=False, indent=1), "utf-8")
+    return done
+
+
+def _lines(p):
+    try:
+        data = Path(p).read_bytes()
+    except OSError:
+        return None
+    if b"\0" in data[:8000]:
+        return "BIN"
+    return data.decode("utf-8", "replace").replace("\r\n", "\n").splitlines(keepends=True)
+
+
+def diff_checkpoint(folder, max_lines=600):
+    """Diferencas entre o estado de antes do pedido e o atual, arquivo por arquivo."""
+    folder = Path(folder)
+    m, ws = _manifest(folder)
+    out = []
+    for e in m["entries"]:
+        cur_path, old_path = ws / e["path"], folder / "files" / e["path"]
+        if e["kind"] == "dir":
+            out.append({"path": e["path"], "status": "deleted" if not cur_path.exists() else "modified", "diff": "(pasta)"})
+            continue
+        old = _lines(old_path) if e["existed"] else []
+        new = _lines(cur_path) if cur_path.exists() else []
+        status = ("modified" if cur_path.exists() else "deleted") if e["existed"] else ("created" if cur_path.exists() else None)
+        if not status:
+            continue
+        if old == "BIN" or new == "BIN":
+            out.append({"path": e["path"], "status": status, "diff": "(arquivo binário)"})
+            continue
+        d = list(difflib.unified_diff(old or [], new or [], f"antes/{e['path']}", f"depois/{e['path']}", n=3))
+        text = "".join(d[:max_lines]) + (f"\n... (+{len(d) - max_lines} linhas)" if len(d) > max_lines else "")
+        out.append({"path": e["path"], "status": status, "diff": text or "(sem diferenças)",
+                    "added": sum(1 for l in d if l.startswith("+") and not l.startswith("+++")),
+                    "removed": sum(1 for l in d if l.startswith("-") and not l.startswith("---"))})
+    return {"undone": m.get("undone", False), "files": out}
+
+
 # ---------------------------------------------------------------- loop do agente
 
 class AgentRun:
@@ -278,8 +405,10 @@ class AgentRun:
     PENDING = {}  # id -> {"event": Event, "answer": dict}
     SESSION_AUTO = {}  # chat_id -> {"commands": bool, "files": bool}
 
-    def __init__(self, engine_call, emit, settings, image_fn=None):
+    def __init__(self, engine_call, emit, settings, image_fn=None, checkpoint_dir=None):
         self.engine_call, self.emit, self.s, self.image_fn = engine_call, emit, settings, image_fn
+        self.checkpoint_dir = checkpoint_dir
+        self.ckpt = None
         self.alive = True
 
     def send(self, obj):
@@ -332,6 +461,9 @@ class AgentRun:
 
     # -- ferramentas
     def execute(self, ws, name, args):
+        # guarda o estado original antes de qualquer alteracao (para "Desfazer")
+        if self.ckpt and name in ("write_file", "edit_file", "delete_path") and args.get("path"):
+            self.ckpt.touch(ws.path(args["path"]))
         if name == "list_files":
             return tool_list_files(ws, args.get("path", "."), args.get("max_depth", 3))
         if name == "read_file":
@@ -351,6 +483,8 @@ class AgentRun:
             if dest.suffix.lower() != ".png":
                 dest = dest.with_suffix(".png")
             dest.parent.mkdir(parents=True, exist_ok=True)
+            if self.ckpt:
+                self.ckpt.touch(dest)
             fid = self.image_fn(args["prompt"], args.get("width"), args.get("height"), dest)
             return {"text": f"Imagem criada: {ws.rel(dest)}", "image": fid}
         raise ToolError(f"Ferramenta desconhecida: {name}")
@@ -358,6 +492,15 @@ class AgentRun:
     # -- loop
     def run(self, workspace, history, chat_id, sampling):
         ws = Workspace(workspace)
+        if self.checkpoint_dir:
+            self.ckpt = Checkpoint(self.checkpoint_dir, ws.root)
+        try:
+            return self._run(ws, history, chat_id, sampling)
+        finally:
+            if self.ckpt and self.ckpt.entries:
+                self.send({"agent": {"type": "checkpoint", "id": self.ckpt.dir.name, "changes": self.ckpt.summary()}})
+
+    def _run(self, ws, history, chat_id, sampling):
         tools = TOOLS + ([IMAGE_TOOL] if self.image_fn else [])
         sp = system_prompt(ws.root, bool(self.image_fn)) + ("\n" + self.s["_reply_rule"] if self.s.get("_reply_rule") else "")
         messages = [{"role": "system", "content": sp}] + history

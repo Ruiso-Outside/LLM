@@ -49,6 +49,7 @@ def save(doc):
             "web": bool(a.get("web")),
             "model": _s(a.get("model"), 400),  # "" = modelo principal
             "device": a.get("device") if a.get("device") in ("gpu", "cpu") else "auto",
+            "kb": a.get("kb") if re.match(r"^[a-f0-9]{10}$", str(a.get("kb") or "")) else "",
         })
         ids.add(aid)
     groups = []
@@ -150,11 +151,12 @@ def _run_step(h, emit, group, agents, steps, i, ag, is_val, eng, task_msg, histo
                            "role": steps[i]["role"], "attempt": retries.get(i, 0) + 1, "model": model_name,
                            "device": eng.device}}):
         return None, None
+    if ag.get("kb"):
+        messages = h.kb_augment(messages, ag["kb"])
     if ag["web"]:
         messages = h.web_augment(messages)
     payload = {"messages": messages, "stream": True, "cache_prompt": True, "timings_per_token": True, **sampling}
-    if ag["temperature"] is not None:
-        payload["temperature"] = ag["temperature"]
+    h.apply_model_sampling(payload, eng.model, ag["temperature"])
     text, timings = "", None
     with h.engine_call(payload, True) as up:
         for raw in iter(up.readline, b""):

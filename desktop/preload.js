@@ -4,6 +4,8 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("llmDesktop", {
   getConfig: () => ipcRenderer.invoke("get-config"),
   setHotkey: k => ipcRenderer.invoke("set-hotkey", k),
+  setVoiceHotkey: k => ipcRenderer.invoke("set-voice-hotkey", k),
+  onQuickVoice: cb => ipcRenderer.on("quick-voice", () => cb()),
   setOption: (key, value) => ipcRenderer.invoke("set-option", key, value),
   chooseHomeDir: () => ipcRenderer.invoke("choose-home"),
   chooseFolder: () => ipcRenderer.invoke("choose-folder"),

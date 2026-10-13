@@ -75,7 +75,7 @@ function tm(key, vars) {
   return s;
 }
 let quitting = false, quickPinned = false, quickHiddenAt = 0, trayHintShown = false;
-let config = { homeDir: "", hotkey: "Ctrl+Shift+Space", autoStart: true, quickHideOnBlur: true };
+let config = { homeDir: "", hotkey: "Ctrl+Shift+Space", voiceHotkey: "Ctrl+Alt+Space", autoStart: true, quickHideOnBlur: true };
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) app.quit();
@@ -237,8 +237,13 @@ const prettyKey = k => k.replace(/Space/g, "Espaço").replace(/CommandOrControl|
 function toAccelerator(k) {
   return k.replace(/\bArrow(Up|Down|Left|Right)\b/g, "$1").replace(/\bEscape\b/g, "Esc");
 }
-function registerHotkey(k) {
-  try { return globalShortcut.register(toAccelerator(k), toggleQuick); } catch { return false; }
+function registerHotkey(k, fn = toggleQuick) {
+  try { return globalShortcut.register(toAccelerator(k), fn); } catch { return false; }
+}
+// atalho de voz: abre a pergunta rápida e começa a gravar; apertar de novo envia
+function voiceShortcut() {
+  if (!quickWin?.isVisible()) showQuick();
+  quickWin.webContents.send("quick-voice");
 }
 
 // ------------------------------------------------------------------ bandeja
@@ -303,10 +308,17 @@ function applyAutoStart() {
 ipcMain.handle("get-config", () => ({ ...config, hotkeyLabel: prettyKey(config.hotkey) }));
 ipcMain.handle("set-hotkey", (_e, k) => {
   if (!k || k === config.hotkey) return { ok: true, hotkey: config.hotkey };
-  globalShortcut.unregisterAll();
+  try { globalShortcut.unregister(toAccelerator(config.hotkey)); } catch {}
   if (registerHotkey(k)) { config.hotkey = k; saveConfig(); lastTrayState = ""; updateTray(); return { ok: true, hotkey: k }; }
   registerHotkey(config.hotkey);
   return { ok: false, hotkey: config.hotkey };
+});
+ipcMain.handle("set-voice-hotkey", (_e, k) => {
+  if (!k || k === config.voiceHotkey) return { ok: true, hotkey: config.voiceHotkey };
+  try { globalShortcut.unregister(toAccelerator(config.voiceHotkey)); } catch {}
+  if (registerHotkey(k, voiceShortcut)) { config.voiceHotkey = k; saveConfig(); return { ok: true, hotkey: k }; }
+  registerHotkey(config.voiceHotkey, voiceShortcut);
+  return { ok: false, hotkey: config.voiceHotkey };
 });
 ipcMain.handle("set-option", (_e, key, value) => { if (["autoStart", "quickHideOnBlur"].includes(key)) setOption(key, !!value); });
 ipcMain.handle("choose-home", async () => {
@@ -532,6 +544,9 @@ app.whenReady().then(async () => {
   if (!(await startServer())) { quitting = true; return app.quit(); }
 
   // downloads (backup, imagens): sempre pergunta onde salvar, comecando em Documentos
+  session.defaultSession.setPermissionRequestHandler((wc, permission, cb) => {
+    cb(permission === "media" ? wc.getURL().startsWith(BASE) : true);
+  });
   session.defaultSession.on("will-download", (_e, item) => {
     item.setSaveDialogOptions({ title: tm("Salvar arquivo"), defaultPath: path.join(app.getPath("documents"), item.getFilename()) });
   });
@@ -544,6 +559,7 @@ app.whenReady().then(async () => {
     dialog.showMessageBox({ type: "warning", title: "LLM Local", message: tm("O atalho {k} já está em uso por outro programa.", { k: prettyKey(config.hotkey) }),
       detail: tm("Escolha outro em Configurações → App desktop.") });
   }
+  registerHotkey(config.voiceHotkey, voiceShortcut);
   createQuick();
   initUpdater();
   setTimeout(offerShortcuts, 2500);

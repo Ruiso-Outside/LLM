@@ -30,6 +30,8 @@ from pathlib import Path
 
 import agent
 import agents
+import kb
+import modelsettings
 import catalog
 import media
 import websearch
@@ -73,6 +75,8 @@ DEFAULT_SETTINGS = {
     "hf_token": "",
     "last_model": "",
     "auto_load": True,  # carrega o ultimo modelo ao iniciar
+    "auto_summarize": True,  # resume a conversa antiga quando o contexto passa de ~80%
+    "use_recommended": True,  # aplica a amostragem recomendada da familia de cada modelo
     "quick_model": "",  # modelo da pergunta rapida ("" = o principal)
     "quick_device": "auto",  # onde roda o modelo da pergunta rapida: auto | gpu | cpu
     "language": "",  # idioma da interface: pt-BR | en | es ("" = o do sistema)
@@ -281,6 +285,9 @@ def run_task(task, fn):
 
 media.configure(ROOT, lambda url, dest, task, base=0: download(url, dest, task, base), get_json)
 agents.configure(DATA)
+kb.configure(DATA)
+modelsettings.configure(DATA)
+CHECKPOINTS = DATA / "checkpoints"
 
 
 # ---------------------------------------------------------------- motor (llama.cpp)
@@ -446,8 +453,10 @@ class EngineProcess:
             except subprocess.TimeoutExpired:
                 p.kill()
 
-    def start(self, model_rel, s, device=None):
+    def start(self, model_rel, s, device=None, embed=False):
         model_path = (MODELS / model_rel).resolve()
+        if not embed:
+            s = model_effective(model_rel, s)  # ajustes proprios do modelo (contexto, GPU)
         if MODELS.resolve() not in model_path.parents or not model_path.is_file():
             raise ValueError("Modelo nao encontrado.")
         backs = installed_backends()
@@ -464,6 +473,11 @@ class EngineProcess:
                "-c", str(int(s["ctx_size"])), "-ngl", "0" if on_cpu else str(int(s["gpu_layers"])), "--jinja"]
         if on_cpu:
             cmd += ["--device", "none"]  # CPU e RAM apenas, sem tocar na GPU
+        if embed:
+            # motor so de embeddings (bases de conhecimento); o Qwen3-Embedding usa o ultimo token
+            cmd += ["--embedding", "-b", "4096", "-ub", "4096"]
+            if "qwen3-embedding" in model_rel.lower():
+                cmd += ["--pooling", "last"]
         mm = mmproj_for(model_rel)
         if mm:
             cmd += ["--mmproj", str(mm)]
@@ -608,10 +622,10 @@ class EnginePool:
         self._make_room("gpu", need)
         return "gpu"
 
-    def use(self, model_rel, s, on_wait=None, device="auto"):
-        return _PoolLease(self, model_rel, s, on_wait, device)
+    def use(self, model_rel, s, on_wait=None, device="auto", embed=False):
+        return _PoolLease(self, model_rel, s, on_wait, device, embed)
 
-    def acquire(self, model_rel, s, on_wait=None, device="auto"):
+    def acquire(self, model_rel, s, on_wait=None, device="auto", embed=False):
         """Garante o modelo pronto e devolve o motor (o principal se model_rel for vazio ou igual a ele).
         device: 'auto' (GPU se couber, senao CPU), 'gpu' ou 'cpu'."""
         device = device if device in ("gpu", "cpu") else "auto"
@@ -633,7 +647,7 @@ class EnginePool:
                     if old:
                         old.stop()
                     eng = EngineProcess(self._free_port())
-                    eng.start(model_rel, s, device=where)
+                    eng.start(model_rel, s, device=where, embed=embed)
                     self.extra[(model_rel, where)] = eng
         eng.busy += 1
         eng.last_used = time.time()
@@ -689,11 +703,12 @@ class EnginePool:
 
 
 class _PoolLease:
-    def __init__(self, pool, model_rel, s, on_wait, device="auto"):
+    def __init__(self, pool, model_rel, s, on_wait, device="auto", embed=False):
         self.pool, self.model_rel, self.s, self.on_wait, self.device, self.eng = pool, model_rel, s, on_wait, device, None
+        self.embed = embed
 
     def __enter__(self):
-        self.eng = self.pool.acquire(self.model_rel, self.s, self.on_wait, self.device)
+        self.eng = self.pool.acquire(self.model_rel, self.s, self.on_wait, self.device, self.embed)
         return self.eng
 
     def __exit__(self, *exc):
@@ -710,7 +725,59 @@ atexit.register(POOL.stop)
 SPLIT_RE = re.compile(r"^(.*)-(\d{5})-of-(\d{5})\.gguf$", re.I)
 
 
-MEDIA_DIRS = ("image", "whisper", "mmproj")
+MEDIA_DIRS = ("image", "whisper", "mmproj", "embed")
+
+
+def model_recommended(rel):
+    info = load_model_info().get(rel) or catalog.model_caps({"id": Path(rel).name})
+    return modelsettings.recommended(rel, [c["key"] for c in info.get("caps", [])], info.get("ctx_n", 0),
+                                     model_bytes(rel), GPU.get("vram_mb", 0) * 2 ** 20)
+
+
+def model_effective(rel, s):
+    rec, _ = model_recommended(rel)
+    return modelsettings.effective(s, rel, rec, s.get("use_recommended", True))
+
+
+def apply_model_sampling(payload, rel, agent_temperature=None):
+    """Aplica a amostragem do modelo (recomendada/salva) sobre o pedido; a temperatura do agente vence."""
+    if rel:
+        s = load_settings()
+        rec, _ = model_recommended(rel)
+        payload.update(modelsettings.sampling_for(rel, rec, s.get("use_recommended", True)))
+    if agent_temperature is not None:
+        payload["temperature"] = agent_temperature
+    return payload
+
+
+def embed_texts(texts, on_wait=None):
+    """Vetores (embeddings) dos textos, com o modelo de embeddings rodando num motor proprio."""
+    path = media.embed_model_path()
+    if not path:
+        raise RuntimeError("Modelo de embeddings não baixado. Baixe em Conhecimento.")
+    rel = path.relative_to(MODELS).as_posix()
+    with POOL.use(rel, load_settings(), on_wait, "auto", embed=True) as eng:
+        req = urllib.request.Request(f"http://127.0.0.1:{eng.port}/v1/embeddings",
+                                     data=json.dumps({"input": texts, "model": "embed"}).encode("utf-8"),
+                                     headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=600) as r:
+                data = json.loads(r.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            raise RuntimeError("Falha ao gerar embeddings: " + e.read().decode("utf-8", "replace")[:200]) from None
+    return [d["embedding"] for d in sorted(data["data"], key=lambda d: d.get("index", 0))]
+
+
+def cleanup_checkpoints(days=30):
+    if not CHECKPOINTS.exists():
+        return
+    limit = time.time() - days * 86400
+    for chat_dir in CHECKPOINTS.iterdir():
+        for run in list(chat_dir.iterdir()) if chat_dir.is_dir() else []:
+            if run.stat().st_mtime < limit:
+                shutil.rmtree(run, ignore_errors=True)
+        if chat_dir.is_dir() and not any(chat_dir.iterdir()):
+            chat_dir.rmdir()
 
 
 def cpu_threads(s):
@@ -757,6 +824,7 @@ def list_models():
         info = infos.get(rel) or {"repo": "", **catalog.model_caps({"id": p.name})}
         out.append({"name": p.stem if not m else m.group(1), "path": rel, "size": size,
                     "mmproj": mm.get(rel, "") if (MODELS / mm.get(rel, "_")).is_file() else "",
+                    "custom": bool(modelsettings.get(rel)),
                     "info": info, "quant": catalog.quant_info(p.name)})
     return out
 
@@ -1110,6 +1178,26 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json({"log": list(ENGINE_PROC.log)})
             if p == "/api/agents":
                 return self.send_json(agents.load())
+            if p == "/api/models/settings":
+                rel = q.get("model", [""])[0]
+                rec, family = model_recommended(rel)
+                return self.send_json({"settings": modelsettings.get(rel), "recommended": rec, "family": family})
+            if p == "/api/codex/diff":
+                d = self.checkpoint_dir(q.get("chat_id", [""])[0], q.get("run_id", [""])[0])
+                if not d:
+                    return self.send_json({"error": "ponto de restauração não encontrado"}, 404)
+                return self.send_json(agent.diff_checkpoint(d))
+            if p == "/api/kb":
+                ep = media.embed_model_path()
+                return self.send_json({"bases": kb.list_kbs(), "embed_model": ep.name if ep else ""})
+            if p == "/api/kb/pending":
+                return self.send_json(kb.load_meta(q.get("id", [""])[0]).get("pending_pdfs", []))
+            if p == "/api/kb/file":
+                meta = kb.load_meta(q.get("id", [""])[0])
+                path = Path(q.get("path", [""])[0])
+                if path.suffix.lower() != ".pdf" or not kb.inside_folders(meta, path) or not path.is_file():
+                    return self.send_json({"error": "arquivo inválido"}, 400)
+                return self.send_file(path)
             if p == "/api/backup/info":
                 return self.send_json(backup_info())
             if p == "/api/backup":
@@ -1184,6 +1272,34 @@ class Handler(BaseHTTPRequestHandler):
                 return self.proxy_chat(b)
             if p == "/api/agent":
                 return self.run_agent(b)
+            if p == "/api/summarize":
+                return self.summarize(b)
+            if p == "/api/codex/undo":
+                d = self.checkpoint_dir(b.get("chat_id", ""), b.get("run_id", ""))
+                if not d:
+                    return self.send_json({"error": "ponto de restauração não encontrado"}, 404)
+                try:
+                    return self.send_json({"restored": agent.undo_checkpoint(d)})
+                except agent.ToolError as e:
+                    return self.send_json({"error": str(e)}, 400)
+            if p == "/api/kb/create":
+                return self.send_json(kb.create(b.get("name", ""), b.get("folders", [])))
+            if p == "/api/kb/index":
+                kid = b.get("id", "")
+                meta = kb.load_meta(kid)
+                t = new_task("kb", f"Indexando \"{meta['name']}\"")
+                run_task(t, lambda task: kb.index(kid, task, lambda texts: embed_texts(texts), media.extract_text_path))
+                return self.send_json({"id": t["id"]})
+            if p == "/api/kb/add_text":
+                try:
+                    return self.send_json({"chunks": kb.add_text(b.get("id", ""), b.get("path", ""), b.get("text", ""), embed_texts)})
+                except RuntimeError as e:
+                    return self.send_json({"error": str(e)}, 400)
+            if p == "/api/kb/search":
+                try:
+                    return self.send_json(kb.search(b.get("id", ""), b.get("query", ""), embed_texts))
+                except RuntimeError as e:
+                    return self.send_json({"error": str(e)}, 400)
             if p == "/api/group/run":
                 return self.run_group(b)
             if p == "/api/agents/template":
@@ -1213,6 +1329,7 @@ class Handler(BaseHTTPRequestHandler):
                     "whisper_model": (tuple(media.WHISPER_MODELS), "Modelo Whisper", media.install_whisper_model),
                     "sd": (("vulkan", "cuda", "cpu"), "Motor de imagem", media.install_sd),
                     "image_preset": (tuple(media.IMAGE_PRESETS), "Modelo de imagem", media.install_image_preset),
+                    "embed_model": (("qwen3-embedding",), "Modelo de embeddings", media.install_embed_model),
                 }
                 if what not in jobs or value not in jobs[what][0]:
                     return self.send_json({"error": "opcao invalida"}, 400)
@@ -1292,6 +1409,13 @@ class Handler(BaseHTTPRequestHandler):
         b = self.body()
         if p == "/api/agents":
             return self.send_json(agents.save(b))
+        if p == "/api/models/settings":
+            return self.send_json({"settings": modelsettings.save(b.get("model", ""), b.get("settings"))})
+        if p.startswith("/api/kb/"):
+            try:
+                return self.send_json(kb.update(p.rsplit("/", 1)[-1], b.get("name"), b.get("folders")))
+            except (ValueError, OSError) as e:
+                return self.send_json({"error": str(e)}, 400)
         if p == "/api/settings":
             for k in SECRETS:
                 if b.get(k) == "***":
@@ -1313,9 +1437,17 @@ class Handler(BaseHTTPRequestHandler):
         if not self.check_origin():
             return self.send_json({"error": "origem bloqueada"}, 403)
         p = urllib.parse.urlparse(self.path).path
+        if p.startswith("/api/kb/"):
+            try:
+                kb.delete(p.rsplit("/", 1)[-1])
+            except ValueError:
+                pass
+            return self.send_json({"ok": True})
         if p.startswith("/api/chats/"):
             cid = p.rsplit("/", 1)[-1]
             f = CHATS / f"{cid}.json"
+            if ID_RE.match(cid):
+                shutil.rmtree(CHECKPOINTS / cid, ignore_errors=True)
             if ID_RE.match(cid) and f.exists():
                 try:
                     for fid in upload_ids(json.loads(f.read_text("utf-8"))):
@@ -1460,6 +1592,9 @@ class Handler(BaseHTTPRequestHandler):
     # ---- grupos de agentes ----
     def reply_rule(self):
         return reply_rule()
+
+    def apply_model_sampling(self, payload, rel, agent_temperature=None):
+        return apply_model_sampling(payload, rel, agent_temperature)
 
     def split_content(self, m, modalities=None):
         """Separa o texto e as partes de midia (imagens/audio) de uma mensagem do usuario."""
@@ -1610,7 +1745,10 @@ class Handler(BaseHTTPRequestHandler):
         image_fn = self.image_for_agent if (media.find_exe("sd", media.SD_EXE)
                                             and media.preset_installed(s.get("image_preset") or "z-image-turbo")) else None
         s["_reply_rule"] = reply_rule(s)
-        run = agent.AgentRun(lambda payload: self.engine_call(payload, True), self.sse_safe, s, image_fn)
+        apply_model_sampling(sampling, ENGINE_PROC.model)
+        chat_id = b.get("chat_id", "") if ID_RE.match(b.get("chat_id", "")) else "sem-conversa"
+        ckpt = CHECKPOINTS / chat_id / uuid.uuid4().hex[:10]
+        run = agent.AgentRun(lambda payload: self.engine_call(payload, True), self.sse_safe, s, image_fn, ckpt)
         try:
             trace, timings = run.run(ws, history, b.get("chat_id", ""), sampling)
             run.send({"agent": {"type": "trace", "trace": trace}})
@@ -1618,6 +1756,80 @@ class Handler(BaseHTTPRequestHandler):
                 add_stats(timings)
         except (RuntimeError, agent.ToolError) as e:
             run.send({"error": {"message": str(e)}})
+
+    def checkpoint_dir(self, chat_id, run_id):
+        if not re.match(r"^[A-Za-z0-9_-]{1,64}$", chat_id or "") or not re.match(r"^[a-f0-9]{10}$", run_id or ""):
+            return None
+        d = CHECKPOINTS / chat_id / run_id
+        return d if (d / "manifest.json").is_file() else None
+
+    def summarize(self, b):
+        """Resume a parte antiga de uma conversa para ela caber no contexto."""
+        msgs = [m for m in b.get("messages", []) if m.get("role") in ("user", "assistant")]
+        if not msgs:
+            return self.send_json({"error": "nada para resumir"}, 400)
+        try:
+            with self.engine_for(b.get("model", "")) as eng:
+                self.engine_port = eng.port
+                budget = int((eng.n_ctx or 8192) * 0.55 * 3)  # ~3 caracteres por token, deixando espaço para o resumo
+                per = max(300, budget // len(msgs))
+                lines = []
+                for m in msgs:
+                    t = text_of(m.get("content", ""))
+                    if len(t) > per:
+                        t = t[:per * 2 // 3] + "\n[...]\n" + t[-per // 3:]
+                    lines.append(("Usuário" if m["role"] == "user" else "Assistente") + ": " + t)
+                prompt = ("Resuma a conversa a seguir para que ela possa continuar sem o histórico completo. Preserve: "
+                          "o objetivo do usuário, fatos, decisões, nomes, números, trechos de código importantes e o que "
+                          "ainda está pendente. Seja conciso e use tópicos. Escreva no idioma da conversa.\n\n" + "\n\n".join(lines))
+                with self.engine_call({"messages": [{"role": "user", "content": prompt}], "stream": False, "temperature": 0.3,
+                                       "max_tokens": 1200, "chat_template_kwargs": {"enable_thinking": False}}, False) as r:
+                    data = json.loads(r.read().decode("utf-8"))
+            add_stats(data.get("timings"))
+            text = re.sub(r"<think>[\s\S]*?(</think>|$)", "", data["choices"][0]["message"].get("content") or "").strip()
+            return self.send_json({"summary": text})
+        except (RuntimeError, KeyError, IndexError, ValueError) as e:
+            return self.send_json({"error": str(e)}, 400)
+
+    def kb_augment(self, messages, kid):
+        """Busca na base de conhecimento os trechos mais parecidos com a pergunta e os junta à mensagem."""
+        try:
+            meta = kb.load_meta(kid)
+        except (ValueError, OSError):
+            return messages
+        users = [text_of(m["content"]) for m in messages if m.get("role") == "user"]
+        if not users:
+            return messages
+        query = users[-1] if len(users[-1]) > 40 or len(users) < 2 else users[-2] + "\n" + users[-1]
+        self.sse({"kb": {"stage": "searching", "name": meta["name"]}})
+        try:
+            hits = kb.search(kid, query[-2000:], lambda texts: embed_texts(texts, self.loading_notifier(
+                lambda n: {"kb": {"stage": "loading", "name": meta["name"], "model": n}})))
+        except RuntimeError as e:
+            self.sse({"kb": {"stage": "error", "name": meta["name"], "text": str(e)}})
+            return messages
+        sources = [{"n": i, "path": h["path"], "file": Path(h["path"]).name, "lines": h["lines"], "score": h["score"]}
+                   for i, h in enumerate(hits, 1)]
+        self.sse({"kb": {"stage": "done", "name": meta["name"], "sources": sources}})
+        if not hits:
+            return messages
+        blocks = [f"[D{i}] {Path(h['path']).name} (linhas {h['lines']})\n{h['text']}" for i, h in enumerate(hits, 1)]
+        ctx = (f"[Trechos da base de conhecimento \"{meta['name']}\" relacionados à pergunta]\n\n" + "\n\n---\n\n".join(blocks)
+               + "\n\n[Fim dos trechos]\n\nUse os trechos acima quando forem relevantes e cite as fontes no texto como "
+               "[D1], [D2]. Se eles não bastarem para responder, diga isso.\n\nMensagem do usuario:\n")
+        out = [dict(m) for m in messages]
+        for m in reversed(out):
+            if m["role"] == "user":
+                if isinstance(m["content"], list):
+                    m["content"] = [dict(x) for x in m["content"]]
+                    for part in m["content"]:
+                        if part.get("type") == "text":
+                            part["text"] = ctx + part["text"]
+                            break
+                else:
+                    m["content"] = ctx + m["content"]
+                break
+        return out
 
     def engine_for(self, model_rel, on_wait=None, device="auto"):
         """Motor para esta requisicao: o principal ou um modelo extra (carregado sob demanda, na GPU ou CPU)."""
@@ -1654,6 +1866,9 @@ class Handler(BaseHTTPRequestHandler):
                 if ag["web"]:
                     b["web"] = True
             messages = with_reply_rule(build_history(msgs, eng.modalities))
+            kid = (ag or {}).get("kb") or b.get("kb")
+            if kid:
+                messages = self.kb_augment(messages, kid)
             if b.get("web"):
                 messages = self.web_augment(messages)
             payload = {"messages": messages, "stream": True, "cache_prompt": True, "timings_per_token": True}
@@ -1662,6 +1877,7 @@ class Handler(BaseHTTPRequestHandler):
                     payload[k] = b[k]
             if int(b.get("max_tokens") or 0) > 0:
                 payload["max_tokens"] = int(b["max_tokens"])
+            apply_model_sampling(payload, eng.model, (ag or {}).get("temperature"))
             upstream = self.engine_call(payload, True)
             last_timings = None
             for line in iter(upstream.readline, b""):
@@ -1727,6 +1943,7 @@ def main():
     httpd.daemon_threads = True
     watch_parent()
     threading.Thread(target=auto_load, daemon=True).start()
+    threading.Thread(target=cleanup_checkpoints, daemon=True).start()
     print(f"Servidor em {url} | API OpenAI do motor: http://127.0.0.1:{ENGINE_PORT}/v1", flush=True)
     try:
         httpd.serve_forever()
