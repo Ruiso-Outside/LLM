@@ -4,7 +4,7 @@ Um app seu para rodar modelos de IA no seu PC. Sem conta, sem plano pago, sem te
 
 ## Instalação
 
-Rode **`desktop\dist\LLM Local Setup 1.4.1.exe`**. Ele cria atalhos no Menu Iniciar e na Área de Trabalho. Como o instalador não é assinado digitalmente, o Windows pode mostrar a tela "O Windows protegeu o computador". Clique em *Mais informações → Executar assim mesmo*. O executável do app é o do Electron oficial, sem modificações, para que o **Controle Inteligente de Aplicativos** do Windows não o bloqueie. Por isso o arquivo .exe mostra o ícone do Electron, mas os atalhos e a janela usam o ícone do LLM Local.
+Rode **`desktop\dist\LLM Local Setup 1.5.0.exe`**. Ele cria atalhos no Menu Iniciar e na Área de Trabalho. Como o instalador não é assinado digitalmente, o Windows pode mostrar a tela "O Windows protegeu o computador". Clique em *Mais informações → Executar assim mesmo*. O executável do app é o do Electron oficial, sem modificações, para que o **Controle Inteligente de Aplicativos** do Windows não o bloqueie. Por isso o arquivo .exe mostra o ícone do Electron, mas os atalhos e a janela usam o ícone do LLM Local.
 
 ### Segundo plano e pergunta rápida
 - Fechar a janela **não encerra** o app: ele continua no ícone perto do relógio. Para sair de verdade, clique com o botão direito no ícone e escolha **Sair**.
@@ -80,7 +80,7 @@ Ficam dentro da pasta de dados escolhida na primeira execução (dá para mudar 
 
 ## Modos: Chat, Codex e Imagem
 
-Acima da caixa de mensagem há três modos:
+Acima da caixa de mensagem há quatro modos:
 
 ### 💬 Chat com anexos 📎
 Clique no 📎, arraste arquivos para a janela ou cole (Ctrl+V). O app prepara cada tipo:
@@ -108,6 +108,15 @@ Descreva a imagem (em português mesmo). O modelo de texto carregado melhora a d
 - Instale em **Modelos → Mídia**: o motor (*stable-diffusion.cpp*; Vulkan é o recomendado) e um modelo: **Z-Image Turbo** (melhor qualidade, ~6 GB) ou **SDXL Turbo** (mais rápido).
 - Escolha o tamanho no seletor ao lado dos modos. Clique na imagem para ampliar; dá para salvar, gerar outra ou abrir a pasta.
 - Se faltar memória de vídeo, ative "Descarregar o modelo de texto enquanto gera imagens" nas Configurações.
+
+### 👥 Agentes e grupos
+Crie agentes com uma **função** própria e junte vários num **grupo** que trabalha em sequência. Abra **Agentes** na barra lateral (ou o ⚙️ ao lado do modo 👥 Agentes).
+
+- **Agente:** nome, ícone, cor e a função (as instruções dele). Opcionalmente, temperatura própria (baixa para calcular e validar, alta para criar) e permissão para pesquisar na web.
+- **Grupo:** uma lista de etapas. Cada agente recebe o seu pedido **e o trabalho dos agentes anteriores**.
+- **✅ Validador:** marque uma etapa como validador. Ele termina com *VEREDITO: APROVADO* ou *REPROVADO*. Se reprovar, o agente anterior refaz com o feedback e o validador confere de novo (até o número de tentativas extras do grupo).
+- **Modelos prontos:** 🧮 Matemática (cria o cálculo → resolve → valida), 📝 Redação (pesquisa na web → escreve → revisa) e 💻 Programação (planeja → programa → revisa).
+- Para usar, escolha o modo **👥 Agentes** e selecione um grupo ou um agente sozinho. Agentes e grupos entram no backup.
 
 ## Pesquisa na web 🌐
 
@@ -154,5 +163,6 @@ Enquanto o modelo escreve, a velocidade aparece ao vivo (⚡ tok/s) no topo da r
 | `app/websearch.py` | Pesquisa na web e leitura das páginas |
 | `app/agent.py` | Codex: ferramentas, limite de pasta e confirmações |
 | `app/catalog.py` | Etiquetas dos modelos (capacidades, tamanho, qualidade dos arquivos) |
+| `app/agents.py` | Agentes personalizados, grupos e o validador com novas tentativas |
 | `app/media.py` | Whisper, stable-diffusion.cpp, anexos e extração de texto de documentos |
-| `app/web/` | Interface: `index.html` (janela principal), `quick.html` (pergunta rápida), `common.js` (código compartilhado), `attach.js` (processamento dos anexos), `vendor/pdfjs` (leitor de PDF da Mozilla) |
+| `app/web/` | Interface: `index.html` (janela principal), `quick.html` (pergunta rápida), `common.js` (código compartilhado), `attach.js` (processamento dos anexos), `agents.js` (editor de agentes e grupos), `vendor/pdfjs` (leitor de PDF da Mozilla) |

@@ -14,6 +14,7 @@
     <input id="chatSearch" class="input" placeholder="Buscar conversas...">
     <nav id="chatList"></nav>
     <div class="side-foot">
+      <button class="btn ghost wide" data-open="agentsModal">Agentes</button>
       <button class="btn ghost wide" data-open="modelsModal">Modelos</button>
       <button class="btn ghost wide" data-open="settingsModal">Configurações</button>
       <button class="btn ghost wide" data-open="backupModal">Backup</button>
@@ -39,6 +40,11 @@
             <button data-mode="chat" title="Conversa normal">💬 Chat</button>
             <button data-mode="codex" title="Agente que cria e edita arquivos numa pasta liberada">🛠️ Codex</button>
             <button data-mode="image" title="Gerar imagens a partir de uma descrição">🎨 Imagem</button>
+            <button data-mode="agents" title="Conversar com um agente ou um grupo de agentes criado por você">👥 Agentes</button>
+          </div>
+          <div id="agentsBar" class="mode-bar" hidden>
+            <select id="agentSelect" class="input small-input"></select>
+            <button class="icon-btn" data-open="agentsModal" title="Criar e editar agentes e grupos">⚙️</button>
           </div>
           <div id="codexBar" class="mode-bar" hidden>
             <select id="workspaceSelect" class="input small-input"></select>
@@ -236,6 +242,35 @@
   </div>
 </div>
 
+<!-- Agentes e grupos -->
+<div class="modal" id="agentsModal">
+  <div class="modal-card large">
+    <div class="modal-head"><h3>Agentes e grupos</h3><button class="icon-btn" data-close>✕</button></div>
+    <div class="agents-layout">
+      <aside class="agents-side">
+        <div class="side-sec">
+          <div class="row between"><b>🤖 Agentes</b><button class="btn small" id="newAgent">+ Novo</button></div>
+          <div id="agentList" class="list"></div>
+        </div>
+        <div class="side-sec">
+          <div class="row between"><b>👥 Grupos</b><button class="btn small" id="newGroup">+ Novo</button></div>
+          <div id="groupList" class="list"></div>
+        </div>
+        <div class="side-sec">
+          <b>✨ Modelos prontos</b>
+          <p class="muted small-note">Cria o grupo e os agentes já configurados.</p>
+          <div class="tpl-btns">
+            <button class="btn small" data-tpl="math">🧮 Matemática</button>
+            <button class="btn small" data-tpl="writing">📝 Redação</button>
+            <button class="btn small" data-tpl="code">💻 Programação</button>
+          </div>
+        </div>
+      </aside>
+      <section id="agentEditor" class="agents-editor"></section>
+    </div>
+  </div>
+</div>
+
 <!-- Backup -->
 <div class="modal" id="backupModal">
   <div class="modal-card">
@@ -264,6 +299,7 @@
 <div id="toast"></div>
 <script src="common.js"></script>
 <script src="attach.js"></script>
+<script src="agents.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

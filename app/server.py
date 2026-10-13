@@ -28,6 +28,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import agent
+import agents
 import catalog
 import media
 import websearch
@@ -254,6 +255,7 @@ def run_task(task, fn):
 
 
 media.configure(ROOT, lambda url, dest, task, base=0: download(url, dest, task, base), get_json)
+agents.configure(DATA)
 
 
 # ---------------------------------------------------------------- motor (llama.cpp)
@@ -760,6 +762,8 @@ def build_backup(dest, with_files):
                     n_files += 1
         s = {k: v for k, v in load_settings().items() if k not in SECRETS}
         z.writestr("settings.json", json.dumps(s, ensure_ascii=False, indent=1))
+        if agents.FILE.exists():
+            z.write(agents.FILE, "agents.json")
         z.writestr("manifest.json", json.dumps({"app": "LLM Local", "format": BACKUP_FORMAT, "created": time.time(),
                                                 "chats": len(chats), "files": n_files}, indent=1))
 
@@ -808,7 +812,19 @@ def restore_backup(src, with_settings=False):
                 save_settings({k: v for k, v in s.items() if k not in SECRETS})
             except ValueError:
                 pass
-    return {"added": added, "updated": updated, "skipped": skipped, "files": files}
+        n_agents = 0
+        if "agents.json" in z.namelist():
+            try:
+                incoming, cur = json.loads(z.read("agents.json")), agents.load()
+                have_a, have_g = {a["id"] for a in cur["agents"]}, {g["id"] for g in cur["groups"]}
+                new_a = [a for a in incoming.get("agents", []) if a.get("id") not in have_a]
+                new_g = [g for g in incoming.get("groups", []) if g.get("id") not in have_g]
+                if new_a or new_g:
+                    agents.save({"agents": cur["agents"] + new_a, "groups": cur["groups"] + new_g})
+                n_agents = len(new_a) + len(new_g)
+            except (ValueError, KeyError, TypeError):
+                pass
+    return {"added": added, "updated": updated, "skipped": skipped, "files": files, "agents": n_agents}
 
 
 def upload_ids(obj):
@@ -863,6 +879,8 @@ class Handler(BaseHTTPRequestHandler):
                                        "stats": load_stats()})
             if p == "/api/log":
                 return self.send_json({"log": list(ENGINE_PROC.log)})
+            if p == "/api/agents":
+                return self.send_json(agents.load())
             if p == "/api/backup/info":
                 return self.send_json(backup_info())
             if p == "/api/backup":
@@ -937,6 +955,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self.proxy_chat(b)
             if p == "/api/agent":
                 return self.run_agent(b)
+            if p == "/api/group/run":
+                return self.run_group(b)
+            if p == "/api/agents/template":
+                doc, gid = agents.template(b.get("kind", ""))
+                return self.send_json({"doc": doc, "group_id": gid})
             if p == "/api/agent/approve":
                 return self.send_json({"ok": agent.AgentRun.answer(b.get("id"), bool(b.get("ok")), bool(b.get("always")))})
             if p == "/api/image/generate":
@@ -1033,6 +1056,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"error": "origem bloqueada"}, 403)
         p = urllib.parse.urlparse(self.path).path
         b = self.body()
+        if p == "/api/agents":
+            return self.send_json(agents.save(b))
         if p == "/api/settings":
             for k in SECRETS:
                 if b.get(k) == "***":
@@ -1197,6 +1222,32 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError as e:
             return self.send_json({"error": str(e)}, 400)
 
+    # ---- grupos de agentes ----
+    def split_content(self, m):
+        """Separa o texto e as partes de midia (imagens/audio) de uma mensagem do usuario."""
+        c = build_content(m, ENGINE_PROC.modalities)
+        if isinstance(c, list):
+            return text_of(c), [x for x in c if x.get("type") != "text"]
+        return c, []
+
+    def run_group(self, b):
+        if ENGINE_PROC.state != "ready":
+            return self.send_json({"error": "Nenhum modelo carregado."}, 503)
+        self.start_sse()
+        sampling = {k: b[k] for k in ("temperature", "top_p", "top_k", "min_p", "repeat_penalty") if k in b}
+        if int(b.get("max_tokens") or 0) > 0:
+            sampling["max_tokens"] = int(b["max_tokens"])
+        msgs = [m for m in b.get("messages", []) if m.get("role") != "system"]
+        if not msgs or msgs[-1].get("role") != "user":
+            return self.sse_safe({"error": {"message": "Mensagem vazia."}})
+        history = build_history(msgs[:-1], ENGINE_PROC.modalities)
+        try:
+            timings = agents.run_group(self, b.get("group_id", ""), msgs[-1], history, sampling)
+            if timings:
+                add_stats(timings)
+        except RuntimeError as e:
+            self.sse_safe({"error": {"message": str(e)}})
+
     # ---- backup ----
     def send_backup(self, with_files):
         tmp = DATA / f"_backup_{uuid.uuid4().hex[:8]}.zip"
@@ -1338,7 +1389,17 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         upstream = None
         try:
-            messages = build_history(b.get("messages", []), ENGINE_PROC.modalities)
+            ag = agents.get_agent(b["agent_id"]) if b.get("agent_id") else None
+            msgs = b.get("messages", [])
+            if ag:
+                msgs = [{"role": "system", "content": (ag["instructions"] or "Você é um assistente útil.")
+                         + f"\n\nVocê é o agente \"{ag['name']}\". Responda no idioma do usuário."}] + \
+                       [m for m in msgs if m.get("role") != "system"]
+                if ag["temperature"] is not None:
+                    b["temperature"] = ag["temperature"]
+                if ag["web"]:
+                    b["web"] = True
+            messages = build_history(msgs, ENGINE_PROC.modalities)
             if b.get("web"):
                 messages = self.web_augment(messages)
             payload = {"messages": messages, "stream": True, "cache_prompt": True, "timings_per_token": True}

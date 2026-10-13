@@ -98,6 +98,7 @@ function updateHint() {
   } else if (!Object.keys(st.backends).length) h = "Primeiro passo: abra Modelos → Motor e instale o motor.";
   else if (!st.models.length) h = "Baixe um modelo em Modelos → Baixar modelos.";
   else if (st.engine.state !== "ready") h = st.engine.state === "loading" ? "Carregando modelo na memória..." : "Selecione um modelo e clique em Carregar.";
+  else if (S.mode === "agents") h = agentsHint();
   else if (S.mode === "codex") h = S.workspace ? `🛠️ O Codex trabalha somente dentro de ${S.workspace}` : "Escolha ou adicione uma pasta para o Codex trabalhar.";
   else h = S.web ? "🌐 Pesquisa na web ligada: o modelo vai pesquisar antes de cada resposta." : "";
   $("#hint").textContent = h;
@@ -121,6 +122,7 @@ const PLACEHOLDER = {
   chat: "Escreva sua mensagem... (Enter envia, Shift+Enter quebra linha)",
   codex: "Peça ao Codex: ex. “crie um jogo da cobrinha em HTML” ou “corrija o erro no main.py”",
   image: "Descreva a imagem que você quer gerar...",
+  agents: "Escreva o pedido para o grupo ou agente selecionado... (ex.: “uma equação do 2º grau de nível médio”)",
 };
 function setMode(mode) {
   S.mode = mode; lsSet("mode", mode);
@@ -136,6 +138,7 @@ $("#modes").onclick = e => { const b = e.target.closest("[data-mode]"); if (b &&
 function renderModeBars() {
   $("#codexBar").hidden = S.mode !== "codex";
   $("#imageBar").hidden = S.mode !== "image";
+  $("#agentsBar").hidden = S.mode !== "agents";
   if (!S.status) return;
   // pastas do Codex
   const wss = S.status.settings.workspaces || [];
@@ -305,6 +308,7 @@ function msgHTML(msg, idx, isLast) {
   }
   if (msg.mode === "image") return imageMsgHTML(msg, idx, isLast, streaming);
   if (msg.mode === "codex") return codexMsgHTML(msg, idx, isLast, streaming);
+  if (msg.mode === "group") return groupMsgHTML(msg, idx, isLast, streaming);
   const { content, reasoning, open } = splitThink(msg);
   const thinking = streaming && (open || (reasoning && !content));
   let live = "";
@@ -313,7 +317,8 @@ function msgHTML(msg, idx, isLast) {
     else if (msg.stats?.tokens) live = `⚡ ${msg.stats.tps.toFixed(1)} tok/s · ${fmtNum(msg.stats.tokens)} tokens`;
     else live = "processando o prompt...";
   }
-  let html = `<div class="msg assistant ${isLast ? "last" : ""}" data-i="${idx}"><div class="role">${esc(msg.model || "Assistente")}${live ? `<span class="live">${live}</span>` : ""}</div>`;
+  const who = msg.agent ? `<span class="ag-dot" style="--c:${esc(msg.agent.color)}">${esc(msg.agent.icon)}</span> ${esc(msg.agent.name)} <small class="muted">· ${esc(msg.model || "")}</small>` : esc(msg.model || "Assistente");
+  let html = `<div class="msg assistant ${isLast ? "last" : ""}" data-i="${idx}"><div class="role">${who}${live ? `<span class="live">${live}</span>` : ""}</div>`;
   if (msg.web) html += webBoxHTML(msg.web, streaming);
   if (reasoning) html += `<details class="think" ${thinking ? "open" : ""}><summary>${thinking ? "Pensando..." : "Raciocínio"}</summary><div class="think-body">${esc(reasoning)}</div></details>`;
   html += `<div class="content ${streaming ? "cursor" : ""}">${linkCitations(md(content), msg.web?.sources)}</div>`;
@@ -482,8 +487,8 @@ $("#messages").addEventListener("click", async ev => {
   switch (b.dataset.act) {
     case "copy": await navigator.clipboard.writeText(msg.mode === "codex" ? msg.content : splitThink(msg).content || msg.content); toast("Copiado"); break;
     case "del": S.chat.messages.splice(i, 1); renderMessages(); saveChat(); break;
-    case "regen": S.chat.messages.pop(); renderMessages(); dispatch(msg.mode || "chat", { workspace: msg.workspace, prompt: msg.request }); break;
-    case "continue": generate(true); break;
+    case "regen": S.chat.messages.pop(); renderMessages(); dispatch(msg.mode || "chat", { workspace: msg.workspace, prompt: msg.request, group: msg.group?.id, agent: msg.agent?.id }); break;
+    case "continue": generate(true, msg.agent ? agentById(msg.agent.id) : null); break;
     case "open-ws": desktop.openPath(msg.workspace); break;
     case "img-again": genImage(msg.request, { preset: msg.image.preset }); break;
     case "img-show": desktop.showItem(msg.image.path); break;
@@ -541,11 +546,12 @@ async function send() {
   if (mode !== "image" && S.status?.engine.state !== "ready")
     return toast(S.status?.engine.state === "loading" ? "Aguarde o modelo terminar de carregar." : "Carregue um modelo primeiro (botão Carregar no topo).");
   if (mode === "codex" && !S.workspace) return addWorkspace();
+  if (mode === "agents" && !currentAgentSel().group && !currentAgentSel().agent) { openModal("agentsModal"); return toast("Crie ou escolha um agente ou grupo."); }
   if (mode === "image") {
     const im = S.media?.image;
     if (!im?.installed || !im.presets[S.status.settings.image_preset]?.installed) { openModal("modelsModal"); switchTab("tabMedia"); return toast("Instale o motor e um modelo de imagem primeiro."); }
   }
-  if (!S.chat) S.chat = { id: uid(), title: (mode === "image" ? "🎨 " : mode === "codex" ? "🛠️ " : "") + (text || atts[0]?.name || "Anexo").slice(0, 60).replace(/\s+/g, " "), created: Date.now() / 1000, messages: [] };
+  if (!S.chat) S.chat = { id: uid(), title: (mode === "image" ? "🎨 " : mode === "codex" ? "🛠️ " : mode === "agents" ? "👥 " : "") + (text || atts[0]?.name || "Anexo").slice(0, 60).replace(/\s+/g, " "), created: Date.now() / 1000, messages: [] };
   S.chat.messages.push({ role: "user", content: text, ...(atts.length ? { attachments: atts } : {}) });
   inp.value = ""; autoGrow(); S.attachments = []; renderAttachTray();
   renderMessages();
@@ -554,6 +560,9 @@ async function send() {
 
 function dispatch(mode, opts = {}) {
   if (mode === "codex") return runAgent(opts.workspace || S.workspace);
+  if (mode === "group") return runGroup(groupById(opts.group));
+  if (mode === "agents") { const s = currentAgentSel(); return s.group ? runGroup(s.group) : generate(false, s.agent); }
+  if (opts.agent) return generate(false, agentById(opts.agent));
   if (mode === "image") return genImage(opts.prompt ?? S.chat.messages.at(-1)?.content ?? "", opts);
   return generate();
 }
@@ -567,21 +576,22 @@ async function finishGenerating() {
 }
 
 // ---- Chat
-async function generate(isContinue = false) {
+async function generate(isContinue = false, agent = null) {
   let msg;
   if (isContinue) {
     msg = S.chat.messages[S.chat.messages.length - 1];
     delete msg.error; msg._base = msg.stats ? { tokens: msg.stats.tokens } : null;
   } else {
     msg = { role: "assistant", content: "", reasoning: "", model: modelName() };
-    if (S.web) msg.web = { stage: "query" };
+    if (agent) msg.agent = { id: agent.id, name: agent.name, icon: agent.icon, color: agent.color };
+    if (S.web || agent?.web) msg.web = { stage: "query" };
   }
   const messages = buildMessages();
   if (!isContinue) S.chat.messages.push(msg);
   startGenerating();
   const t0 = performance.now(); let tokens = 0;
   try {
-    await streamChat({ messages, web: S.web && !isContinue, ...sampling() }, S.abort.signal, j => {
+    await streamChat({ messages, web: S.web && !isContinue && !agent, ...sampling(), ...(agent ? { agent_id: agent.id } : {}) }, S.abort.signal, j => {
       if (j.llmlocal) { msg.web = { ...msg.web, ...j.llmlocal }; renderLastMessage(); return; }
       const d = j.choices?.[0]?.delta || {};
       if (d.content) { msg.content += d.content; tokens++; }
@@ -703,6 +713,7 @@ function openModal(id) {
   $("#" + id).classList.add("open");
   if (id === "settingsModal") fillSettings();
   if (id === "backupModal") { loadBackupInfo(); $("#restoreResult").textContent = ""; }
+  if (id === "agentsModal") { renderAgentsModal(); loadAgents(); }
   if (id === "modelsModal") { renderLocalModels(); renderEngine(); loadLog(); loadMedia(); }
 }
 $$("[data-open]").forEach(b => b.onclick = () => openModal(b.dataset.open));
@@ -1037,6 +1048,7 @@ window.addEventListener("hashchange", openChatFromHash);
   setMode(S.mode);
   await refreshStatus();
   loadMedia();
+  loadAgents().then(updateHint);
   renderMessages();
   await openChatFromHash();
   initDesktopSettings();
