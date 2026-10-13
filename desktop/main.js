@@ -252,6 +252,13 @@ ipcMain.handle("choose-home", async () => {
   if (await startServer()) { mainWin?.reload(); quickWin?.reload(); }
   return dir;
 });
+ipcMain.handle("choose-folder", async () => {
+  const r = await dialog.showOpenDialog(mainWin, { title: "Escolha uma pasta para o Codex trabalhar", properties: ["openDirectory", "createDirectory"] });
+  return r.canceled ? null : r.filePaths[0];
+});
+// so abre PASTAS (nunca executa arquivos)
+ipcMain.handle("open-path", (_e, p) => typeof p === "string" && fs.existsSync(p) && fs.statSync(p).isDirectory() ? shell.openPath(p) : "pasta inexistente");
+ipcMain.handle("show-item", (_e, p) => { if (typeof p === "string" && fs.existsSync(p)) shell.showItemInFolder(p); });
 ipcMain.on("open-main", (_e, chatId) => { hideQuick(); showMain(chatId); });
 ipcMain.on("hide-quick", hideQuick);
 ipcMain.on("quick-pinned", (_e, v) => { quickPinned = !!v; });

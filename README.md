@@ -4,7 +4,7 @@ Um app seu para rodar modelos de IA no seu PC. Sem conta, sem plano pago, sem te
 
 ## Instalação
 
-Rode **`desktop\dist\LLM Local Setup 1.0.0.exe`**. Ele cria atalhos no Menu Iniciar e na Área de Trabalho. Como o instalador não é assinado digitalmente, o Windows pode mostrar a tela "O Windows protegeu o computador". Clique em *Mais informações → Executar assim mesmo*.
+Rode **`desktop\dist\LLM Local Setup 1.1.0.exe`**. Ele cria atalhos no Menu Iniciar e na Área de Trabalho. Como o instalador não é assinado digitalmente, o Windows pode mostrar a tela "O Windows protegeu o computador". Clique em *Mais informações → Executar assim mesmo*.
 
 ### Segundo plano e pergunta rápida
 - Fechar a janela **não encerra** o app: ele continua no ícone perto do relógio. Para sair de verdade, clique com o botão direito no ícone e escolha **Sair**.
@@ -41,7 +41,40 @@ Ficam dentro da pasta de dados escolhida na primeira execução (dá para mudar 
 | `models/` | Seus arquivos `.gguf`. Pode copiar modelos para cá manualmente. |
 | `engine/` | O motor llama.cpp (CUDA / Vulkan / CPU) |
 | `data/chats/` | Suas conversas, em JSON |
+| `data/uploads/` | Arquivos anexados e imagens geradas (apagados junto com a conversa) |
+| `models/mmproj/`, `models/whisper/`, `models/image/` | Arquivos de visão, modelos do Whisper e de imagem |
 | `data/settings.json` | Suas configurações |
+
+## Modos: Chat, Codex e Imagem
+
+Acima da caixa de mensagem há três modos:
+
+### 💬 Chat com anexos 📎
+Clique no 📎, arraste arquivos para a janela ou cole (Ctrl+V). O app prepara cada tipo:
+
+| Tipo | O que acontece |
+|---|---|
+| Texto e código (`.txt`, `.py`, `.js`, `.json`, `.csv`...) | O conteúdo vai junto com a mensagem |
+| PDF | O texto é extraído. PDFs escaneados viram imagens das primeiras páginas |
+| Word, Excel, PowerPoint (`.docx`, `.xlsx`, `.pptx`, `.odt`) | O texto é extraído |
+| Imagens | O modelo **vê** a imagem, se tiver visão (veja abaixo) |
+| Áudio | É transcrito pelo Whisper. Modelos que entendem áudio recebem o som direto |
+| Vídeo | O app extrai alguns quadros (para modelos com visão) e transcreve o áudio |
+
+**Visão:** para o modelo enxergar imagens, ele precisa de um arquivo de visão (*mmproj*). Ao baixar um modelo com visão (Gemma 3, Qwen2.5-VL, Qwen3-VL...), deixe marcado **"Incluir visão"**. Para modelos já baixados, escolha o arquivo em **Modelos → Meus modelos**. O topo mostra `👁 visão` quando o modelo carregado enxerga.
+
+### 🛠️ Codex (agente de programação)
+O modelo cria e edita projetos de software sozinho, **somente** dentro das pastas que você liberar (escolha no seletor ao lado dos modos, ou em Configurações → Codex).
+- Ele lista, lê, cria, edita, busca e apaga arquivos, roda comandos no PowerShell (instalar dependências, compilar, testar) e pode gerar imagens para o projeto.
+- **Comandos e exclusões pedem sua confirmação** (Permitir / Sempre nesta conversa / Negar). Em Configurações dá para também pedir confirmação antes de alterar arquivos.
+- Caminhos fora da pasta liberada são bloqueados.
+- Funciona melhor com modelos bons em programação e em "tool calling", como Qwen3, Qwen3-Coder ou Devstral, e com contexto de 32k ou mais.
+
+### 🎨 Imagem
+Descreva a imagem (em português mesmo). O modelo de texto carregado melhora a descrição antes de gerar.
+- Instale em **Modelos → Mídia**: o motor (*stable-diffusion.cpp*; Vulkan é o recomendado) e um modelo: **Z-Image Turbo** (melhor qualidade, ~6 GB) ou **SDXL Turbo** (mais rápido).
+- Escolha o tamanho no seletor ao lado dos modos. Clique na imagem para ampliar; dá para salvar, gerar outra ou abrir a pasta.
+- Se faltar memória de vídeo, ative "Descarregar o modelo de texto enquanto gera imagens" nas Configurações.
 
 ## Pesquisa na web 🌐
 
@@ -84,4 +117,6 @@ Enquanto o modelo escreve, a velocidade aparece ao vivo (⚡ tok/s) no topo da r
 | `desktop/` | App Electron: janelas, bandeja, atalho global e instalador |
 | `app/server.py` | Servidor interno (iniciado escondido pelo app): motor, modelos, chat e downloads |
 | `app/websearch.py` | Pesquisa na web e leitura das páginas |
-| `app/web/` | Interface: `index.html` (janela principal), `quick.html` (pergunta rápida), `common.js` (código compartilhado) |
+| `app/agent.py` | Codex: ferramentas, limite de pasta e confirmações |
+| `app/media.py` | Whisper, stable-diffusion.cpp, anexos e extração de texto de documentos |
+| `app/web/` | Interface: `index.html` (janela principal), `quick.html` (pergunta rápida), `common.js` (código compartilhado), `attach.js` (processamento dos anexos), `vendor/pdfjs` (leitor de PDF da Mozilla) |

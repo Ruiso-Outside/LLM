@@ -32,10 +32,36 @@
     <section id="messages"></section>
 
     <footer id="composer">
-      <div class="composer-box">
-        <button id="webBtn" class="web-toggle" title="Pesquisar na web antes de responder">🌐 Web</button>
-        <textarea id="input" rows="1" placeholder="Escreva sua mensagem... (Enter envia, Shift+Enter quebra linha)"></textarea>
-        <button id="sendBtn" class="btn primary">Enviar</button>
+      <div class="composer-wrap">
+        <div class="composer-tools">
+          <div class="modes" id="modes">
+            <button data-mode="chat" title="Conversa normal">💬 Chat</button>
+            <button data-mode="codex" title="Agente que cria e edita arquivos numa pasta liberada">🛠️ Codex</button>
+            <button data-mode="image" title="Gerar imagens a partir de uma descrição">🎨 Imagem</button>
+          </div>
+          <div id="codexBar" class="mode-bar" hidden>
+            <select id="workspaceSelect" class="input small-input"></select>
+            <button class="icon-btn" id="openWorkspace" title="Abrir a pasta no Explorer">📂</button>
+          </div>
+          <div id="imageBar" class="mode-bar" hidden>
+            <select id="imagePresetSelect" class="input small-input"></select>
+            <select id="imageSizeSelect" class="input small-input" title="Tamanho">
+              <option value="">Tamanho padrão</option>
+              <option value="512x512">512 × 512</option><option value="768x768">768 × 768</option>
+              <option value="1024x1024">1024 × 1024</option><option value="1024x768">1024 × 768 (paisagem)</option>
+              <option value="768x1024">768 × 1024 (retrato)</option><option value="1280x720">1280 × 720 (16:9)</option>
+            </select>
+          </div>
+          <div class="spacer"></div>
+          <button id="webBtn" class="web-toggle" title="Pesquisar na web antes de responder">🌐 Web</button>
+        </div>
+        <div id="attachTray" class="attach-tray"></div>
+        <div class="composer-box">
+          <button id="attachBtn" class="icon-btn attach-btn" title="Anexar arquivos (texto, PDF, Office, imagens, áudio, vídeo). Também dá para arrastar ou colar.">📎</button>
+          <input type="file" id="fileInput" multiple hidden>
+          <textarea id="input" rows="1" placeholder="Escreva sua mensagem... (Enter envia, Shift+Enter quebra linha)"></textarea>
+          <button id="sendBtn" class="btn primary">Enviar</button>
+        </div>
       </div>
       <div id="statsBar" class="stats-bar"></div>
       <div id="hint" class="hint"></div>
@@ -50,6 +76,7 @@
       <div class="tabs">
         <button class="tab active" data-tab="tabLocal">Meus modelos</button>
         <button class="tab" data-tab="tabHF">Baixar modelos</button>
+        <button class="tab" data-tab="tabMedia">Mídia</button>
         <button class="tab" data-tab="tabEngine">Motor</button>
       </div>
       <button class="icon-btn" data-close>✕</button>
@@ -74,6 +101,10 @@
           <div id="hfResults" class="list"></div>
           <div id="hfFiles" class="list"></div>
         </div>
+      </div>
+
+      <div class="tab-pane" id="tabMedia">
+        <div id="mediaInfo"></div>
       </div>
 
       <div class="tab-pane" id="tabEngine">
@@ -134,6 +165,32 @@
           <label class="check full"><input type="checkbox" name="auto_load"> Carregar o último modelo automaticamente ao abrir o app</label>
           <label class="full">Argumentos extras do llama-server <input name="extra_args" class="input" placeholder="ex.: --flash-attn on --cache-type-k q8_0"></label>
         </div>
+        <h4>Codex (agente de programação)</h4>
+        <p class="muted small-note">O Codex só consegue ler e alterar arquivos dentro das pastas abaixo.</p>
+        <div id="workspaceList" class="list ws-list"></div>
+        <div class="row" style="margin:8px 0 10px"><button type="button" class="btn" id="addWorkspace">+ Adicionar pasta</button></div>
+        <div class="grid">
+          <div class="checks">
+            <label class="check"><input type="checkbox" name="agent_confirm_commands"> Pedir confirmação antes de rodar comandos</label>
+            <label class="check"><input type="checkbox" name="agent_confirm_writes"> Pedir confirmação antes de criar ou alterar arquivos</label>
+          </div>
+          <label>Máximo de passos por pedido <input name="agent_max_steps" type="number" min="1" max="200" class="input"></label>
+        </div>
+        <h4>Áudio e imagem</h4>
+        <div class="grid">
+          <label>Idioma da transcrição
+            <select name="whisper_language" class="input">
+              <option value="auto">Detectar automaticamente</option><option value="pt">Português</option>
+              <option value="en">Inglês</option><option value="es">Espanhol</option>
+            </select>
+          </label>
+          <label>Passos da imagem (0 = padrão do modelo) <input name="image_steps" type="number" min="0" max="100" class="input"></label>
+          <div class="checks full">
+            <label class="check"><input type="checkbox" name="image_enhance"> Melhorar a descrição da imagem com o modelo de texto (recomendado)</label>
+            <label class="check"><input type="checkbox" name="image_offload"> Economizar VRAM ao gerar imagens (um pouco mais lento)</label>
+            <label class="check"><input type="checkbox" name="image_unload_llm"> Descarregar o modelo de texto enquanto gera imagens (libera a GPU toda)</label>
+          </div>
+        </div>
         <h4>Pesquisa na web</h4>
         <div class="grid">
           <label>Provedor
@@ -172,6 +229,7 @@
 
 <div id="toast"></div>
 <script src="common.js"></script>
+<script src="attach.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

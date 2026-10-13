@@ -1,0 +1,1 @@
+﻿pdf.js 6.3.289 (pdfjs-dist) - https://github.com/mozilla/pdf.js - licenca Apache 2.0 (ver LICENSE)

@@ -6,8 +6,10 @@ Roda apenas em 127.0.0.1: nada sai do seu computador, exceto quando VOCE
 pede para baixar o motor, um modelo ou faz uma pesquisa na web.
 """
 import atexit
+import base64
 import json
 import os
+import random
 import re
 import shlex
 import shutil
@@ -25,6 +27,8 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+import agent
+import media
 import websearch
 
 # LLM_HOME: pasta de dados (modelos, motor, conversas). O app desktop define isso.
@@ -36,6 +40,7 @@ DATA = ROOT / "data"
 CHATS = DATA / "chats"
 SETTINGS_FILE = DATA / "settings.json"
 STATS_FILE = DATA / "stats.json"
+MMPROJ_FILE = DATA / "mmproj.json"
 
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("LLM_PORT", "8765"))
@@ -68,6 +73,21 @@ DEFAULT_SETTINGS = {
     "google_api_key": "",
     "google_cx": "",
     "searxng_url": "",
+    # Codex
+    "workspaces": [],
+    "agent_confirm_commands": True,
+    "agent_confirm_writes": False,
+    "agent_max_steps": 40,
+    # midia
+    "whisper_model": "",
+    "whisper_language": "auto",
+    "image_preset": "z-image-turbo",
+    "image_width": 0,
+    "image_height": 0,
+    "image_steps": 0,
+    "image_offload": True,
+    "image_enhance": True,
+    "image_unload_llm": False,
 }
 SECRETS = ("hf_token", "google_api_key")
 
@@ -229,6 +249,9 @@ def run_task(task, fn):
     threading.Thread(target=wrapper, daemon=True).start()
 
 
+media.configure(ROOT, lambda url, dest, task, base=0: download(url, dest, task, base), get_json)
+
+
 # ---------------------------------------------------------------- motor (llama.cpp)
 
 def detect_gpu():
@@ -354,6 +377,7 @@ class EngineProcess:
         self.state = "stopped"  # stopped | loading | ready | error
         self.error = ""
         self.n_ctx = 0
+        self.modalities = {}
         self.log = deque(maxlen=400)
         self.lock = threading.Lock()
         self.job = _job_object()
@@ -382,6 +406,9 @@ class EngineProcess:
         self.stop()
         cmd = [backs[backend]["exe"], "-m", str(model_path), "--host", "127.0.0.1", "--port", str(ENGINE_PORT),
                "-c", str(int(s["ctx_size"])), "-ngl", str(int(s["gpu_layers"])), "--jinja"]
+        mm = mmproj_for(model_rel)
+        if mm:
+            cmd += ["--mmproj", str(mm)]
         if int(s.get("threads") or 0) > 0:
             cmd += ["-t", str(int(s["threads"]))]
         if s.get("extra_args", "").strip():
@@ -410,7 +437,7 @@ class EngineProcess:
             try:
                 with urllib.request.urlopen(f"http://127.0.0.1:{ENGINE_PORT}/health", timeout=2) as r:
                     if r.status == 200:
-                        self.n_ctx = self._read_ctx()
+                        self.n_ctx, self.modalities = self._read_props()
                         self.state = "ready"
                         return
             except (urllib.error.URLError, OSError):
@@ -421,19 +448,22 @@ class EngineProcess:
             self.state = "error"
             self.error = "O motor fechou. Ultimas linhas do log:\n" + "\n".join(tail)
 
-    def _read_ctx(self):
+    def _read_props(self):
         try:
             with urllib.request.urlopen(f"http://127.0.0.1:{ENGINE_PORT}/props", timeout=3) as r:
                 p = json.loads(r.read().decode("utf-8"))
-            return int((p.get("default_generation_settings") or {}).get("n_ctx") or p.get("n_ctx") or 0)
+            n_ctx = int((p.get("default_generation_settings") or {}).get("n_ctx") or p.get("n_ctx") or 0)
+            return n_ctx, {k: bool(v) for k, v in (p.get("modalities") or {}).items()}
         except (OSError, ValueError):
-            return 0
+            return 0, {}
 
     def status(self):
         if self.state == "ready" and self.proc and self.proc.poll() is not None:
             self.state, self.error = "error", "O motor fechou inesperadamente (veja o log)."
         return {"state": self.state, "model": self.model, "backend": self.backend, "error": self.error,
-                "port": ENGINE_PORT, "n_ctx": self.n_ctx}
+                "port": ENGINE_PORT, "n_ctx": self.n_ctx,
+                "vision": self.state == "ready" and self.modalities.get("vision", False),
+                "audio": self.state == "ready" and self.modalities.get("audio", False)}
 
 
 ENGINE_PROC = EngineProcess()
@@ -445,10 +475,15 @@ atexit.register(ENGINE_PROC.stop)
 SPLIT_RE = re.compile(r"^(.*)-(\d{5})-of-(\d{5})\.gguf$", re.I)
 
 
+MEDIA_DIRS = ("image", "whisper", "mmproj")
+
+
 def list_models():
     out = []
+    mm = load_mmproj_map()
     for p in sorted(MODELS.rglob("*.gguf"), key=lambda x: x.name.lower()):
-        if "mmproj" in p.name.lower():
+        rel_parts = p.relative_to(MODELS).parts
+        if "mmproj" in p.name.lower() or (len(rel_parts) > 1 and rel_parts[0] in MEDIA_DIRS):
             continue
         m = SPLIT_RE.match(p.name)
         size = p.stat().st_size
@@ -456,8 +491,36 @@ def list_models():
             if m.group(2) != "00001":
                 continue
             size = sum(q.stat().st_size for q in p.parent.glob(f"{m.group(1)}-*-of-{m.group(3)}.gguf"))
-        out.append({"name": p.stem if not m else m.group(1), "path": p.relative_to(MODELS).as_posix(), "size": size})
+        rel = p.relative_to(MODELS).as_posix()
+        out.append({"name": p.stem if not m else m.group(1), "path": rel, "size": size,
+                    "mmproj": mm.get(rel, "") if (MODELS / mm.get(rel, "_")).is_file() else ""})
     return out
+
+
+def load_mmproj_map():
+    try:
+        return json.loads(MMPROJ_FILE.read_text("utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def set_mmproj(model_rel, mm_rel):
+    m = load_mmproj_map()
+    if mm_rel:
+        m[model_rel] = mm_rel
+    else:
+        m.pop(model_rel, None)
+    MMPROJ_FILE.write_text(json.dumps(m, indent=1), "utf-8")
+
+
+def mmproj_for(model_rel):
+    rel = load_mmproj_map().get(model_rel)
+    p = (MODELS / rel).resolve() if rel else None
+    return p if p and p.is_file() and MODELS.resolve() in p.parents else None
+
+
+def list_mmproj():
+    return sorted(p.relative_to(MODELS).as_posix() for p in MODELS.rglob("*.gguf") if "mmproj" in p.name.lower())
 
 
 def hf_tree(repo):
@@ -466,8 +529,8 @@ def hf_tree(repo):
             for it in items if it.get("type") == "file" and it["path"].lower().endswith(".gguf")]
 
 
-def hf_files(repo):
-    files = hf_tree(repo)
+def hf_files(repo, tree=None):
+    files = [f for f in (tree if tree is not None else hf_tree(repo)) if "mmproj" not in f["path"].lower()]
     # agrupa arquivos divididos
     groups = {}
     for f in files:
@@ -481,7 +544,16 @@ def hf_files(repo):
     return sorted(groups.values(), key=lambda g: g["size"])
 
 
-def download_model(task, repo, path):
+def pick_mmproj(files):
+    mm = [f for f in files if "mmproj" in f["path"].lower()]
+    for pref in ("f16", "bf16", "q8", ""):
+        for f in mm:
+            if pref in f["path"].lower():
+                return f
+    return None
+
+
+def download_model(task, repo, path, with_mmproj=False):
     files = hf_tree(repo)
     m = SPLIT_RE.match(path)
     if m:
@@ -502,6 +574,16 @@ def download_model(task, repo, path):
             continue
         url = f"https://huggingface.co/{repo}/resolve/main/{urllib.parse.quote(p)}"
         done += download(url, dest, task, done)
+    mm = pick_mmproj(files) if with_mmproj else None
+    if mm:
+        mm_dest = MODELS / "mmproj" / f"{repo.split('/')[-1]}__{Path(mm['path']).name}"
+        mm_dest.parent.mkdir(parents=True, exist_ok=True)
+        task["detail"] = "arquivo de visao (mmproj)"
+        task["total"] += mm["size"]
+        if not mm_dest.exists():
+            download(f"https://huggingface.co/{repo}/resolve/main/{urllib.parse.quote(mm['path'])}", mm_dest, task, done)
+        set_mmproj((folder / Path(parts[0][0]).name).relative_to(MODELS).as_posix(),
+                   mm_dest.relative_to(MODELS).as_posix())
 
 
 # ---------------------------------------------------------------- conversas
@@ -520,10 +602,97 @@ def list_chats():
     return sorted(out, key=lambda c: c["updated"], reverse=True)
 
 
+# ---------------------------------------------------------------- anexos -> mensagens do modelo
+
+IMG_MIME = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif"}
+
+
+def _image_part(fid):
+    p = media.upload_path(fid)
+    b64 = base64.b64encode(p.read_bytes()).decode("ascii")
+    return {"type": "image_url", "image_url": {"url": f"data:{IMG_MIME.get(p.suffix.lower(), 'image/png')};base64,{b64}"}}
+
+
+def _audio_part(fid):
+    p = media.upload_path(fid)
+    return {"type": "input_audio", "input_audio": {"data": base64.b64encode(p.read_bytes()).decode("ascii"),
+                                                   "format": "mp3" if p.suffix.lower() == ".mp3" else "wav"}}
+
+
+def build_content(m, mod):
+    atts = m.get("attachments") or []
+    if not atts:
+        return m.get("content", "")
+    texts, parts = [], []
+    for a in atts:
+        kind, name = a.get("kind"), a.get("name", "arquivo")
+        try:
+            if kind == "text":
+                texts.append(f"[Conteudo do arquivo {name}]\n{a.get('text', '')}\n[Fim do arquivo {name}]")
+            elif kind == "image":
+                if mod.get("vision"):
+                    parts.append(_image_part(a["id"]))
+                else:
+                    texts.append(f"[Imagem anexada '{name}': o modelo carregado nao tem visao e nao pode ve-la]")
+            elif kind == "audio":
+                if mod.get("audio") and a.get("id"):
+                    parts.append(_audio_part(a["id"]))
+                elif a.get("transcript"):
+                    texts.append(f"[Transcricao do audio {name}]\n{a['transcript']}")
+                else:
+                    texts.append(f"[Audio anexado '{name}' sem transcricao disponivel]")
+            elif kind == "video":
+                frames = a.get("frames") or []
+                if frames and mod.get("vision"):
+                    stamps = ", ".join(f"{f.get('t', 0):.0f}s" for f in frames)
+                    texts.append(f"[Video '{name}' ({a.get('duration', 0):.0f}s): {len(frames)} quadros anexados em ordem, "
+                                 f"nos tempos {stamps}]")
+                    parts += [_image_part(f["id"]) for f in frames]
+                if a.get("transcript"):
+                    texts.append(f"[Transcricao do audio do video {name}]\n{a['transcript']}")
+                if not (frames and mod.get("vision")) and not a.get("transcript"):
+                    texts.append(f"[Video anexado '{name}': o modelo nao tem visao e nao ha transcricao]")
+        except ValueError:
+            texts.append(f"[Anexo '{name}' nao encontrado]")
+    text = "\n\n".join(texts + ([m["content"]] if m.get("content") else []))
+    return parts + [{"type": "text", "text": text or "(veja os anexos)"}] if parts else text
+
+
+def text_of(content):
+    if isinstance(content, list):
+        return "\n".join(p.get("text", "") for p in content if p.get("type") == "text")
+    return content or ""
+
+
+def build_history(msgs, mod, agent_mode=False):
+    out, n = [], len(msgs)
+    for i, m in enumerate(msgs):
+        role = m.get("role")
+        if role == "system":
+            out.append({"role": "system", "content": m.get("content", "")})
+        elif role == "user":
+            out.append({"role": "user", "content": build_content(m, mod)})
+        elif role == "assistant":
+            if m.get("trace") and agent_mode:
+                out += agent.compact_history(m["trace"], keep_full=i >= n - 2)
+            elif m.get("image"):
+                out.append({"role": "assistant", "content": f"[Imagem gerada com o prompt: {m['image'].get('prompt', '')}]"})
+            elif m.get("content"):
+                out.append({"role": "assistant", "content": m["content"]})
+    return out
+
+
+def upload_ids(obj):
+    return set(re.findall(r'"([a-f0-9]{20}\.[a-z0-9]{1,6})"', json.dumps(obj)))
+
+
 # ---------------------------------------------------------------- HTTP
 
 MIME = {".html": "text/html; charset=utf-8", ".js": "application/javascript; charset=utf-8",
-        ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".png": "image/png", ".ico": "image/x-icon"}
+        ".mjs": "application/javascript; charset=utf-8", ".css": "text/css; charset=utf-8",
+        ".svg": "image/svg+xml", ".png": "image/png", ".ico": "image/x-icon", ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif", ".wav": "audio/wav",
+        ".mp3": "audio/mpeg", ".ogg": "audio/ogg", ".json": "application/json", ".txt": "text/plain; charset=utf-8"}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -564,6 +733,14 @@ class Handler(BaseHTTPRequestHandler):
                                        "stats": load_stats()})
             if p == "/api/log":
                 return self.send_json({"log": list(ENGINE_PROC.log)})
+            if p == "/api/media":
+                return self.send_json({"whisper": media.whisper_status(), "image": media.image_status(),
+                                       "mmproj": list_mmproj()})
+            if p.startswith("/api/uploads/"):
+                try:
+                    return self.send_file(media.upload_path(p.rsplit("/", 1)[-1]))
+                except ValueError:
+                    return self.send_json({"error": "nao encontrado"}, 404)
             if p == "/api/chats":
                 return self.send_json(list_chats())
             if p.startswith("/api/chats/"):
@@ -579,7 +756,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json([{"id": r["id"], "downloads": r.get("downloads", 0), "likes": r.get("likes", 0)}
                                        for r in res])
             if p == "/api/hf/files":
-                return self.send_json(hf_files(q.get("repo", [""])[0]))
+                repo = q.get("repo", [""])[0]
+                tree = hf_tree(repo)
+                mm = pick_mmproj(tree)
+                return self.send_json({"files": hf_files(repo, tree), "mmproj": mm["path"] if mm else ""})
             return self.static(p)
         except urllib.error.HTTPError as e:
             self.send_json({"error": f"HTTP {e.code}: {e.reason}"}, 502)
@@ -592,6 +772,9 @@ class Handler(BaseHTTPRequestHandler):
         f = (WEB / p.lstrip("/")).resolve()
         if WEB.resolve() not in f.parents or not f.is_file():
             return self.send_json({"error": "nao encontrado"}, 404)
+        self.send_file(f)
+
+    def send_file(self, f):
         data = f.read_bytes()
         self.send_response(200)
         self.send_header("Content-Type", MIME.get(f.suffix, "application/octet-stream"))
@@ -604,10 +787,49 @@ class Handler(BaseHTTPRequestHandler):
         if not self.check_origin():
             return self.send_json({"error": "origem bloqueada"}, 403)
         p = urllib.parse.urlparse(self.path).path
+        if p == "/api/upload":
+            return self.handle_upload()
         try:
             b = self.body()
             if p == "/api/chat":
                 return self.proxy_chat(b)
+            if p == "/api/agent":
+                return self.run_agent(b)
+            if p == "/api/agent/approve":
+                return self.send_json({"ok": agent.AgentRun.answer(b.get("id"), bool(b.get("ok")), bool(b.get("always")))})
+            if p == "/api/image/generate":
+                return self.image_generate(b)
+            if p == "/api/transcribe":
+                s = load_settings()
+                try:
+                    text = media.transcribe(b.get("id", ""), s.get("whisper_model", ""), s.get("whisper_language", "auto"))
+                except RuntimeError as e:
+                    return self.send_json({"error": str(e)}, 400)
+                return self.send_json({"text": text})
+            if p == "/api/extract":
+                try:
+                    return self.send_json({"text": media.extract_text(b.get("id", ""))})
+                except (KeyError, zipfile.BadZipFile) as e:
+                    return self.send_json({"error": f"Nao foi possivel ler o documento: {e}"}, 400)
+            if p == "/api/media/install":
+                what, value = b.get("what"), b.get("value", "")
+                jobs = {
+                    "whisper": (("cuda", "cpu"), "Motor de audio Whisper", media.install_whisper),
+                    "whisper_model": (tuple(media.WHISPER_MODELS), "Modelo Whisper", media.install_whisper_model),
+                    "sd": (("vulkan", "cuda", "cpu"), "Motor de imagem", media.install_sd),
+                    "image_preset": (tuple(media.IMAGE_PRESETS), "Modelo de imagem", media.install_image_preset),
+                }
+                if what not in jobs or value not in jobs[what][0]:
+                    return self.send_json({"error": "opcao invalida"}, 400)
+                t = new_task("engine" if what in ("whisper", "sd") else "model", f"{jobs[what][1]} ({value})")
+                run_task(t, lambda task: jobs[what][2](task, value))
+                return self.send_json({"id": t["id"]})
+            if p == "/api/models/mmproj":
+                mm = b.get("mmproj") or ""
+                if mm and mm not in list_mmproj():
+                    return self.send_json({"error": "arquivo de visao invalido"}, 400)
+                set_mmproj(b.get("model", ""), mm)
+                return self.send_json({"ok": True})
             if p == "/api/load":
                 s = load_settings()
                 s.update({k: v for k, v in b.items() if k in DEFAULT_SETTINGS})
@@ -629,7 +851,8 @@ class Handler(BaseHTTPRequestHandler):
                 if not re.match(r"^[\w.-]+/[\w.-]+$", repo) or ".." in path:
                     return self.send_json({"error": "repositorio invalido"}, 400)
                 t = new_task("model", f"{repo} / {Path(path).name}")
-                run_task(t, lambda task: download_model(task, repo, path))
+                with_mm = bool(b.get("mmproj"))
+                run_task(t, lambda task: download_model(task, repo, path, with_mm))
                 return self.send_json({"id": t["id"]})
             if p == "/api/models/delete":
                 f = (MODELS / b.get("path", "")).resolve()
@@ -671,6 +894,8 @@ class Handler(BaseHTTPRequestHandler):
             for k in SECRETS:
                 if b.get(k) == "***":
                     b.pop(k)
+            if "workspaces" in b:
+                b["workspaces"] = sorted({str(Path(w).resolve()) for w in b["workspaces"] if w and Path(w).is_dir()})
             return self.send_json(masked(save_settings(b)))
         if p.startswith("/api/chats/"):
             cid = p.rsplit("/", 1)[-1]
@@ -690,6 +915,11 @@ class Handler(BaseHTTPRequestHandler):
             cid = p.rsplit("/", 1)[-1]
             f = CHATS / f"{cid}.json"
             if ID_RE.match(cid) and f.exists():
+                try:
+                    for fid in upload_ids(json.loads(f.read_text("utf-8"))):
+                        (media.UPLOADS / fid).unlink(missing_ok=True)
+                except (OSError, ValueError):
+                    pass
                 f.unlink()
             return self.send_json({"ok": True})
         self.send_json({"error": "rota desconhecida"}, 404)
@@ -718,8 +948,9 @@ class Handler(BaseHTTPRequestHandler):
     def make_query(self, messages):
         """Pede ao proprio modelo uma consulta curta para o buscador."""
         convo = [m for m in messages if m["role"] in ("user", "assistant")][-5:]
-        hist = "\n".join(f"{'Usuario' if m['role'] == 'user' else 'Assistente'}: {m['content'][:600]}" for m in convo[:-1])
-        last = convo[-1]["content"] if convo else ""
+        hist = "\n".join(f"{'Usuario' if m['role'] == 'user' else 'Assistente'}: {text_of(m['content'])[:600]}"
+                         for m in convo[:-1])
+        last = text_of(convo[-1]["content"]) if convo else ""
         prompt = (f"Data de hoje: {datetime.now():%d/%m/%Y}.\n"
                   + (f"Conversa anterior:\n{hist}\n\n" if hist else "")
                   + f"Mensagem atual do usuario:\n{last[:1500]}\n\n"
@@ -774,9 +1005,147 @@ class Handler(BaseHTTPRequestHandler):
         out = [dict(m) for m in messages]
         for m in reversed(out):
             if m["role"] == "user":
-                m["content"] = ctx + m["content"]
+                if isinstance(m["content"], list):
+                    m["content"] = [dict(x) for x in m["content"]]
+                    for part in m["content"]:
+                        if part.get("type") == "text":
+                            part["text"] = ctx + part["text"]
+                            break
+                else:
+                    m["content"] = ctx + m["content"]
                 break
         return out
+
+    def sse_safe(self, obj):
+        """Envia um evento SSE; obj=None manda so um ping. Retorna False se o cliente desconectou."""
+        try:
+            if obj is None:
+                self.wfile.write(b": ping\n\n")
+                self.wfile.flush()
+            else:
+                self.sse(obj)
+            return True
+        except OSError:
+            return False
+
+    def start_sse(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+
+    # ---- arquivos enviados ----
+    def handle_upload(self):
+        if not self.check_origin():
+            return self.send_json({"error": "origem bloqueada"}, 403)
+        n = int(self.headers.get("Content-Length") or 0)
+        name = urllib.parse.unquote(self.headers.get("X-Filename") or "arquivo.bin")
+
+        def chunks():
+            left = n
+            while left > 0:
+                data = self.rfile.read(min(1 << 20, left))
+                if not data:
+                    break
+                left -= len(data)
+                yield data
+        try:
+            return self.send_json(media.save_upload(name, chunks()))
+        except ValueError as e:
+            return self.send_json({"error": str(e)}, 400)
+
+    # ---- geracao de imagem ----
+    def enhance_prompt(self, prompt):
+        """Usa o LLM carregado para transformar o pedido num prompt detalhado em ingles."""
+        req = ("Rewrite the user's image request as ONE detailed English prompt for an image generation model: "
+               "subject, style, composition, lighting, colors, details. Keep any text that must appear in the image "
+               "in its original language, inside quotes. Answer with the prompt only.\n\nRequest: " + prompt)
+        try:
+            with self.engine_call({"messages": [{"role": "user", "content": req}], "stream": False, "temperature": 0.6,
+                                   "max_tokens": 400, "chat_template_kwargs": {"enable_thinking": False}}, False) as r:
+                data = json.loads(r.read().decode("utf-8"))
+            add_stats(data.get("timings"))
+            out = data["choices"][0]["message"].get("content") or ""
+            out = re.sub(r"<think>[\s\S]*?(</think>|$)", "", out).strip().strip('"')
+            return out if len(out) > 8 else prompt
+        except (RuntimeError, ValueError, KeyError, IndexError, OSError):
+            return prompt
+
+    def image_generate(self, b):
+        s = load_settings()
+        preset = b.get("preset") or s.get("image_preset") or "z-image-turbo"
+        prompt = (b.get("prompt") or "").strip()
+        if not prompt:
+            return self.send_json({"error": "Descreva a imagem."}, 400)
+        self.start_sse()
+        alive = {"ok": True}
+
+        def emit(obj):
+            if alive["ok"]:
+                alive["ok"] = self.sse_safe(obj)
+            return alive["ok"]
+
+        reload_model = None
+        try:
+            final = prompt
+            if b.get("enhance", s.get("image_enhance")) and ENGINE_PROC.state == "ready":
+                emit({"image": {"stage": "enhance"}})
+                final = self.enhance_prompt(prompt)
+            if s.get("image_unload_llm") and ENGINE_PROC.state in ("ready", "loading"):
+                reload_model = ENGINE_PROC.model
+                emit({"image": {"stage": "unload"}})
+                ENGINE_PROC.stop()
+            seed = int(b.get("seed", -1))
+            if seed < 0:
+                seed = random.randint(0, 2 ** 31 - 1)
+            emit({"image": {"stage": "loading", "prompt": final, "seed": seed}})
+            t0 = time.time()
+            fid, out = media.generate_image(
+                preset, final, b.get("negative", ""), b.get("width") or s.get("image_width"),
+                b.get("height") or s.get("image_height"), b.get("steps") or s.get("image_steps"), 0, seed,
+                s.get("image_offload", True), on_progress=lambda pr: emit({"image": {"stage": "progress", **pr}}),
+                cancel=lambda: not alive["ok"])
+            emit({"image": {"stage": "done", "id": fid, "path": str(out), "prompt": prompt, "final_prompt": final,
+                            "seed": seed, "preset": preset, "seconds": round(time.time() - t0, 1)}})
+        except RuntimeError as e:
+            emit({"error": {"message": str(e)}})
+        finally:
+            if reload_model:
+                try:
+                    ENGINE_PROC.start(reload_model, load_settings())
+                except (ValueError, OSError):
+                    pass
+
+    def image_for_agent(self, prompt, width, height, dest):
+        s = load_settings()
+        fid, out = media.generate_image(s.get("image_preset") or "z-image-turbo", prompt, "", width or 0, height or 0,
+                                        0, 0, random.randint(0, 2 ** 31 - 1), s.get("image_offload", True))
+        shutil.copy2(out, dest)
+        return fid
+
+    # ---- Codex ----
+    def run_agent(self, b):
+        if ENGINE_PROC.state != "ready":
+            return self.send_json({"error": "Nenhum modelo carregado."}, 503)
+        s = load_settings()
+        ws = str(Path(b.get("workspace") or "_").resolve())
+        if ws not in s.get("workspaces", []):
+            return self.send_json({"error": "Pasta nao liberada. Adicione-a nas Configuracoes > Codex."}, 403)
+        self.start_sse()
+        sampling = {k: b[k] for k in ("temperature", "top_p", "top_k", "min_p", "repeat_penalty") if k in b}
+        if int(b.get("max_tokens") or 0) > 0:
+            sampling["max_tokens"] = int(b["max_tokens"])
+        history = build_history(b.get("messages", []), ENGINE_PROC.modalities, agent_mode=True)
+        image_fn = self.image_for_agent if (media.find_exe("sd", media.SD_EXE)
+                                            and media.preset_installed(s.get("image_preset") or "z-image-turbo")) else None
+        run = agent.AgentRun(lambda payload: self.engine_call(payload, True), self.sse_safe, s, image_fn)
+        try:
+            trace, timings = run.run(ws, history, b.get("chat_id", ""), sampling)
+            run.send({"agent": {"type": "trace", "trace": trace}})
+            if timings:
+                add_stats(timings)
+        except (RuntimeError, agent.ToolError) as e:
+            run.send({"error": {"message": str(e)}})
 
     def proxy_chat(self, b):
         if ENGINE_PROC.state != "ready":
@@ -787,7 +1156,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         upstream = None
         try:
-            messages = b.get("messages", [])
+            messages = build_history(b.get("messages", []), ENGINE_PROC.modalities)
             if b.get("web"):
                 messages = self.web_augment(messages)
             payload = {"messages": messages, "stream": True, "cache_prompt": True, "timings_per_token": True}

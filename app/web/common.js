@@ -119,8 +119,8 @@ function linkCitations(html, sources) {
 }
 
 // Le o stream SSE do /api/chat e chama onEvent(json) para cada evento.
-async function streamChat(body, signal, onEvent) {
-  const r = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal });
+async function streamChat(body, signal, onEvent, url = "/api/chat") {
+  const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal });
   if (!r.ok) { let e; try { e = (await r.json()).error; } catch { e = "Erro " + r.status; } throw new Error(e); }
   const reader = r.body.getReader(); const dec = new TextDecoder(); let buf = "";
   while (true) {

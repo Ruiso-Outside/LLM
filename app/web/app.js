@@ -1,12 +1,21 @@
 "use strict";
+const ls = (k, def) => { try { return localStorage.getItem(k) ?? def; } catch { return def; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
+
 const S = {
   status: null,
+  media: null,         // status do Whisper / gerador de imagem
   chat: null,          // conversa aberta {id, title, created, messages}
   generating: false,
   abort: null,
   selectedRepo: "",
   chatFilter: "",
-  web: (() => { try { return localStorage.getItem("web") === "1"; } catch { return false; } })(),
+  web: ls("web", "0") === "1",
+  mode: ls("mode", "chat"),          // chat | codex | image
+  workspace: ls("workspace", ""),
+  attachments: [],     // anexos pendentes no compositor
+  wsEdit: [],          // pastas do Codex sendo editadas nas Configurações
+  doneTasks: new Set(),
 };
 
 // ------------------------------------------------------------------ util
@@ -15,29 +24,43 @@ function toast(msg, ms = 2600) {
   const t = $("#toast"); t.textContent = msg; t.classList.add("show");
   clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), ms);
 }
+const modelName = () => (S.status.models.find(m => m.path === S.status.engine.model) || {}).name || "";
+const extLang = p => ((p || "").split(".").pop() || "").toLowerCase();
+const baseName = p => (p || "").split(/[\\/]/).pop();
 
 // ------------------------------------------------------------------ status
 async function refreshStatus() {
   try {
     S.status = await api("/api/status");
   } catch { $("#statusPill").textContent = "Servidor offline"; $("#statusPill").className = "pill error"; return; }
-  renderTopbar(); renderChatList(); renderTasks(); renderStatsBar();
+  // recarrega o status de mídia quando uma instalação termina
+  const finished = S.status.tasks.filter(t => t.status === "done" && !S.doneTasks.has(t.id));
+  finished.forEach(t => S.doneTasks.add(t.id));
+  if (finished.length) loadMedia();
+  renderTopbar(); renderChatList(); renderTasks(); renderStatsBar(); renderModeBars();
   if ($("#modelsModal").classList.contains("open")) { renderLocalModels(); renderEngine(); }
+}
+
+async function loadMedia() {
+  try { S.media = await api("/api/media"); } catch { return; }
+  renderModeBars();
+  if ($("#modelsModal").classList.contains("open")) { renderMedia(); renderLocalModels(); }
 }
 
 function renderTopbar() {
   const st = S.status; const e = st.engine;
   const sel = $("#modelSelect"); const prev = sel.value || e.model || st.settings.last_model;
-  const opts = st.models.map(m => `<option value="${esc(m.path)}">${esc(m.name)} (${fmtSize(m.size)})</option>`).join("");
+  const opts = st.models.map(m => `<option value="${esc(m.path)}">${esc(m.name)}${m.mmproj ? " 👁" : ""} (${fmtSize(m.size)})</option>`).join("");
   if (sel.dataset.sig !== opts) {
     sel.innerHTML = opts || '<option value="">Nenhum modelo baixado</option>';
     sel.dataset.sig = opts;
     if (st.models.some(m => m.path === prev)) sel.value = prev;
   }
   const pill = $("#statusPill"); const btn = $("#loadBtn");
-  const name = (st.models.find(m => m.path === e.model) || {}).name || e.model;
+  const name = modelName() || e.model;
+  const caps = (e.vision ? " · 👁 visão" : "") + (e.audio ? " · 🎧 áudio" : "");
   const map = { stopped: ["Nenhum modelo carregado", ""], loading: ["Carregando " + name + "...", "loading"],
-                ready: ["● " + name + (e.backend ? ` · ${e.backend.toUpperCase()}` : ""), "ready"], error: ["Erro no motor (clique)", "error"] };
+                ready: ["● " + name + (e.backend ? ` · ${e.backend.toUpperCase()}` : "") + caps, "ready"], error: ["Erro no motor (clique)", "error"] };
   pill.textContent = map[e.state][0]; pill.className = "pill " + map[e.state][1];
   pill.title = e.error || "";
   const loadedSelected = (e.state === "ready" || e.state === "loading") && sel.value === e.model;
@@ -50,9 +73,15 @@ function renderTopbar() {
 function updateHint() {
   const st = S.status; if (!st) return;
   let h = "";
-  if (!Object.keys(st.backends).length) h = "Primeiro passo: abra Modelos → Motor e instale o motor.";
+  if (S.mode === "image") {
+    const im = S.media?.image;
+    if (!im?.installed) h = "Para gerar imagens, instale o motor em Modelos → Mídia.";
+    else if (!Object.values(im.presets).some(p => p.installed)) h = "Baixe um modelo de imagem em Modelos → Mídia.";
+    else h = "🎨 Descreva a imagem. Pode escrever em português.";
+  } else if (!Object.keys(st.backends).length) h = "Primeiro passo: abra Modelos → Motor e instale o motor.";
   else if (!st.models.length) h = "Baixe um modelo em Modelos → Baixar modelos.";
   else if (st.engine.state !== "ready") h = st.engine.state === "loading" ? "Carregando modelo na memória..." : "Selecione um modelo e clique em Carregar.";
+  else if (S.mode === "codex") h = S.workspace ? `🛠️ O Codex trabalha somente dentro de ${S.workspace}` : "Escolha ou adicione uma pasta para o Codex trabalhar.";
   else h = S.web ? "🌐 Pesquisa na web ligada: o modelo vai pesquisar antes de cada resposta." : "";
   $("#hint").textContent = h;
 }
@@ -69,6 +98,59 @@ $("#modelSelect").onchange = renderTopbar;
 $("#statusPill").onclick = () => {
   if (S.status?.engine.state === "error") { openModal("modelsModal"); switchTab("tabEngine"); }
 };
+
+// ------------------------------------------------------------------ modos (Chat / Codex / Imagem)
+const PLACEHOLDER = {
+  chat: "Escreva sua mensagem... (Enter envia, Shift+Enter quebra linha)",
+  codex: "Peça ao Codex: ex. “crie um jogo da cobrinha em HTML” ou “corrija o erro no main.py”",
+  image: "Descreva a imagem que você quer gerar...",
+};
+function setMode(mode) {
+  S.mode = mode; lsSet("mode", mode);
+  $$("#modes button").forEach(b => b.classList.toggle("on", b.dataset.mode === mode));
+  $("#input").placeholder = PLACEHOLDER[mode];
+  $("#webBtn").hidden = mode !== "chat";
+  $("#attachBtn").hidden = mode === "image";
+  if (mode === "image" && S.attachments.length) { S.attachments = []; renderAttachTray(); }
+  renderModeBars(); updateHint();
+}
+$("#modes").onclick = e => { const b = e.target.closest("[data-mode]"); if (b && !S.generating) setMode(b.dataset.mode); };
+
+function renderModeBars() {
+  $("#codexBar").hidden = S.mode !== "codex";
+  $("#imageBar").hidden = S.mode !== "image";
+  if (!S.status) return;
+  // pastas do Codex
+  const wss = S.status.settings.workspaces || [];
+  if (S.workspace && !wss.includes(S.workspace)) S.workspace = "";
+  if (!S.workspace && wss.length) S.workspace = wss[0];
+  const wsOpts = (wss.length ? wss.map(w => `<option value="${esc(w)}" ${w === S.workspace ? "selected" : ""}>📁 ${esc(baseName(w))}</option>`).join("")
+    : '<option value="">Nenhuma pasta liberada</option>') + '<option value="__add">+ Adicionar pasta...</option>';
+  const ws = $("#workspaceSelect");
+  if (ws.dataset.sig !== wsOpts + S.workspace) { ws.innerHTML = wsOpts; ws.dataset.sig = wsOpts + S.workspace; ws.title = S.workspace; }
+  // modelos de imagem
+  const presets = S.media?.image?.presets || {};
+  const cur = S.status.settings.image_preset;
+  const pOpts = Object.entries(presets).map(([k, p]) => `<option value="${k}" ${k === cur ? "selected" : ""} ${p.installed ? "" : "disabled"}>${esc(p.name)}${p.installed ? "" : " (não baixado)"}</option>`).join("")
+    || '<option value="">Sem modelos de imagem</option>';
+  const ps = $("#imagePresetSelect");
+  if (ps.dataset.sig !== pOpts) { ps.innerHTML = pOpts; ps.dataset.sig = pOpts; }
+}
+$("#workspaceSelect").onchange = async e => {
+  if (e.target.value === "__add") { e.target.value = S.workspace; return addWorkspace(); }
+  S.workspace = e.target.value; lsSet("workspace", S.workspace); updateHint();
+};
+$("#openWorkspace").onclick = () => S.workspace ? desktop.openPath(S.workspace) : toast("Nenhuma pasta selecionada.");
+$("#imagePresetSelect").onchange = e => api("/api/settings", { method: "PUT", body: { image_preset: e.target.value } }).then(refreshStatus);
+
+async function addWorkspace() {
+  const dir = await desktop.chooseFolder();
+  if (!dir) return;
+  const list = [...new Set([...(S.status.settings.workspaces || []), dir])];
+  await api("/api/settings", { method: "PUT", body: { workspaces: list } });
+  S.workspace = dir; lsSet("workspace", dir);
+  await refreshStatus(); toast("Pasta liberada para o Codex");
+}
 
 // ------------------------------------------------------------------ conversas
 function renderChatList() {
@@ -92,7 +174,7 @@ $("#chatList").addEventListener("click", async ev => {
   const item = ev.target.closest(".chat-item"); if (!item) return;
   const id = item.dataset.id;
   if (ev.target.classList.contains("x")) {
-    if (!confirm("Excluir esta conversa?")) return;
+    if (!confirm("Excluir esta conversa (e os arquivos anexados nela)?")) return;
     await api("/api/chats/" + id, { method: "DELETE" });
     if (S.chat?.id === id) newChat();
     return refreshStatus();
@@ -129,14 +211,83 @@ async function saveChat(c = S.chat) {
   c.updated = r.updated;
 }
 
+// ------------------------------------------------------------------ anexos (compositor)
+function attachCtx() {
+  return { modelHasVision: !!S.status?.engine.vision || !!S.status?.models.find(m => m.path === $("#modelSelect").value)?.mmproj,
+           modelHasAudio: !!S.status?.engine.audio, whisperReady: !!(S.media?.whisper?.installed && S.media.whisper.models.length) };
+}
+
+function addFiles(files) {
+  if (S.mode === "image") setMode("chat");
+  for (const file of files) {
+    const item = { uid: uid(), name: file.name, kind: attachKind(file), status: "processing", note: "preparando", atts: [] };
+    if (item.kind === "image") item.preview = URL.createObjectURL(file);
+    S.attachments.push(item); renderAttachTray();
+    processFile(file, note => { item.note = note; renderAttachTray(); }, attachCtx())
+      .then(atts => { item.atts = atts; item.status = "ready"; item.note = describeAtts(atts); })
+      .catch(err => { item.status = "error"; item.note = err.message; })
+      .finally(renderAttachTray);
+  }
+}
+function describeAtts(atts) {
+  const a = atts[0]; if (!a) return "";
+  if (a.kind === "text") return `${fmtNum(a.text.length)} caracteres${a.pages ? ` · ${a.pages} páginas` : ""}`;
+  if (a.kind === "audio") return a.transcript !== undefined ? `${Math.round(a.duration)}s · transcrito` : `${Math.round(a.duration)}s`;
+  if (a.kind === "video") return `${Math.round(a.duration)}s · ${a.frames.length} quadros${a.transcript ? " · transcrito" : ""}`;
+  if (a.kind === "image") return atts.length > 1 ? `${atts.length} páginas como imagem` : "imagem";
+  return "";
+}
+function renderAttachTray() {
+  $("#attachTray").innerHTML = S.attachments.map(it => `<div class="att-chip ${it.status}" data-uid="${it.uid}" title="${esc(it.note || "")}">
+      ${it.preview ? `<img src="${it.preview}">` : `<span class="att-ico">${ATTACH_ICON[it.kind] || "📎"}</span>`}
+      <span class="att-txt"><b>${esc(it.name)}</b><small>${it.status === "processing" ? '<span class="spin"></span> ' : it.status === "error" ? "⚠ " : ""}${esc(it.note || "")}</small></span>
+      <button class="att-x" title="Remover">✕</button></div>`).join("");
+}
+$("#attachTray").onclick = e => {
+  if (!e.target.classList.contains("att-x")) return;
+  const uidv = e.target.closest(".att-chip").dataset.uid;
+  S.attachments = S.attachments.filter(a => a.uid !== uidv); renderAttachTray();
+};
+$("#attachBtn").onclick = () => $("#fileInput").click();
+$("#fileInput").onchange = e => { addFiles([...e.target.files]); e.target.value = ""; };
+$("#input").addEventListener("paste", e => {
+  const files = [...(e.clipboardData?.files || [])];
+  if (files.length) { e.preventDefault(); addFiles(files); }
+});
+let dragDepth = 0;
+document.addEventListener("dragenter", e => { if (e.dataTransfer?.types.includes("Files")) { dragDepth++; $("#composer").classList.add("drop"); } });
+document.addEventListener("dragleave", () => { if (--dragDepth <= 0) { dragDepth = 0; $("#composer").classList.remove("drop"); } });
+document.addEventListener("dragover", e => e.preventDefault());
+document.addEventListener("drop", e => {
+  e.preventDefault(); dragDepth = 0; $("#composer").classList.remove("drop");
+  if (e.dataTransfer?.files.length && !e.target.closest(".modal")) addFiles([...e.dataTransfer.files]);
+});
+
+function attachmentsHTML(atts) {
+  if (!atts?.length) return "";
+  return `<div class="msg-atts">` + atts.map(a => {
+    if (a.kind === "image") return `<img class="att-thumb" src="/api/uploads/${a.id}" title="${esc(a.name)}" data-zoom>`;
+    if (a.kind === "audio") return `<div class="att-file"><span>🎵 ${esc(a.name)}</span><audio controls preload="none" src="/api/uploads/${a.id}"></audio>${a.transcript ? `<details><summary>Transcrição</summary><div class="att-transcript">${esc(a.transcript)}</div></details>` : ""}</div>`;
+    if (a.kind === "video") return `<div class="att-file"><span>🎬 ${esc(a.name)} <small>(${Math.round(a.duration)}s)</small></span><div class="frames">${(a.frames || []).map(f => `<img src="/api/uploads/${f.id}" title="${Math.round(f.t)}s" data-zoom>`).join("")}</div>${a.transcript ? `<details><summary>Transcrição do áudio</summary><div class="att-transcript">${esc(a.transcript)}</div></details>` : ""}</div>`;
+    return `<div class="att-file"><span>📄 ${esc(a.name)} <small>${fmtNum((a.text || "").length)} caracteres</small></span></div>`;
+  }).join("") + `</div>`;
+}
+
 // ------------------------------------------------------------------ mensagens
+function statsHTML(s) {
+  if (!s) return "";
+  return `<span class="stats" title="${s.prompt !== undefined ? `Entrada: ${s.prompt + (s.cached || 0)} tokens (${s.cached || 0} reaproveitados do cache)\nSaída: ${s.tokens} tokens` : ""}">${s.tps.toFixed(1)} tok/s · ${fmtNum(s.tokens)} tokens gerados${s.prompt !== undefined ? ` · ${fmtNum(s.prompt + (s.cached || 0))} de entrada` : ""}</span>`;
+}
+
 function msgHTML(msg, idx, isLast) {
   const streaming = isLast && S.generating && msg.role === "assistant";
   if (msg.role === "user") {
     return `<div class="msg user ${isLast ? "last" : ""}" data-i="${idx}"><div class="role">Você</div>
-      <div class="bubble">${esc(msg.content)}</div>
+      ${attachmentsHTML(msg.attachments)}${msg.content ? `<div class="bubble">${esc(msg.content)}</div>` : ""}
       <div class="actions"><button data-act="copy">Copiar</button><button data-act="edit">Editar</button><button data-act="del">Excluir</button></div></div>`;
   }
+  if (msg.mode === "image") return imageMsgHTML(msg, idx, isLast, streaming);
+  if (msg.mode === "codex") return codexMsgHTML(msg, idx, isLast, streaming);
   const { content, reasoning, open } = splitThink(msg);
   const thinking = streaming && (open || (reasoning && !content));
   let live = "";
@@ -150,12 +301,69 @@ function msgHTML(msg, idx, isLast) {
   if (reasoning) html += `<details class="think" ${thinking ? "open" : ""}><summary>${thinking ? "Pensando..." : "Raciocínio"}</summary><div class="think-body">${esc(reasoning)}</div></details>`;
   html += `<div class="content ${streaming ? "cursor" : ""}">${linkCitations(md(content), msg.web?.sources)}</div>`;
   if (msg.error) html += `<div class="err">${esc(msg.error)}</div>`;
-  if (!streaming) {
-    const s = msg.stats;
-    const st = s ? `<span class="stats" title="${s.prompt !== undefined ? `Entrada: ${s.prompt + (s.cached || 0)} tokens (${s.cached || 0} reaproveitados do cache)\nSaída: ${s.tokens} tokens` : ""}">${s.tps.toFixed(1)} tok/s · ${fmtNum(s.tokens)} tokens gerados${s.prompt !== undefined ? ` · ${fmtNum(s.prompt + (s.cached || 0))} de entrada` : ""}</span>` : "";
-    html += `<div class="actions"><button data-act="copy">Copiar</button>${isLast ? '<button data-act="regen">Regenerar</button><button data-act="continue">Continuar</button>' : ""}<button data-act="del">Excluir</button>${st}</div>`;
-  }
+  if (!streaming) html += `<div class="actions"><button data-act="copy">Copiar</button>${isLast ? '<button data-act="regen">Regenerar</button><button data-act="continue">Continuar</button>' : ""}<button data-act="del">Excluir</button>${statsHTML(msg.stats)}</div>`;
   return html + "</div>";
+}
+
+// ---- Codex
+const TOOL_LABEL = {
+  list_files: a => ["📂", `Listou <code>${esc(a.path || ".")}</code>`],
+  read_file: a => ["📄", `Leu <code>${esc(a.path)}</code>${a.start_line ? ` <small>(linhas ${a.start_line}–${a.end_line || "fim"})</small>` : ""}`],
+  write_file: a => ["✏️", `Escreveu <code>${esc(a.path)}</code> <small>(${(a.content || "").replace(/\n$/, "").split("\n").length} linhas)</small>`],
+  edit_file: a => ["🔧", `Editou <code>${esc(a.path)}</code>`],
+  search_files: a => ["🔎", `Buscou <code>${esc(a.pattern)}</code>${a.glob ? ` em <code>${esc(a.glob)}</code>` : ""}`],
+  delete_path: a => ["🗑️", `Apagar <code>${esc(a.path)}</code>`],
+  run_command: a => ["▶️", `<code>${esc(a.command)}</code>`],
+  generate_image: a => ["🎨", `Gerar imagem <code>${esc(a.path)}</code>`],
+};
+function toolBody(step) {
+  const a = step.args || {}; let b = "";
+  if (step.name === "write_file") b += codeBlock(extLang(a.path), a.content || "");
+  if (step.name === "edit_file") b += `<div class="diff"><pre class="del">${esc(a.old_text || "")}</pre><pre class="add">${esc(a.new_text || "")}</pre></div>`;
+  if (step.name === "generate_image") b += `<div class="tool-prompt">${esc(a.prompt || "")}</div>`;
+  if (step.result && (!["write_file", "edit_file"].includes(step.name) || !step.ok)) b += `<pre class="tool-out ${step.ok === false ? "bad" : ""}">${esc(step.result)}</pre>`;
+  if (step.image) b += `<img class="tool-img" src="/api/uploads/${step.image}" data-zoom>`;
+  return b || '<span class="muted">…</span>';
+}
+function stepHTML(step, si) {
+  if (step.type === "text") return step.text.trim() ? `<div class="content">${md(step.text)}</div>` : "";
+  if (step.type === "reasoning") return `<details class="think" data-si="${si}" ${step._open ? "open" : ""}><summary>Raciocínio</summary><div class="think-body">${esc(step.text)}</div></details>`;
+  const [icon, label] = (TOOL_LABEL[step.name] || (() => ["🔧", esc(step.name)]))(step.args || {});
+  const mark = { running: '<span class="spin"></span>', approval: "⏸", ok: "✓", error: "✗" }[step.status] || "";
+  const open = step.status === "approval" || step._open;
+  let h = `<details class="tool ${step.status}" data-si="${si}" ${open ? "open" : ""}><summary><span class="ti">${icon}</span><span class="tl">${label}</span><span class="ts">${mark}</span></summary><div class="tool-body">${toolBody(step)}</div></details>`;
+  if (step.status === "approval") {
+    const why = step.name === "run_command" ? "O Codex quer rodar este comando." : step.name === "delete_path" ? "O Codex quer apagar este item." : "O Codex quer alterar este arquivo.";
+    h += `<div class="approval" data-call="${esc(step.id)}"><span>${why}</span><button class="btn small primary" data-approve="once">Permitir</button><button class="btn small" data-approve="always">Sempre nesta conversa</button><button class="btn small danger" data-approve="deny">Negar</button></div>`;
+  }
+  return h;
+}
+function codexMsgHTML(msg, idx, isLast, streaming) {
+  const live = streaming ? (msg.stats?.tokens ? `⚡ ${msg.stats.tps.toFixed(1)} tok/s · ${fmtNum(msg.stats.tokens)} tokens` : "pensando...") : "";
+  let h = `<div class="msg assistant codex ${isLast ? "last" : ""}" data-i="${idx}"><div class="role">🛠️ Codex · ${esc(msg.model || "")} <span class="ws-tag" title="${esc(msg.workspace)}">📁 ${esc(baseName(msg.workspace))}</span>${live ? `<span class="live">${live}</span>` : ""}</div>`;
+  h += `<div class="steps">${(msg.steps || []).map(stepHTML).join("")}${streaming ? '<div class="cursor"></div>' : ""}</div>`;
+  if (msg.error) h += `<div class="err">${esc(msg.error)}</div>`;
+  if (!streaming) h += `<div class="actions"><button data-act="copy">Copiar</button><button data-act="open-ws">Abrir pasta</button>${isLast ? '<button data-act="regen">Refazer</button>' : ""}<button data-act="del">Excluir</button>${statsHTML(msg.stats)}</div>`;
+  return h + "</div>";
+}
+
+// ---- Imagem
+function imageMsgHTML(msg, idx, isLast, streaming) {
+  const im = msg.image || {};
+  let h = `<div class="msg assistant ${isLast ? "last" : ""}" data-i="${idx}"><div class="role">🎨 ${esc(im.presetName || "Imagem")}</div>`;
+  if (im.id) {
+    h += `<div class="gen-img"><img src="/api/uploads/${im.id}" data-zoom alt="${esc(im.prompt)}"></div>
+      <details class="gen-meta"><summary>Seed ${im.seed} · ${im.seconds}s</summary><div><b>Pedido:</b> ${esc(im.prompt)}</div>${im.final_prompt && im.final_prompt !== im.prompt ? `<div><b>Prompt usado:</b> ${esc(im.final_prompt)}</div>` : ""}</details>`;
+  } else if (streaming) {
+    const label = { enhance: "Melhorando a descrição com o modelo de texto...", unload: "Liberando a GPU...", loading: "Carregando o modelo de imagem...",
+                    progress: `Gerando: passo ${im.step}/${im.total}${im.speed ? ` · ${im.speed}` : ""}` }[im.stage] || "Preparando...";
+    const pct = im.stage === "progress" && im.total ? im.step / im.total * 100 : 0;
+    h += `<div class="gen-progress"><div class="row"><span class="spin"></span><span>${label}</span></div><div class="bar"><div style="width:${pct}%"></div></div>
+      ${im.prompt && im.prompt !== msg.request ? `<small class="muted">${esc(im.prompt)}</small>` : ""}</div>`;
+  }
+  if (msg.error) h += `<div class="err">${esc(msg.error)}</div>`;
+  if (!streaming) h += `<div class="actions">${isLast && !im.id ? '<button data-act="regen">Tentar de novo</button>' : ""}${im.id ? `<button data-act="img-again">Gerar outra</button><button data-act="img-show">Mostrar na pasta</button><button data-act="img-save">Salvar como...</button><button data-act="img-prompt">Copiar prompt</button>` : ""}<button data-act="del">Excluir</button></div>`;
+  return h + "</div>";
 }
 
 function renderMessages() {
@@ -167,7 +375,10 @@ function renderMessages() {
       ${noEngine || noModel ? `<ol class="steps">
         <li>${noEngine ? "" : "✅ "}Instale o motor em <b>Modelos → Motor</b></li>
         <li>${noModel ? "" : "✅ "}Baixe um modelo em <b>Modelos → Baixar modelos</b></li>
-        <li>Selecione o modelo no topo e clique em <b>Carregar</b></li></ol>` : ""}</div>`;
+        <li>Selecione o modelo no topo e clique em <b>Carregar</b></li></ol>` : `<div class="mode-cards">
+        <div><b>💬 Chat</b><span>Converse, anexe arquivos 📎, imagens, áudios e vídeos.</span></div>
+        <div><b>🛠️ Codex</b><span>Crie e edite projetos de software numa pasta que você liberar.</span></div>
+        <div><b>🎨 Imagem</b><span>Gere imagens a partir de uma descrição.</span></div></div>`}</div>`;
     return;
   }
   const n = S.chat.messages.length;
@@ -176,6 +387,13 @@ function renderMessages() {
   renderStatsBar();
 }
 
+// mantém aberto/fechado o que o usuário expandiu enquanto a resposta é redesenhada
+$("#messages").addEventListener("toggle", e => {
+  const d = e.target; if (d.dataset?.si === undefined) return;
+  const i = +d.closest(".msg")?.dataset.i; const step = S.chat?.messages[i]?.steps?.[+d.dataset.si];
+  if (step) step._open = d.open;
+}, true);
+
 // ------------------------------------------------------------------ contador de tokens
 function chatTotals(chat) {
   let input = 0, output = 0, ctxUsed = 0;
@@ -183,7 +401,7 @@ function chatTotals(chat) {
     if (m.role !== "assistant" || !m.stats) continue;
     const inp = (m.stats.prompt || 0) + (m.stats.cached || 0);
     input += inp; output += m.stats.tokens || 0;
-    if (m.stats.prompt !== undefined) ctxUsed = inp + (m.stats.tokens || 0);
+    if (m.stats.prompt !== undefined) ctxUsed = inp + (m.stats.lastOut ?? m.stats.tokens ?? 0);
   }
   return { input, output, ctxUsed };
 }
@@ -213,11 +431,11 @@ function renderLastMessage() {
     const box = $("#messages"); const n = S.chat.messages.length;
     const stick = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
     const el = box.querySelector(`.msg[data-i="${n - 1}"]`);
-    const think = el?.querySelector("details.think");
+    const think = el?.querySelector(":scope > details.think");
     const keepOpen = think ? think.open : null;
     const tmp = document.createElement("div"); tmp.innerHTML = msgHTML(S.chat.messages[n - 1], n - 1, true);
     const fresh = tmp.firstElementChild;
-    const newThink = fresh.querySelector("details.think");
+    const newThink = fresh.querySelector(":scope > details.think");
     if (newThink && keepOpen !== null && S.generating) newThink.open = keepOpen;
     if (el) el.replaceWith(fresh); else box.appendChild(fresh);
     if (stick) box.scrollTop = box.scrollHeight;
@@ -225,76 +443,128 @@ function renderLastMessage() {
   });
 }
 
+// ---- ações das mensagens
 $("#messages").addEventListener("click", async ev => {
   const cb = ev.target.closest(".copy-code");
   if (cb) {
     await navigator.clipboard.writeText(cb.closest(".code").querySelector("code").textContent);
     cb.textContent = "Copiado!"; setTimeout(() => cb.textContent = "Copiar", 1200); return;
   }
+  const zoom = ev.target.closest("[data-zoom]");
+  if (zoom) return openLightbox(zoom.src);
+  const ap = ev.target.closest("[data-approve]");
+  if (ap) {
+    const id = ap.closest(".approval").dataset.call; const v = ap.dataset.approve;
+    await post("/api/agent/approve", { id, ok: v !== "deny", always: v === "always" });
+    const msg = S.chat.messages.at(-1); const step = msg.steps?.find(s => s.id === id);
+    if (step) { step.status = v === "deny" ? "error" : "running"; renderLastMessage(); }
+    return;
+  }
   const b = ev.target.closest("[data-act]"); if (!b || S.generating) return;
   const i = +b.closest(".msg").dataset.i; const msg = S.chat.messages[i];
   switch (b.dataset.act) {
-    case "copy": await navigator.clipboard.writeText(splitThink(msg).content || msg.content); toast("Copiado"); break;
+    case "copy": await navigator.clipboard.writeText(msg.mode === "codex" ? msg.content : splitThink(msg).content || msg.content); toast("Copiado"); break;
     case "del": S.chat.messages.splice(i, 1); renderMessages(); saveChat(); break;
-    case "regen": S.chat.messages.pop(); renderMessages(); generate(); break;
+    case "regen": S.chat.messages.pop(); renderMessages(); dispatch(msg.mode || "chat", { workspace: msg.workspace, prompt: msg.request }); break;
     case "continue": generate(true); break;
+    case "open-ws": desktop.openPath(msg.workspace); break;
+    case "img-again": genImage(msg.request, { preset: msg.image.preset }); break;
+    case "img-show": desktop.showItem(msg.image.path); break;
+    case "img-save": { const a = document.createElement("a"); a.href = "/api/uploads/" + msg.image.id; a.download = `imagem-${msg.image.seed}.png`; a.click(); break; }
+    case "img-prompt": await navigator.clipboard.writeText(msg.image.final_prompt || msg.image.prompt); toast("Prompt copiado"); break;
     case "edit": {
       const el = b.closest(".msg");
-      el.querySelector(".bubble").outerHTML = `<textarea class="input edit-area">${esc(msg.content)}</textarea>`;
+      const bubble = el.querySelector(".bubble");
+      const ta = `<textarea class="input edit-area">${esc(msg.content)}</textarea>`;
+      if (bubble) bubble.outerHTML = ta; else el.querySelector(".actions").insertAdjacentHTML("beforebegin", ta);
       el.querySelector(".actions").innerHTML = '<button data-act="save-edit">Salvar e reenviar</button><button data-act="cancel-edit">Cancelar</button>';
       el.querySelector("textarea").focus(); break;
     }
     case "cancel-edit": renderMessages(); break;
     case "save-edit": {
-      const txt = b.closest(".msg").querySelector("textarea").value.trim(); if (!txt) return;
-      S.chat.messages.splice(i); S.chat.messages.push({ role: "user", content: txt });
-      renderMessages(); generate(); break;
+      const txt = b.closest(".msg").querySelector("textarea").value.trim(); if (!txt && !msg.attachments?.length) return;
+      const next = S.chat.messages[i + 1];
+      S.chat.messages.splice(i); S.chat.messages.push({ role: "user", content: txt, attachments: msg.attachments });
+      renderMessages(); dispatch(next?.mode || "chat", { workspace: next?.workspace, prompt: txt }); break;
     }
   }
 });
 
-// ------------------------------------------------------------------ envio / streaming
-function buildMessages(upto) {
+function openLightbox(src) {
+  const lb = document.createElement("div"); lb.className = "lightbox";
+  lb.innerHTML = `<img src="${esc(src)}">`; lb.onclick = () => lb.remove(); document.body.appendChild(lb);
+}
+
+// ------------------------------------------------------------------ envio
+function buildMessages() {
   const out = []; const sp = S.status.settings.system_prompt;
   if (sp && sp.trim()) out.push({ role: "system", content: sp });
-  for (const m of S.chat.messages.slice(0, upto)) {
-    const content = m.role === "assistant" ? splitThink(m).content : m.content;
-    if (content || m.role === "user") out.push({ role: m.role, content });
+  for (const m of S.chat.messages) {
+    if (m.role === "user") out.push({ role: "user", content: m.content, attachments: m.attachments });
+    else if (m.mode === "codex") out.push({ role: "assistant", content: m.content, trace: m.trace });
+    else if (m.mode === "image") { if (m.image?.id) out.push({ role: "assistant", image: { prompt: m.image.final_prompt || m.image.prompt } }); }
+    else { const content = splitThink(m).content; if (content) out.push({ role: "assistant", content }); }
   }
   return out;
 }
 
-async function send() {
-  const inp = $("#input"); const text = inp.value.trim();
-  if (!text || S.generating) return;
-  if (S.status?.engine.state !== "ready") return toast(S.status?.engine.state === "loading" ? "Aguarde o modelo terminar de carregar." : "Carregue um modelo primeiro (botão Carregar no topo).");
-  if (!S.chat) S.chat = { id: uid(), title: text.slice(0, 60).replace(/\s+/g, " "), created: Date.now() / 1000, messages: [] };
-  S.chat.messages.push({ role: "user", content: text });
-  inp.value = ""; autoGrow();
-  renderMessages();
-  await generate();
+function sampling() {
+  const st = S.status.settings;
+  return { temperature: +st.temperature, top_p: +st.top_p, top_k: +st.top_k, min_p: +st.min_p,
+           repeat_penalty: +st.repeat_penalty, max_tokens: +st.max_tokens };
 }
 
+async function send() {
+  const inp = $("#input"); const text = inp.value.trim();
+  if (S.generating) return;
+  if (S.attachments.some(a => a.status === "processing")) return toast("Aguarde os anexos terminarem de processar.");
+  const atts = S.attachments.filter(a => a.status === "ready").flatMap(a => a.atts);
+  if (!text && !atts.length) return;
+  const mode = S.mode;
+  if (mode !== "image" && S.status?.engine.state !== "ready")
+    return toast(S.status?.engine.state === "loading" ? "Aguarde o modelo terminar de carregar." : "Carregue um modelo primeiro (botão Carregar no topo).");
+  if (mode === "codex" && !S.workspace) return addWorkspace();
+  if (mode === "image") {
+    const im = S.media?.image;
+    if (!im?.installed || !im.presets[S.status.settings.image_preset]?.installed) { openModal("modelsModal"); switchTab("tabMedia"); return toast("Instale o motor e um modelo de imagem primeiro."); }
+  }
+  if (!S.chat) S.chat = { id: uid(), title: (mode === "image" ? "🎨 " : mode === "codex" ? "🛠️ " : "") + (text || atts[0]?.name || "Anexo").slice(0, 60).replace(/\s+/g, " "), created: Date.now() / 1000, messages: [] };
+  S.chat.messages.push({ role: "user", content: text, ...(atts.length ? { attachments: atts } : {}) });
+  inp.value = ""; autoGrow(); S.attachments = []; renderAttachTray();
+  renderMessages();
+  await dispatch(mode, { prompt: text });
+}
+
+function dispatch(mode, opts = {}) {
+  if (mode === "codex") return runAgent(opts.workspace || S.workspace);
+  if (mode === "image") return genImage(opts.prompt ?? S.chat.messages.at(-1)?.content ?? "", opts);
+  return generate();
+}
+
+function startGenerating() { S.generating = true; S.abort = new AbortController(); setComposerState(); renderMessages(); }
+async function finishGenerating() {
+  S.generating = false; S.abort = null; setComposerState();
+  renderMessages();
+  await saveChat().catch(() => {});
+  refreshStatus();
+}
+
+// ---- Chat
 async function generate(isContinue = false) {
-  const st = S.status.settings;
-  const modelName = (S.status.models.find(m => m.path === S.status.engine.model) || {}).name || "";
-  let msg, messages;
+  let msg;
   if (isContinue) {
     msg = S.chat.messages[S.chat.messages.length - 1];
-    messages = buildMessages(); delete msg.error;
-    msg._base = msg.stats ? { tokens: msg.stats.tokens } : null;
+    delete msg.error; msg._base = msg.stats ? { tokens: msg.stats.tokens } : null;
   } else {
-    msg = { role: "assistant", content: "", reasoning: "", model: modelName };
+    msg = { role: "assistant", content: "", reasoning: "", model: modelName() };
     if (S.web) msg.web = { stage: "query" };
-    messages = buildMessages(); S.chat.messages.push(msg);
   }
-  S.generating = true; S.abort = new AbortController(); setComposerState();
-  renderMessages();
+  const messages = buildMessages();
+  if (!isContinue) S.chat.messages.push(msg);
+  startGenerating();
   const t0 = performance.now(); let tokens = 0;
   try {
-    const body = { messages, web: S.web && !isContinue, temperature: +st.temperature, top_p: +st.top_p, top_k: +st.top_k,
-      min_p: +st.min_p, repeat_penalty: +st.repeat_penalty, max_tokens: +st.max_tokens };
-    await streamChat(body, S.abort.signal, j => {
+    await streamChat({ messages, web: S.web && !isContinue, ...sampling() }, S.abort.signal, j => {
       if (j.llmlocal) { msg.web = { ...msg.web, ...j.llmlocal }; renderLastMessage(); return; }
       const d = j.choices?.[0]?.delta || {};
       if (d.content) { msg.content += d.content; tokens++; }
@@ -312,10 +582,62 @@ async function generate(isContinue = false) {
     if (!msg.stats && tokens) msg.stats = { tps: tokens / ((performance.now() - t0) / 1000), tokens };
     delete msg._base;
     if (msg.web && msg.web.stage !== "done" && msg.web.stage !== "error") delete msg.web;
-    S.generating = false; S.abort = null; setComposerState();
-    renderMessages();
-    await saveChat().catch(() => {});
-    refreshStatus();
+    await finishGenerating();
+  }
+}
+
+// ---- Codex
+async function runAgent(workspace) {
+  const msg = { role: "assistant", mode: "codex", workspace, model: modelName(), content: "", steps: [] };
+  const messages = buildMessages();
+  S.chat.messages.push(msg);
+  startGenerating();
+  let base = 0, lastPred = 0;
+  const lastStep = type => { let s = msg.steps.at(-1); if (!s || s.type !== type) { s = { type, text: "" }; msg.steps.push(s); } return s; };
+  try {
+    await streamChat({ chat_id: S.chat.id, workspace, messages, ...sampling() }, S.abort.signal, j => {
+      if (j.timings) {
+        const t = j.timings;
+        if ((t.predicted_n || 0) < lastPred) base += lastPred;
+        lastPred = t.predicted_n || 0;
+        msg.stats = { tps: t.predicted_per_second || 0, tokens: base + lastPred, lastOut: lastPred, prompt: t.prompt_n || 0, cached: t.cache_n || 0 };
+      }
+      const a = j.agent; if (!a) { if (j.timings) renderLastMessage(); return; }
+      if (a.type === "text") { lastStep("text").text += a.delta; msg.content += a.delta; }
+      else if (a.type === "reasoning") lastStep("reasoning").text += a.delta;
+      else if (a.type === "tool_start") { msg.steps.push({ type: "tool", id: a.id, name: a.name, args: a.args, status: "running" }); msg.content += msg.content && !msg.content.endsWith("\n") ? "\n" : ""; }
+      else if (a.type === "approval") { const s = msg.steps.find(x => x.id === a.id); if (s) s.status = "approval"; }
+      else if (a.type === "tool_end") { const s = msg.steps.find(x => x.id === a.id); if (s) Object.assign(s, { status: a.ok ? "ok" : "error", ok: a.ok, result: a.result, image: a.image }); }
+      else if (a.type === "step_end") { base += lastPred; lastPred = 0; }
+      else if (a.type === "trace") msg.trace = a.trace;
+      renderLastMessage();
+    }, "/api/agent");
+  } catch (e) {
+    if (e.name !== "AbortError") msg.error = e.message;
+  } finally {
+    msg.steps.forEach(s => { if (s.status === "running" || s.status === "approval") s.status = "error"; delete s._open; });
+    await finishGenerating();
+  }
+}
+
+// ---- Imagem
+async function genImage(prompt, opts = {}) {
+  if (!prompt) return toast("Descreva a imagem.");
+  const preset = opts.preset || S.status.settings.image_preset;
+  const presetInfo = S.media?.image?.presets?.[preset] || {};
+  const size = $("#imageSizeSelect").value.split("x").map(Number);
+  const msg = { role: "assistant", mode: "image", request: prompt, image: { stage: "start", preset, presetName: presetInfo.name } };
+  S.chat.messages.push(msg);
+  startGenerating();
+  try {
+    await streamChat({ prompt, preset, width: size[0] || 0, height: size[1] || 0 }, S.abort.signal, j => {
+      if (j.image) { Object.assign(msg.image, j.image); renderLastMessage(); }
+    }, "/api/image/generate");
+    if (!msg.image.id && !msg.error) msg.error = "A geração terminou sem imagem.";
+  } catch (e) {
+    msg.error = e.name === "AbortError" ? "Geração cancelada." : e.message;
+  } finally {
+    await finishGenerating();
   }
 }
 
@@ -327,24 +649,31 @@ function setComposerState() {
 $("#sendBtn").onclick = () => S.generating ? S.abort?.abort() : send();
 function setWeb(on) {
   S.web = on; $("#webBtn").classList.toggle("on", on);
-  try { localStorage.setItem("web", on ? "1" : "0"); } catch {}
+  lsSet("web", on ? "1" : "0");
   updateHint();
 }
 $("#webBtn").onclick = () => { setWeb(!S.web); toast(S.web ? "Pesquisa na web ligada" : "Pesquisa na web desligada"); };
-setWeb(S.web);
 function autoGrow() { const t = $("#input"); t.style.height = "auto"; t.style.height = Math.min(t.scrollHeight, 260) + "px"; }
 $("#input").addEventListener("input", autoGrow);
 $("#input").addEventListener("keydown", e => {
   if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
 });
 document.addEventListener("keydown", e => {
-  if (e.key === "Escape") { if (S.generating) S.abort?.abort(); $$(".modal.open").forEach(m => m.classList.remove("open")); }
+  if (e.key === "Escape") {
+    const lb = $(".lightbox"); if (lb) return lb.remove();
+    if (S.generating) S.abort?.abort();
+    $$(".modal.open").forEach(m => m.classList.remove("open"));
+  }
 });
 
 $("#exportBtn").onclick = () => {
   if (!S.chat?.messages.length) return toast("Nada para exportar.");
-  const txt = `# ${S.chat.title}\n\n` + S.chat.messages.map(m =>
-    `**${m.role === "user" ? "Você" : (m.model || "Assistente")}:**\n\n${m.role === "assistant" ? splitThink(m).content : m.content}`).join("\n\n---\n\n");
+  const txt = `# ${S.chat.title}\n\n` + S.chat.messages.map(m => {
+    const who = m.role === "user" ? "Você" : m.mode === "codex" ? "Codex" : (m.model || "Assistente");
+    const body = m.role === "assistant" ? (m.mode === "image" ? `![imagem](${m.image?.path || ""})\n\n${m.image?.prompt || ""}` : m.mode === "codex" ? m.content : splitThink(m).content) : m.content;
+    const atts = (m.attachments || []).map(a => `> 📎 ${a.name}`).join("\n");
+    return `**${who}:**\n\n${atts ? atts + "\n\n" : ""}${body}`;
+  }).join("\n\n---\n\n");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([txt], { type: "text/markdown" }));
   a.download = (S.chat.title || "conversa").replace(/[\\/:*?"<>|]/g, "_").slice(0, 60) + ".md"; a.click();
@@ -356,7 +685,7 @@ $("#toggleSide").onclick = () => $("#app").classList.toggle("side-hidden");
 function openModal(id) {
   $("#" + id).classList.add("open");
   if (id === "settingsModal") fillSettings();
-  if (id === "modelsModal") { renderLocalModels(); renderEngine(); loadLog(); }
+  if (id === "modelsModal") { renderLocalModels(); renderEngine(); loadLog(); loadMedia(); }
 }
 $$("[data-open]").forEach(b => b.onclick = () => openModal(b.dataset.open));
 $$(".modal").forEach(m => m.addEventListener("mousedown", e => { if (e.target === m || e.target.closest("[data-close]")) m.classList.remove("open"); }));
@@ -364,6 +693,7 @@ function switchTab(id) {
   $$(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === id));
   $$(".tab-pane").forEach(p => p.classList.toggle("active", p.id === id));
   if (id === "tabEngine") loadLog();
+  if (id === "tabMedia") { renderMedia(); loadMedia(); }
   if (id === "tabHF" && !$("#hfResults").innerHTML) hfSearch("GGUF");
 }
 $$(".tab").forEach(t => t.onclick = () => switchTab(t.dataset.tab));
@@ -371,11 +701,13 @@ $$("[data-folder]").forEach(b => b.onclick = () => post("/api/open-folder", { wh
 
 // ------------------------------------------------------------------ modelos locais
 function renderLocalModels() {
-  const st = S.status;
+  const st = S.status; const mms = S.media?.mmproj || [];
   const html = st.models.length ? st.models.map(m => {
     const on = st.engine.model === m.path && st.engine.state === "ready";
+    const vis = mms.length ? `<select class="input small-input" data-mm="${esc(m.path)}" title="Arquivo de visão (mmproj): permite o modelo ver imagens">
+        <option value="">Sem visão</option>${mms.map(x => `<option value="${esc(x)}" ${x === m.mmproj ? "selected" : ""}>👁 ${esc(baseName(x))}</option>`).join("")}</select>` : "";
     return `<div class="item"><span class="name" title="${esc(m.path)}">${esc(m.name)}</span>${on ? '<span class="tag on">carregado</span>' : ""}
-      ${fitTag(m.size)}<span class="meta">${fmtSize(m.size)}</span>
+      ${m.mmproj ? '<span class="tag vis">👁 visão</span>' : ""}${fitTag(m.size)}<span class="meta">${fmtSize(m.size)}</span>${vis}
       <button class="btn small" data-load="${esc(m.path)}">${on ? "Recarregar" : "Carregar"}</button>
       <button class="btn small danger" data-del="${esc(m.path)}">Excluir</button></div>`;
   }).join("") : '<p class="muted">Nenhum modelo ainda. Vá na aba <b>Baixar modelos</b>.</p>';
@@ -389,6 +721,12 @@ $("#localModels").addEventListener("click", async e => {
   } catch (err) { toast(err.message, 5000); }
   refreshStatus();
 });
+$("#localModels").addEventListener("change", async e => {
+  const model = e.target.dataset.mm; if (model === undefined) return;
+  await post("/api/models/mmproj", { model, mmproj: e.target.value });
+  toast(S.status.engine.model === model ? "Recarregue o modelo para aplicar." : "Visão configurada.");
+  refreshStatus();
+});
 
 function fitTag(size) {
   const vram = S.status?.gpu?.vram_mb; if (!vram) return "";
@@ -399,7 +737,7 @@ function fitTag(size) {
 }
 
 // ------------------------------------------------------------------ Hugging Face
-const CHIPS = ["Qwen", "gemma", "Llama", "Mistral", "DeepSeek", "Phi", "abliterated", "uncensored", "coder", "bartowski", "unsloth"];
+const CHIPS = ["Qwen", "gemma", "Llama", "Mistral", "DeepSeek", "coder", "VL", "abliterated", "uncensored", "bartowski", "unsloth"];
 $("#hfChips").innerHTML = CHIPS.map(c => `<span class="chip">${c}</span>`).join("");
 $("#hfChips").onclick = e => { if (e.target.classList.contains("chip")) { $("#hfQuery").value = e.target.textContent; hfSearch(e.target.textContent); } };
 $("#hfSearchBtn").onclick = () => hfSearch($("#hfQuery").value);
@@ -419,27 +757,73 @@ $("#hfResults").addEventListener("click", async e => {
   S.selectedRepo = it.dataset.repo;
   const box = $("#hfFiles"); box.innerHTML = '<p class="muted">Carregando arquivos...</p>';
   try {
-    const files = await api("/api/hf/files?repo=" + encodeURIComponent(S.selectedRepo));
-    const main = files.filter(f => !/mmproj/i.test(f.path));
+    const { files, mmproj } = await api("/api/hf/files?repo=" + encodeURIComponent(S.selectedRepo));
     box.innerHTML = `<div class="row between"><b>${esc(S.selectedRepo)}</b><a href="https://huggingface.co/${esc(S.selectedRepo)}" target="_blank" rel="noopener" class="meta">ver página ↗</a></div>
-      <p class="muted" style="margin:0;font-size:13px">Dica: <b>Q4_K_M</b> é o melhor equilíbrio. Q5/Q6/Q8 = mais qualidade e mais pesado.</p>` +
-      (main.length ? main.map(f => `<div class="item"><span class="name" title="${esc(f.path)}">${esc(f.path.split("/").pop())}${f.parts > 1 ? ` <small class="muted">(${f.parts} partes)</small>` : ""}</span>
+      <p class="muted" style="margin:0;font-size:13px">Dica: <b>Q4_K_M</b> é o melhor equilíbrio. Q5/Q6/Q8 = mais qualidade e mais pesado.</p>
+      ${mmproj ? `<label class="check vis-check"><input type="checkbox" id="withMmproj" checked> 👁 Incluir visão (o modelo poderá ver imagens) <small class="muted">${esc(baseName(mmproj))}</small></label>` : ""}` +
+      (files.length ? files.map(f => `<div class="item"><span class="name" title="${esc(f.path)}">${esc(f.path.split("/").pop())}${f.parts > 1 ? ` <small class="muted">(${f.parts} partes)</small>` : ""}</span>
         ${fitTag(f.size)}<span class="meta">${fmtSize(f.size)}</span><button class="btn small primary" data-dl="${esc(f.path)}">Baixar</button></div>`).join("")
         : '<p class="muted">Nenhum arquivo .gguf neste repositório.</p>');
   } catch (err) { box.innerHTML = `<p class="muted">Erro: ${esc(err.message)}</p>`; }
 });
 $("#hfFiles").addEventListener("click", async e => {
   const p = e.target.dataset.dl; if (!p) return;
-  try { await post("/api/models/download", { repo: S.selectedRepo, path: p }); toast("Download iniciado"); e.target.disabled = true; }
+  try { await post("/api/models/download", { repo: S.selectedRepo, path: p, mmproj: !!$("#withMmproj")?.checked }); toast("Download iniciado"); e.target.disabled = true; }
   catch (err) { toast(err.message, 5000); }
   refreshStatus();
+});
+
+// ------------------------------------------------------------------ mídia (Whisper e imagens)
+function renderMedia() {
+  const m = S.media; const box = $("#mediaInfo");
+  if (!m) { box.innerHTML = '<p class="muted">Carregando...</p>'; return; }
+  const running = S.status.tasks.some(t => t.status === "running");
+  const dis = running ? "disabled" : "";
+  const w = m.whisper, im = m.image;
+  const html = `
+    <div class="media-sec">
+      <h4>🎧 Áudio e vídeo: transcrição com Whisper</h4>
+      <p class="muted small-note">Transforma a fala de áudios e vídeos anexados em texto para o modelo entender. Roda no seu PC, com o whisper.cpp (licença MIT).</p>
+      <div class="row wrap">
+        ${w.installed ? `<span class="tag fit">✓ Motor instalado</span><small class="muted">${esc(w.version)}</small>` : ""}
+        <button class="btn small ${w.installed ? "" : "primary"}" data-media="whisper:cuda" ${dis}>${w.installed ? "Reinstalar" : "Instalar"} GPU (CUDA, ~650 MB)</button>
+        <button class="btn small" data-media="whisper:cpu" ${dis}>${w.installed ? "Reinstalar" : "Instalar"} CPU (~5 MB, mais lento)</button>
+      </div>
+      <div class="list">${Object.entries(w.available).map(([k, label]) => {
+        const have = w.models.includes(`ggml-${k}.bin`);
+        return `<div class="item"><span class="name">${esc(label)}</span>${have ? '<span class="tag fit">✓ baixado</span>' : `<button class="btn small" data-media="whisper_model:${k}" ${dis}>Baixar</button>`}</div>`;
+      }).join("")}</div>
+    </div>
+    <div class="media-sec">
+      <h4>🎨 Geração de imagens: stable-diffusion.cpp</h4>
+      <p class="muted small-note">Use o modo <b>🎨 Imagem</b> na caixa de mensagem. O Codex também consegue criar imagens para os projetos.</p>
+      <div class="row wrap">
+        ${im.installed ? `<span class="tag fit">✓ Motor instalado</span><small class="muted">${esc(im.version)}</small>` : ""}
+        <button class="btn small ${im.installed ? "" : "primary"}" data-media="sd:vulkan" ${dis}>${im.installed ? "Reinstalar" : "Instalar"} Vulkan (recomendado, ~30 MB)</button>
+        <button class="btn small" data-media="sd:cuda" ${dis}>CUDA (~860 MB)</button>
+        <button class="btn small" data-media="sd:cpu" ${dis}>CPU (muito lento)</button>
+      </div>
+      <div class="list">${Object.entries(im.presets).map(([k, p]) => `<div class="item"><span class="name"><b>${esc(p.name)}</b> <small class="muted">${esc(p.desc)}</small></span>
+        ${p.installed ? '<span class="tag fit">✓ baixado</span>' : `<button class="btn small" data-media="image_preset:${k}" ${dis}>Baixar</button>`}</div>`).join("")}</div>
+    </div>
+    <div class="media-sec">
+      <h4>👁 Ver imagens (visão)</h4>
+      <p class="muted small-note">Para o modelo <b>enxergar</b> imagens e quadros de vídeo, ele precisa de um arquivo de visão (<i>mmproj</i>). Ao baixar um modelo com visão (ex.: Gemma 3, Qwen2.5-VL, Qwen3-VL), deixe marcado "Incluir visão". Para modelos já baixados, escolha o arquivo em <b>Meus modelos</b>.</p>
+    </div>`;
+  if (box.dataset.sig !== html) { box.innerHTML = html; box.dataset.sig = html; }
+}
+$("#mediaInfo").addEventListener("click", async e => {
+  const v = e.target.dataset.media; if (!v) return;
+  const [what, value] = v.split(":");
+  try { await post("/api/media/install", { what, value }); toast("Download iniciado"); } catch (err) { toast(err.message, 5000); }
+  await refreshStatus(); renderMedia();
 });
 
 // ------------------------------------------------------------------ tarefas
 function renderTasks() {
   const html = S.status.tasks.map(t => {
     const pct = t.total ? Math.min(100, t.done / t.total * 100) : 0;
-    const info = t.status === "running" ? `${fmtSize(t.done)}${t.total ? " / " + fmtSize(t.total) + ` (${pct.toFixed(0)}%)` : ""} ${t.detail && t.kind === "engine" ? "· " + esc(t.detail) : ""}`
+    const info = t.status === "running" ? `${fmtSize(t.done)}${t.total ? " / " + fmtSize(t.total) + ` (${pct.toFixed(0)}%)` : ""} ${t.detail ? "· " + esc(t.detail) : ""}`
       : t.status === "done" ? "Concluído" : t.status === "cancelled" ? "Cancelado" : "Erro: " + esc(t.error);
     return `<div class="task ${t.status}"><div class="row between"><span>${esc(t.label)} <span class="muted">— ${info}</span></span>
       ${t.status === "running" ? `<button class="btn small" data-cancel="${t.id}">Cancelar</button>` : ""}</div>
@@ -477,15 +861,24 @@ async function loadLog() {
 }
 
 // ------------------------------------------------------------------ configurações
-const NUM_FIELDS = ["temperature", "top_p", "top_k", "min_p", "repeat_penalty", "max_tokens", "ctx_size", "gpu_layers", "threads", "search_results"];
+const NUM_FIELDS = ["temperature", "top_p", "top_k", "min_p", "repeat_penalty", "max_tokens", "ctx_size", "gpu_layers", "threads",
+  "search_results", "agent_max_steps", "image_steps"];
 const DEFAULTS = { system_prompt: "", temperature: 0.7, top_p: 0.95, top_k: 40, min_p: 0.05, repeat_penalty: 1.0, max_tokens: 0,
   ctx_size: 8192, gpu_layers: 999, threads: 0, backend: "auto", extra_args: "", search_provider: "duckduckgo",
-  search_region: "br-pt", search_results: 4, auto_load: true };
+  search_region: "br-pt", search_results: 4, auto_load: true, agent_confirm_commands: true, agent_confirm_writes: false,
+  agent_max_steps: 40, whisper_language: "auto", image_steps: 0, image_enhance: true, image_offload: true, image_unload_llm: false };
 function fillSettings(src = S.status.settings) {
   const f = $("#settingsForm");
   for (const el of f.elements) if (el.name && src[el.name] !== undefined) { if (el.type === "checkbox") el.checked = !!src[el.name]; else el.value = src[el.name]; }
+  S.wsEdit = [...(S.status.settings.workspaces || [])]; renderWorkspaceList();
   showProviderFields(); renderStatsSummary();
 }
+function renderWorkspaceList() {
+  $("#workspaceList").innerHTML = S.wsEdit.length ? S.wsEdit.map((w, i) => `<div class="item"><span class="name" title="${esc(w)}">📁 ${esc(w)}</span><button type="button" class="btn small danger" data-ws-del="${i}">Remover</button></div>`).join("")
+    : '<p class="muted small-note">Nenhuma pasta liberada.</p>';
+}
+$("#workspaceList").onclick = e => { const i = e.target.dataset.wsDel; if (i !== undefined) { S.wsEdit.splice(+i, 1); renderWorkspaceList(); } };
+$("#addWorkspace").onclick = async () => { const d = await desktop.chooseFolder(); if (d && !S.wsEdit.includes(d)) { S.wsEdit.push(d); renderWorkspaceList(); } };
 function showProviderFields() {
   const p = $("#searchProvider").value;
   $$("[data-prov]").forEach(el => el.style.display = el.dataset.prov === p ? "" : "none");
@@ -525,7 +918,7 @@ async function initDesktopSettings() {
 $("#resetSettings").onclick = () => fillSettings(DEFAULTS);
 $("#settingsForm").onsubmit = async e => {
   e.preventDefault();
-  const data = {};
+  const data = { workspaces: S.wsEdit };
   for (const el of e.target.elements) if (el.name) data[el.name] = el.type === "checkbox" ? el.checked : NUM_FIELDS.includes(el.name) ? Number(el.value) : el.value;
   try {
     const old = S.status.settings;
@@ -548,13 +941,17 @@ async function openChatFromHash() {
 window.addEventListener("hashchange", openChatFromHash);
 
 (async function init() {
+  setWeb(S.web);
+  setMode(S.mode);
   await refreshStatus();
+  loadMedia();
   renderMessages();
   await openChatFromHash();
   initDesktopSettings();
   setInterval(() => {
     if (!S.generating) refreshStatus();
     if ($("#modelsModal").classList.contains("open") && $("#tabEngine").classList.contains("active")) loadLog();
+    if ($("#modelsModal").classList.contains("open") && $("#tabMedia").classList.contains("active")) renderMedia();
   }, 1500);
   $("#input").focus();
 })();
