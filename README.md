@@ -4,7 +4,7 @@ Um app seu para rodar modelos de IA no seu PC. Sem conta, sem plano pago, sem te
 
 ## Instalação
 
-Rode **`desktop\dist\LLM Local Setup 1.1.0.exe`**. Ele cria atalhos no Menu Iniciar e na Área de Trabalho. Como o instalador não é assinado digitalmente, o Windows pode mostrar a tela "O Windows protegeu o computador". Clique em *Mais informações → Executar assim mesmo*.
+Rode **`desktop\dist\LLM Local Setup 1.2.0.exe`**. Ele cria atalhos no Menu Iniciar e na Área de Trabalho. Como o instalador não é assinado digitalmente, o Windows pode mostrar a tela "O Windows protegeu o computador". Clique em *Mais informações → Executar assim mesmo*. O executável do app é o do Electron oficial, sem modificações, para que o **Controle Inteligente de Aplicativos** do Windows não o bloqueie. Por isso o arquivo .exe mostra o ícone do Electron, mas os atalhos e a janela usam o ícone do LLM Local.
 
 ### Segundo plano e pergunta rápida
 - Fechar a janela **não encerra** o app: ele continua no ícone perto do relógio. Para sair de verdade, clique com o botão direito no ícone e escolha **Sair**.
@@ -15,7 +15,21 @@ Rode **`desktop\dist\LLM Local Setup 1.1.0.exe`**. Ele cria atalhos no Menu Inic
 - Em **Configurações → App desktop** você troca o atalho, liga ou desliga "Iniciar com o Windows" e muda a pasta de dados.
 - Pelo menu do ícone perto do relógio dá para **descarregar o modelo** e liberar a GPU (para jogar, por exemplo) sem fechar o app.
 
-### Gerar o instalador de novo (depois de mudar o código)
+### Atualizações automáticas
+Ao abrir (e a cada 6 horas), o app consulta os [Releases do GitHub](https://github.com/Ruiso-Outside/LLM/releases). Se houver versão nova, ele baixa em segundo plano e pergunta se pode reiniciar. Se você escolher "Depois", ela é instalada quando o app for fechado. Dá para verificar na hora em **Configurações → App desktop** ou no menu do ícone perto do relógio.
+
+### Publicar uma versão nova (para todos os PCs atualizarem)
+1. Aumente `"version"` em `desktop/package.json` (ex.: `1.2.0` → `1.3.0`).
+2. Faça commit e push.
+3. Publique o Release (precisa de um token do GitHub com permissão de escrita no repositório, na variável `GH_TOKEN`):
+```
+cd desktop
+set GH_TOKEN=seu_token
+npm run release
+```
+O comando gera o instalador e cria o Release `v1.3.0` com os arquivos que o app usa para se atualizar (`latest.yml`, instalador e `.blockmap`).
+
+### Gerar o instalador de novo, sem publicar
 ```
 cd desktop
 npm install

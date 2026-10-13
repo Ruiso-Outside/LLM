@@ -14,4 +14,8 @@ contextBridge.exposeInMainWorld("llmDesktop", {
   setQuickPinned: v => ipcRenderer.send("quick-pinned", v),
   resizeQuick: h => ipcRenderer.send("resize-quick", h),
   onQuickShow: cb => ipcRenderer.on("quick-show", (_e, data) => cb(data)),
+  updateInfo: () => ipcRenderer.invoke("update-info"),
+  checkUpdates: () => ipcRenderer.invoke("update-check"),
+  installUpdate: () => ipcRenderer.invoke("update-install"),
+  onUpdateState: cb => ipcRenderer.on("update-state", (_e, s) => cb(s)),
 });

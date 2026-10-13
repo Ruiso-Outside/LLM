@@ -302,3 +302,5 @@ details.tool.approval { border-color: var(--warn); }
 .tag.vis { background: #4fc3f71f; color: #7fd6fb; }
 .vis-check { margin: 4px 0; }
 .ws-list .item { padding: 6px 10px; }
+
+.update-box { display: flex; align-items: center; gap: 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; font-size: 13px; }

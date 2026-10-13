@@ -6,10 +6,11 @@ const path = require("path");
 const fs = require("fs");
 const http = require("http");
 const { spawn, spawnSync } = require("child_process");
+const { autoUpdater } = require("electron-updater");
 
 const PORT = 8765;
 const BASE = `http://127.0.0.1:${PORT}`;
-const PY_APP = app.isPackaged ? path.join(process.resourcesPath, "app") : path.join(__dirname, "..", "app");
+const PY_APP = app.isPackaged ? path.join(process.resourcesPath, "server") : path.join(__dirname, "..", "app");
 const ICON = path.join(__dirname, "icon.png");
 const TRAY_ICON = path.join(__dirname, "icon-tray.png");
 const CONFIG_FILE = path.join(app.getPath("userData"), "config.json");
@@ -193,7 +194,7 @@ async function updateTray() {
   const e = st?.engine || { state: "offline" };
   const name = st ? ((st.models.find(m => m.path === e.model) || {}).name || e.model) : "";
   const label = { ready: `● ${name}`, loading: `Carregando ${name}...`, stopped: "Nenhum modelo carregado", error: "Erro no motor", offline: "Servidor offline" }[e.state];
-  const sig = [label, config.autoStart, config.hotkey].join("|");
+  const sig = [label, config.autoStart, config.hotkey, updateState.status, updateState.percent].join("|");
   if (sig === lastTrayState) return;
   lastTrayState = sig;
   tray.setToolTip("LLM Local - " + label);
@@ -209,6 +210,11 @@ async function updateTray() {
     { type: "separator" },
     { label: "Iniciar com o Windows", type: "checkbox", checked: config.autoStart, click: i => setOption("autoStart", i.checked) },
     { label: "Abrir pasta de dados", click: () => shell.openPath(config.homeDir) },
+    updateState.status === "ready"
+      ? { label: `Reiniciar e atualizar para ${updateState.version}`, click: installUpdate }
+      : updateState.status === "downloading"
+        ? { label: `Baixando atualização ${updateState.version} (${updateState.percent}%)`, enabled: false }
+        : { label: `Verificar atualizações (versão ${app.getVersion()})`, click: checkForUpdates },
     { type: "separator" },
     { label: "Sair", click: () => { quitting = true; app.quit(); } },
   ]));
@@ -269,6 +275,67 @@ ipcMain.on("resize-quick", (_e, h) => {
   if (b.height !== height) quickWin.setBounds({ ...b, width: QUICK_W, height });
 });
 
+// ------------------------------------------------------------------ atualizacao automatica (GitHub Releases)
+// Ao abrir (e a cada 6 h) confere o ultimo Release de github.com/Ruiso-Outside/LLM.
+// Se houver versao nova, baixa em segundo plano e pergunta se pode reiniciar;
+// se o usuario escolher "Depois", instala quando o app for fechado.
+let updateState = { status: "idle", version: "", percent: 0, error: "" };
+let updatePromptShown = false;
+
+function sendUpdateState(patch) {
+  updateState = { ...updateState, ...patch };
+  for (const w of [mainWin, quickWin]) if (w && !w.isDestroyed()) w.webContents.send("update-state", updateState);
+  lastTrayState = ""; updateTray();
+}
+
+function initUpdater() {
+  if (!app.isPackaged) return; // em desenvolvimento nao atualiza
+  // LLM_UPDATE_URL: servidor local de testes (feed "generic"); sem ela, usa os Releases do GitHub
+  if (process.env.LLM_UPDATE_URL) autoUpdater.setFeedURL({ provider: "generic", url: process.env.LLM_UPDATE_URL });
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.on("checking-for-update", () => sendUpdateState({ status: "checking", error: "" }));
+  autoUpdater.on("update-not-available", () => sendUpdateState({ status: "latest" }));
+  autoUpdater.on("update-available", info => {
+    sendUpdateState({ status: "downloading", version: info.version, percent: 0 });
+    if (Notification.isSupported())
+      new Notification({ title: "Atualização do LLM Local", icon: ICON, body: `Baixando a versão ${info.version} em segundo plano...` }).show();
+  });
+  autoUpdater.on("download-progress", p => sendUpdateState({ status: "downloading", percent: Math.round(p.percent) }));
+  autoUpdater.on("update-downloaded", async info => {
+    sendUpdateState({ status: "ready", version: info.version, percent: 100 });
+    if (updatePromptShown) return;
+    updatePromptShown = true;
+    const r = await dialog.showMessageBox({
+      type: "info", title: "LLM Local", icon: nativeImage.createFromPath(ICON),
+      message: `A versão ${info.version} do LLM Local está pronta.`,
+      detail: "Reinicie para atualizar agora. Se preferir, a atualização será instalada quando você fechar o app.",
+      buttons: ["Reiniciar e atualizar", "Depois"], defaultId: 0, cancelId: 1, noLink: true,
+    });
+    if (r.response === 0) installUpdate();
+  });
+  autoUpdater.on("error", err => sendUpdateState({ status: "error", error: String(err?.message || err).split("\n")[0] }));
+  setTimeout(checkForUpdates, 8000);
+  setInterval(checkForUpdates, 6 * 60 * 60 * 1000);
+}
+
+function checkForUpdates() {
+  if (!app.isPackaged) return sendUpdateState({ status: "dev" });
+  if (["downloading", "ready"].includes(updateState.status)) return;
+  autoUpdater.checkForUpdates().catch(err => sendUpdateState({ status: "error", error: String(err?.message || err).split("\n")[0] }));
+}
+
+function installUpdate() {
+  quitting = true;
+  globalShortcut.unregisterAll();
+  stopServer();
+  setImmediate(() => autoUpdater.quitAndInstall(true, true)); // silencioso e reabre o app depois
+}
+
+ipcMain.handle("update-info", () => ({ ...updateState, current: app.getVersion() }));
+ipcMain.handle("update-check", () => { checkForUpdates(); return { ...updateState, current: app.getVersion() }; });
+ipcMain.handle("update-install", () => { if (updateState.status === "ready") installUpdate(); });
+
 // ------------------------------------------------------------------ inicio
 app.whenReady().then(async () => {
   if (!gotLock) return;
@@ -286,6 +353,7 @@ app.whenReady().then(async () => {
       detail: "Escolha outro em Configurações → App desktop." });
   }
   createQuick();
+  initUpdater();
   const hidden = process.argv.includes("--hidden");
   createMain(!hidden);
   if (process.argv.includes("--quick")) showQuick();

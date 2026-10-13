@@ -914,6 +914,23 @@ async function initDesktopSettings() {
   $("#autoStart").onchange = e => desktop.setOption("autoStart", e.target.checked);
   $("#hideOnBlur").onchange = e => desktop.setOption("quickHideOnBlur", e.target.checked);
   $("#changeDataDir").onclick = async () => { const d = await desktop.chooseHomeDir(); if (d) $("#dataDir").textContent = d; };
+  // atualizações automáticas pelo GitHub
+  let current = "";
+  const showUpdate = s => {
+    current = s.current || current;
+    const txt = { idle: "", checking: "Verificando atualizações...", latest: "Você está na versão mais recente.",
+      downloading: `Baixando a versão ${s.version}... ${s.percent || 0}%`, ready: `Versão ${s.version} pronta para instalar.`,
+      error: `Não foi possível verificar: ${s.error}`, dev: "Atualização automática só funciona no app instalado." }[s.status] || "";
+    $("#updateText").textContent = `Versão ${current}${txt ? " · " + txt : ""}`;
+    $("#updateBtn").textContent = s.status === "ready" ? "Reiniciar e atualizar" : "Verificar atualizações";
+    $("#updateBtn").disabled = ["checking", "downloading"].includes(s.status);
+  };
+  desktop.onUpdateState(showUpdate);
+  showUpdate(await desktop.updateInfo());
+  $("#updateBtn").onclick = async () => {
+    const s = await desktop.updateInfo();
+    if (s.status === "ready") desktop.installUpdate(); else showUpdate(await desktop.checkUpdates());
+  };
 }
 $("#resetSettings").onclick = () => fillSettings(DEFAULTS);
 $("#settingsForm").onsubmit = async e => {
