@@ -62,7 +62,7 @@ async function processPdf(file, onStatus) {
   const doc = await lib.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
   const pages = [];
   for (let i = 1; i <= doc.numPages; i++) {
-    onStatus(`lendo página ${i}/${doc.numPages}`);
+    onStatus(t("lendo página {a}/{b}", { a: i, b: doc.numPages }));
     const tc = await (await doc.getPage(i)).getTextContent();
     let line = "", out = [];
     for (const it of tc.items) { line += it.str; if (it.hasEOL) { out.push(line); line = ""; } }
@@ -74,7 +74,7 @@ async function processPdf(file, onStatus) {
   // PDF escaneado (sem texto): manda as primeiras páginas como imagens
   const atts = [];
   for (let i = 1; i <= Math.min(doc.numPages, 6); i++) {
-    onStatus(`PDF sem texto: convertendo página ${i} em imagem`);
+    onStatus(t("PDF sem texto: convertendo página {n} em imagem", { n: i }));
     const page = await doc.getPage(i);
     const vp = page.getViewport({ scale: 1.6 });
     const c = document.createElement("canvas"); c.width = vp.width; c.height = vp.height;
@@ -108,12 +108,12 @@ function wavBlob(samples, rate = 16000) {
 }
 
 async function audioAttachment(arrayBuffer, name, onStatus, ctx) {
-  onStatus("convertendo áudio");
+  onStatus(t("convertendo áudio"));
   const { samples, duration } = await decodeTo16k(arrayBuffer);
   const up = await uploadBlob(wavBlob(samples), name.replace(/\.[^.]+$/, "") + ".wav");
   const att = { kind: "audio", id: up.id, name, duration };
   if (!ctx.modelHasAudio && ctx.whisperReady) {
-    onStatus(`transcrevendo ${Math.round(duration)}s de áudio`);
+    onStatus(t("transcrevendo {n}s de áudio", { n: Math.round(duration) }));
     att.transcript = (await post("/api/transcribe", { id: up.id })).text;
   }
   return att;
@@ -132,14 +132,14 @@ async function processVideo(file, onStatus, ctx) {
     const frames = [];
     if (ctx.modelHasVision) {
       for (let i = 0; i < n; i++) {
-        const t = ((i + 0.5) * duration) / n;
-        onStatus(`extraindo quadro ${i + 1}/${n}`);
-        v.currentTime = t; await once(v, "seeked");
+        const ts = ((i + 0.5) * duration) / n;
+        onStatus(t("extraindo quadro {a}/{b}", { a: i + 1, b: n }));
+        v.currentTime = ts; await once(v, "seeked");
         const scale = Math.min(1, 768 / Math.max(v.videoWidth, v.videoHeight));
         const c = document.createElement("canvas"); c.width = Math.round(v.videoWidth * scale); c.height = Math.round(v.videoHeight * scale);
         c.getContext("2d").drawImage(v, 0, 0, c.width, c.height);
-        const up = await uploadBlob(await canvasBlob(c), `${file.name}-${Math.round(t)}s.jpg`);
-        frames.push({ id: up.id, t });
+        const up = await uploadBlob(await canvasBlob(c), `${file.name}-${Math.round(ts)}s.jpg`);
+        frames.push({ id: up.id, t: ts });
       }
     }
     const att = { kind: "video", name: file.name, duration, frames };
@@ -158,7 +158,7 @@ async function processVideo(file, onStatus, ctx) {
 async function processFile(file, onStatus, ctx) {
   const kind = attachKind(file);
   if (kind === "image") {
-    onStatus("enviando imagem");
+    onStatus(t("enviando imagem"));
     const up = await uploadBlob(await prepareImage(file), file.name);
     return [{ kind: "image", id: up.id, name: file.name }];
   }
@@ -169,7 +169,7 @@ async function processFile(file, onStatus, ctx) {
   }
   if (kind === "pdf") return processPdf(file, onStatus);
   if (kind === "office") {
-    onStatus("lendo documento");
+    onStatus(t("lendo documento"));
     const up = await uploadBlob(file, file.name);
     const { text } = await post("/api/extract", { id: up.id });
     return [{ kind: "text", name: file.name, text: text.slice(0, MAX_TEXT) }];

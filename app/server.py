@@ -75,6 +75,8 @@ DEFAULT_SETTINGS = {
     "auto_load": True,  # carrega o ultimo modelo ao iniciar
     "quick_model": "",  # modelo da pergunta rapida ("" = o principal)
     "quick_device": "auto",  # onde roda o modelo da pergunta rapida: auto | gpu | cpu
+    "language": "",  # idioma da interface: pt-BR | en | es ("" = o do sistema)
+    "reply_language": "auto",  # auto = a IA responde no idioma da pergunta | app = sempre no idioma do app
     "extra_idle_minutes": 10,  # modelos extras (agentes/pergunta rapida) sao descarregados apos X min parados
     "search_provider": "duckduckgo",  # duckduckgo | google | searxng
     "search_region": "br-pt",
@@ -120,6 +122,25 @@ def save_settings(new):
                 s[k] = v
         SETTINGS_FILE.write_text(json.dumps(s, indent=2, ensure_ascii=False), "utf-8")
         return s
+
+
+REPLY_RULES = {"pt-BR": "Responda sempre em português do Brasil.", "en": "Always answer in English.",
+               "es": "Responde siempre en español."}
+
+
+def reply_rule(s=None):
+    """Instrucao extra quando o usuario quer que a IA responda sempre no idioma do app."""
+    s = s or load_settings()
+    return REPLY_RULES.get(s.get("language") or "pt-BR", "") if s.get("reply_language") == "app" else ""
+
+
+def with_reply_rule(messages, s=None):
+    rule = reply_rule(s)
+    if not rule:
+        return messages
+    if messages and messages[0].get("role") == "system" and isinstance(messages[0].get("content"), str):
+        return [{**messages[0], "content": messages[0]["content"] + "\n\n" + rule}] + messages[1:]
+    return [{"role": "system", "content": rule}] + messages
 
 
 def masked(s):
@@ -1437,6 +1458,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"error": str(e)}, 400)
 
     # ---- grupos de agentes ----
+    def reply_rule(self):
+        return reply_rule()
+
     def split_content(self, m, modalities=None):
         """Separa o texto e as partes de midia (imagens/audio) de uma mensagem do usuario."""
         c = build_content(m, ENGINE_PROC.modalities if modalities is None else modalities)
@@ -1585,6 +1609,7 @@ class Handler(BaseHTTPRequestHandler):
         history = build_history(b.get("messages", []), ENGINE_PROC.modalities, agent_mode=True)
         image_fn = self.image_for_agent if (media.find_exe("sd", media.SD_EXE)
                                             and media.preset_installed(s.get("image_preset") or "z-image-turbo")) else None
+        s["_reply_rule"] = reply_rule(s)
         run = agent.AgentRun(lambda payload: self.engine_call(payload, True), self.sse_safe, s, image_fn)
         try:
             trace, timings = run.run(ws, history, b.get("chat_id", ""), sampling)
@@ -1628,7 +1653,7 @@ class Handler(BaseHTTPRequestHandler):
                     b["temperature"] = ag["temperature"]
                 if ag["web"]:
                     b["web"] = True
-            messages = build_history(msgs, eng.modalities)
+            messages = with_reply_rule(build_history(msgs, eng.modalities))
             if b.get("web"):
                 messages = self.web_augment(messages)
             payload = {"messages": messages, "stream": True, "cache_prompt": True, "timings_per_token": True}

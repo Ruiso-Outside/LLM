@@ -1,0 +1,586 @@
+"use strict";
+// Tradução da interface do LLM Local: Português (original), English e Español.
+// - Textos fixos são traduzidos automaticamente (inclusive os que aparecem depois, via MutationObserver).
+// - Textos com valores usam t("Texto {nome}", { nome }).
+// - O conteúdo das conversas, código e o que o usuário digita nunca são traduzidos.
+
+const LANGS = { "pt-BR": "Português (Brasil)", en: "English", es: "Español" };
+const lsGet = k => { try { return localStorage.getItem(k); } catch { return null; } };
+const sysLang = () => { const n = (navigator.language || "pt").toLowerCase(); return n.startsWith("pt") ? "pt-BR" : n.startsWith("es") ? "es" : "en"; };
+let LANG = LANGS[lsGet("lang")] ? lsGet("lang") : sysLang();
+document.documentElement.lang = LANG;
+
+// "texto em português": ["English", "Español"]
+const DICT = {
+  // ---- geral / barra lateral / topo
+  "+ Nova conversa": ["+ New chat", "+ Nueva conversación"],
+  "Buscar conversas...": ["Search chats...", "Buscar conversaciones..."],
+  "Agentes": ["Agents", "Agentes"],
+  "Modelos": ["Models", "Modelos"],
+  "Configurações": ["Settings", "Configuración"],
+  "Backup": ["Backup", "Copia de seguridad"],
+  "Hoje": ["Today", "Hoy"],
+  "Últimos 7 dias": ["Last 7 days", "Últimos 7 días"],
+  "Últimos 30 dias": ["Last 30 days", "Últimos 30 días"],
+  "Mais antigas": ["Older", "Más antiguas"],
+  "Duplo clique para renomear": ["Double-click to rename", "Doble clic para renombrar"],
+  "Excluir": ["Delete", "Eliminar"],
+  "Mostrar/ocultar barra lateral": ["Show/hide sidebar", "Mostrar/ocultar barra lateral"],
+  "Carregar": ["Load", "Cargar"],
+  "Descarregar": ["Unload", "Descargar"],
+  "Cancelar": ["Cancel", "Cancelar"],
+  "Recarregar": ["Reload", "Recargar"],
+  "Exportar conversa (.md)": ["Export chat (.md)", "Exportar conversación (.md)"],
+  "Nenhum modelo baixado": ["No models downloaded", "Ningún modelo descargado"],
+  "Nenhum modelo carregado": ["No model loaded", "Ningún modelo cargado"],
+  "Erro no motor (clique)": ["Engine error (click)", "Error del motor (clic)"],
+  "Servidor offline": ["Server offline", "Servidor desconectado"],
+  "Carregando {name}...": ["Loading {name}...", "Cargando {name}..."],
+  "● {n} modelo(s) extra(s)": ["● {n} extra model(s)", "● {n} modelo(s) extra(s)"],
+  "Modelos extras (agentes / pergunta rápida):": ["Extra models (agents / quick ask):", "Modelos extra (agentes / pregunta rápida):"],
+  "Carregando modelo...": ["Loading model...", "Cargando modelo..."],
+  "Carregue um modelo primeiro (botão Carregar no topo).": ["Load a model first (Load button at the top).", "Primero carga un modelo (botón Cargar arriba)."],
+  "Aguarde o modelo terminar de carregar.": ["Wait for the model to finish loading.", "Espera a que el modelo termine de cargar."],
+  "Aguarde terminar ou clique em Parar.": ["Wait for it to finish or click Stop.", "Espera a que termine o haz clic en Detener."],
+  "Aguarde os anexos terminarem de processar.": ["Wait for the attachments to finish processing.", "Espera a que los adjuntos terminen de procesarse."],
+
+  // ---- tela inicial / dicas
+  "Seus modelos, sua máquina. Sem conta, sem limites, sem nada saindo do seu PC.": ["Your models, your machine. No account, no limits, nothing leaving your PC.", "Tus modelos, tu máquina. Sin cuenta, sin límites, nada sale de tu PC."],
+  "Instale o motor em": ["Install the engine in", "Instala el motor en"],
+  "Baixe um modelo em": ["Download a model in", "Descarga un modelo en"],
+  "Selecione o modelo no topo e clique em": ["Select the model at the top and click", "Selecciona el modelo arriba y haz clic en"],
+  "Modelos → Motor": ["Models → Engine", "Modelos → Motor"],
+  "Modelos → Baixar modelos": ["Models → Download models", "Modelos → Descargar modelos"],
+  "Converse, anexe arquivos 📎, imagens, áudios e vídeos.": ["Chat and attach files 📎, images, audio and video.", "Conversa y adjunta archivos 📎, imágenes, audio y video."],
+  "Crie e edite projetos de software numa pasta que você liberar.": ["Create and edit software projects in a folder you allow.", "Crea y edita proyectos de software en una carpeta que autorices."],
+  "Gere imagens a partir de uma descrição.": ["Generate images from a description.", "Genera imágenes a partir de una descripción."],
+  "Primeiro passo: abra Modelos → Motor e instale o motor.": ["First step: open Models → Engine and install the engine.", "Primer paso: abre Modelos → Motor e instala el motor."],
+  "Baixe um modelo em Modelos → Baixar modelos.": ["Download a model in Models → Download models.", "Descarga un modelo en Modelos → Descargar modelos."],
+  "Carregando modelo na memória...": ["Loading model into memory...", "Cargando el modelo en memoria..."],
+  "Selecione um modelo e clique em Carregar.": ["Select a model and click Load.", "Selecciona un modelo y haz clic en Cargar."],
+  "🌐 Pesquisa na web ligada: o modelo vai pesquisar antes de cada resposta.": ["🌐 Web search on: the model will search before each answer.", "🌐 Búsqueda web activada: el modelo buscará antes de cada respuesta."],
+  "🛠️ O Codex trabalha somente dentro de {path}": ["🛠️ Codex only works inside {path}", "🛠️ Codex solo trabaja dentro de {path}"],
+  "Escolha ou adicione uma pasta para o Codex trabalhar.": ["Choose or add a folder for Codex to work in.", "Elige o agrega una carpeta para que Codex trabaje."],
+  "Para gerar imagens, instale o motor em Modelos → Mídia.": ["To generate images, install the engine in Models → Media.", "Para generar imágenes, instala el motor en Modelos → Multimedia."],
+  "Baixe um modelo de imagem em Modelos → Mídia.": ["Download an image model in Models → Media.", "Descarga un modelo de imagen en Modelos → Multimedia."],
+  "🎨 Descreva a imagem. Pode escrever em português.": ["🎨 Describe the image. You can write in any language.", "🎨 Describe la imagen. Puedes escribir en español."],
+
+  // ---- compositor / modos
+  "💬 Chat": ["💬 Chat", "💬 Chat"],
+  "🛠️ Codex": ["🛠️ Codex", "🛠️ Codex"],
+  "🎨 Imagem": ["🎨 Image", "🎨 Imagen"],
+  "👥 Agentes": ["👥 Agents", "👥 Agentes"],
+  "Conversa normal": ["Normal chat", "Conversación normal"],
+  "Agente que cria e edita arquivos numa pasta liberada": ["Agent that creates and edits files in an allowed folder", "Agente que crea y edita archivos en una carpeta autorizada"],
+  "Gerar imagens a partir de uma descrição": ["Generate images from a description", "Generar imágenes a partir de una descripción"],
+  "Conversar com um agente ou um grupo de agentes criado por você": ["Chat with an agent or a group of agents you created", "Conversar con un agente o un grupo de agentes creado por ti"],
+  "Escreva sua mensagem... (Enter envia, Shift+Enter quebra linha)": ["Type your message... (Enter sends, Shift+Enter new line)", "Escribe tu mensaje... (Enter envía, Shift+Enter nueva línea)"],
+  "Peça ao Codex: ex. “crie um jogo da cobrinha em HTML” ou “corrija o erro no main.py”": ["Ask Codex: e.g. “make a snake game in HTML” or “fix the error in main.py”", "Pídele a Codex: ej. “crea un juego de la serpiente en HTML” o “corrige el error en main.py”"],
+  "Descreva a imagem que você quer gerar...": ["Describe the image you want to generate...", "Describe la imagen que quieres generar..."],
+  "Escreva o pedido para o grupo ou agente selecionado... (ex.: “uma equação do 2º grau de nível médio”)": ["Write the request for the selected group or agent... (e.g. “a medium-level quadratic equation”)", "Escribe el pedido para el grupo o agente seleccionado... (ej.: “una ecuación de 2º grado de nivel medio”)"],
+  "Enviar": ["Send", "Enviar"],
+  "Parar": ["Stop", "Detener"],
+  "🌐 Web": ["🌐 Web", "🌐 Web"],
+  "Pesquisar na web antes de responder": ["Search the web before answering", "Buscar en la web antes de responder"],
+  "Pesquisa na web ligada": ["Web search on", "Búsqueda web activada"],
+  "Pesquisa na web desligada": ["Web search off", "Búsqueda web desactivada"],
+  "Anexar arquivos (texto, PDF, Office, imagens, áudio, vídeo). Também dá para arrastar ou colar.": ["Attach files (text, PDF, Office, images, audio, video). You can also drag or paste.", "Adjuntar archivos (texto, PDF, Office, imágenes, audio, video). También puedes arrastrar o pegar."],
+  "Abrir a pasta no Explorer": ["Open the folder in Explorer", "Abrir la carpeta en el Explorador"],
+  "+ Adicionar pasta...": ["+ Add folder...", "+ Agregar carpeta..."],
+  "Nenhuma pasta liberada": ["No folder allowed", "Ninguna carpeta autorizada"],
+  "Nenhuma pasta selecionada.": ["No folder selected.", "Ninguna carpeta seleccionada."],
+  "Pasta liberada para o Codex": ["Folder allowed for Codex", "Carpeta autorizada para Codex"],
+  "Tamanho": ["Size", "Tamaño"],
+  "Tamanho padrão": ["Default size", "Tamaño predeterminado"],
+  "1024 × 768 (paisagem)": ["1024 × 768 (landscape)", "1024 × 768 (horizontal)"],
+  "768 × 1024 (retrato)": ["768 × 1024 (portrait)", "768 × 1024 (vertical)"],
+  "Sem modelos de imagem": ["No image models", "Sin modelos de imagen"],
+  "(não baixado)": ["(not downloaded)", "(no descargado)"],
+  "Criar e editar agentes e grupos": ["Create and edit agents and groups", "Crear y editar agentes y grupos"],
+  "Agentes sozinhos": ["Single agents", "Agentes individuales"],
+  "Grupos": ["Groups", "Grupos"],
+  "Nenhum agente: clique em ⚙️": ["No agents: click ⚙️", "Ningún agente: haz clic en ⚙️"],
+  "{n} agentes": ["{n} agents", "{n} agentes"],
+  "(valida)": ["(validates)", "(valida)"],
+  "Conversando com o agente {name}.": ["Chatting with the agent {name}.", "Conversando con el agente {name}."],
+  "Crie um agente ou grupo no ⚙️ ao lado (ou na barra lateral, em Agentes).": ["Create an agent or group in the ⚙️ next to it (or in the sidebar, under Agents).", "Crea un agente o grupo en el ⚙️ de al lado (o en la barra lateral, en Agentes)."],
+  "Crie ou escolha um agente ou grupo.": ["Create or choose an agent or group.", "Crea o elige un agente o grupo."],
+
+  // ---- anexos
+  "preparando": ["preparing", "preparando"],
+  "enviando imagem": ["uploading image", "subiendo imagen"],
+  "lendo documento": ["reading document", "leyendo documento"],
+  "convertendo áudio": ["converting audio", "convirtiendo audio"],
+  "lendo página {a}/{b}": ["reading page {a}/{b}", "leyendo página {a}/{b}"],
+  "PDF sem texto: convertendo página {n} em imagem": ["PDF without text: converting page {n} to an image", "PDF sin texto: convirtiendo la página {n} en imagen"],
+  "transcrevendo {n}s de áudio": ["transcribing {n}s of audio", "transcribiendo {n}s de audio"],
+  "extraindo quadro {a}/{b}": ["extracting frame {a}/{b}", "extrayendo cuadro {a}/{b}"],
+  "{n} caracteres": ["{n} characters", "{n} caracteres"],
+  "{n} páginas": ["{n} pages", "{n} páginas"],
+  "transcrito": ["transcribed", "transcrito"],
+  "{n} quadros": ["{n} frames", "{n} cuadros"],
+  "imagem": ["image", "imagen"],
+  "{n} páginas como imagem": ["{n} pages as images", "{n} páginas como imagen"],
+  "Remover": ["Remove", "Quitar"],
+  "Transcrição": ["Transcript", "Transcripción"],
+  "Transcrição do áudio": ["Audio transcript", "Transcripción del audio"],
+  "tipo de arquivo não suportado": ["unsupported file type", "tipo de archivo no compatible"],
+  "formato de vídeo não suportado": ["unsupported video format", "formato de video no compatible"],
+  "o modelo não tem visão e o Whisper não está instalado": ["the model has no vision and Whisper is not installed", "el modelo no tiene visión y Whisper no está instalado"],
+  "Falha no envio": ["Upload failed", "Error al subir"],
+
+  // ---- mensagens
+  "Você": ["You", "Tú"],
+  "Assistente": ["Assistant", "Asistente"],
+  "Copiar": ["Copy", "Copiar"],
+  "Copiado": ["Copied", "Copiado"],
+  "Copiado!": ["Copied!", "¡Copiado!"],
+  "Editar": ["Edit", "Editar"],
+  "Regenerar": ["Regenerate", "Regenerar"],
+  "Continuar": ["Continue", "Continuar"],
+  "Salvar e reenviar": ["Save and resend", "Guardar y reenviar"],
+  "Raciocínio": ["Reasoning", "Razonamiento"],
+  "Pensando...": ["Thinking...", "Pensando..."],
+  "pensando...": ["thinking...", "pensando..."],
+  "processando o prompt...": ["processing the prompt...", "procesando el prompt..."],
+  "começando...": ["starting...", "empezando..."],
+  "⏳ carregando {model}...": ["⏳ loading {model}...", "⏳ cargando {model}..."],
+  "{tps} tok/s · {n} tokens gerados": ["{tps} tok/s · {n} tokens generated", "{tps} tok/s · {n} tokens generados"],
+  " · {n} de entrada": [" · {n} input", " · {n} de entrada"],
+  "Entrada: {a} tokens ({c} reaproveitados do cache)\nSaída: {b} tokens": ["Input: {a} tokens ({c} reused from cache)\nOutput: {b} tokens", "Entrada: {a} tokens ({c} reutilizados de la caché)\nSalida: {b} tokens"],
+  "código": ["code", "código"],
+  "Nada para exportar.": ["Nothing to export.", "Nada para exportar."],
+  "Contexto": ["Context", "Contexto"],
+  "Conversa:": ["Chat:", "Conversación:"],
+  "Total geral:": ["Grand total:", "Total general:"],
+  "Quanto da memória de contexto do modelo esta conversa já ocupa. Ao chegar em 100%, comece uma nova conversa ou aumente o contexto nas Configurações.": ["How much of the model's context memory this chat already uses. At 100%, start a new chat or increase the context in Settings.", "Cuánta memoria de contexto del modelo ya ocupa esta conversación. Al llegar al 100%, empieza una nueva conversación o aumenta el contexto en Configuración."],
+  "Tokens desta conversa: entrada (o que o modelo leu, somando todas as mensagens) e saída (o que ele escreveu)": ["Tokens in this chat: input (what the model read, across all messages) and output (what it wrote)", "Tokens de esta conversación: entrada (lo que el modelo leyó, sumando todos los mensajes) y salida (lo que escribió)"],
+  "Desde {date}: {a} gerados, {b} de entrada, {c} respostas, {d} pesquisas na web": ["Since {date}: {a} generated, {b} input, {c} answers, {d} web searches", "Desde {date}: {a} generados, {b} de entrada, {c} respuestas, {d} búsquedas web"],
+  "o início": ["the start", "el inicio"],
+  // pesquisa web
+  "Criando a consulta de pesquisa...": ["Creating the search query...", "Creando la consulta de búsqueda..."],
+  "Pesquisando: “{q}”...": ["Searching: “{q}”...", "Buscando: “{q}”..."],
+  "Lendo {n} páginas sobre “{q}”...": ["Reading {n} pages about “{q}”...", "Leyendo {n} páginas sobre “{q}”..."],
+  "🌐 Pesquisou “{q}” · {n} fontes": ["🌐 Searched “{q}” · {n} sources", "🌐 Buscó “{q}” · {n} fuentes"],
+  "Respondendo sem a web.": ["Answering without the web.", "Respondiendo sin la web."],
+  "consulta": ["query", "consulta"],
+
+  // ---- Codex
+  "Listou": ["Listed", "Listó"], "Leu": ["Read", "Leyó"], "Escreveu": ["Wrote", "Escribió"], "Editou": ["Edited", "Editó"],
+  "Buscou": ["Searched", "Buscó"], "em": ["in", "en"], "Apagar": ["Delete", "Eliminar"], "Gerar imagem": ["Generate image", "Generar imagen"],
+  "(linhas {a}–{b})": ["(lines {a}–{b})", "(líneas {a}–{b})"], "fim": ["end", "fin"], "({n} linhas)": ["({n} lines)", "({n} líneas)"],
+  "O Codex quer rodar este comando.": ["Codex wants to run this command.", "Codex quiere ejecutar este comando."],
+  "O Codex quer apagar este item.": ["Codex wants to delete this item.", "Codex quiere eliminar este elemento."],
+  "O Codex quer alterar este arquivo.": ["Codex wants to change this file.", "Codex quiere modificar este archivo."],
+  "Permitir": ["Allow", "Permitir"],
+  "Sempre nesta conversa": ["Always in this chat", "Siempre en esta conversación"],
+  "Negar": ["Deny", "Denegar"],
+  "Abrir pasta": ["Open folder", "Abrir carpeta"],
+  "Refazer": ["Redo", "Rehacer"],
+
+  // ---- imagem
+  "Melhorando a descrição com o modelo de texto...": ["Improving the description with the text model...", "Mejorando la descripción con el modelo de texto..."],
+  "Liberando a GPU...": ["Freeing the GPU...", "Liberando la GPU..."],
+  "Carregando o modelo de imagem...": ["Loading the image model...", "Cargando el modelo de imagen..."],
+  "Gerando: passo {a}/{b}": ["Generating: step {a}/{b}", "Generando: paso {a}/{b}"],
+  "Preparando...": ["Preparing...", "Preparando..."],
+  "Pedido:": ["Request:", "Pedido:"],
+  "Prompt usado:": ["Prompt used:", "Prompt usado:"],
+  "Gerar outra": ["Generate another", "Generar otra"],
+  "Mostrar na pasta": ["Show in folder", "Mostrar en la carpeta"],
+  "Salvar como...": ["Save as...", "Guardar como..."],
+  "Copiar prompt": ["Copy prompt", "Copiar prompt"],
+  "Prompt copiado": ["Prompt copied", "Prompt copiado"],
+  "Tentar de novo": ["Try again", "Intentar de nuevo"],
+  "Descreva a imagem.": ["Describe the image.", "Describe la imagen."],
+  "Instale o motor e um modelo de imagem primeiro.": ["Install the engine and an image model first.", "Instala primero el motor y un modelo de imagen."],
+  "A geração terminou sem imagem.": ["Generation finished without an image.", "La generación terminó sin imagen."],
+  "Geração cancelada.": ["Generation cancelled.", "Generación cancelada."],
+
+  // ---- modelos
+  "Meus modelos": ["My models", "Mis modelos"],
+  "Baixar modelos": ["Download models", "Descargar modelos"],
+  "Mídia": ["Media", "Multimedia"],
+  "Motor": ["Engine", "Motor"],
+  "Arquivos": ["Files", "Archivos"],
+  "na pasta": ["in the folder", "en la carpeta"],
+  ". Você também pode colocar modelos lá manualmente.": [". You can also put models there manually.", ". También puedes poner modelos allí manualmente."],
+  "Nenhum modelo ainda. Vá na aba": ["No models yet. Go to the tab", "Aún no hay modelos. Ve a la pestaña"],
+  "carregado": ["loaded", "cargado"],
+  "Carregado como modelo extra (agentes/pergunta rápida)": ["Loaded as an extra model (agents/quick ask)", "Cargado como modelo extra (agentes/pregunta rápida)"],
+  "Arquivo de visão (mmproj): permite o modelo ver imagens": ["Vision file (mmproj): lets the model see images", "Archivo de visión (mmproj): permite al modelo ver imágenes"],
+  "Sem visão": ["No vision", "Sin visión"],
+  "👁 visão": ["👁 vision", "👁 visión"],
+  "👁 sem arquivo de visão": ["👁 no vision file", "👁 sin archivo de visión"],
+  "Este modelo tem visão, mas o arquivo mmproj não foi baixado. Baixe de novo com Incluir visão ou escolha o arquivo ao lado.": ["This model has vision, but the mmproj file was not downloaded. Download again with Include vision or choose the file next to it.", "Este modelo tiene visión, pero el archivo mmproj no se descargó. Descárgalo de nuevo con Incluir visión o elige el archivo al lado."],
+  "Excluir o arquivo do modelo do disco?": ["Delete the model file from disk?", "¿Eliminar el archivo del modelo del disco?"],
+  "Modelo excluído": ["Model deleted", "Modelo eliminado"],
+  "Modelo extra descarregado": ["Extra model unloaded", "Modelo extra descargado"],
+  "Recarregue o modelo para aplicar.": ["Reload the model to apply.", "Recarga el modelo para aplicar."],
+  "Visão configurada.": ["Vision configured.", "Visión configurada."],
+  "cabe na GPU": ["fits the GPU", "cabe en la GPU"], "no limite": ["at the limit", "al límite"], "grande demais": ["too big", "demasiado grande"],
+  "Cabe inteiro na VRAM: rápido": ["Fits entirely in VRAM: fast", "Cabe entero en la VRAM: rápido"],
+  "Pode precisar reduzir contexto ou camadas na GPU": ["May need less context or fewer GPU layers", "Puede requerir menos contexto o capas en la GPU"],
+  "Vai dividir entre GPU e RAM: bem mais lento": ["Will be split between GPU and RAM: much slower", "Se dividirá entre GPU y RAM: mucho más lento"],
+  "cabe": ["fits", "cabe"], "pesado": ["heavy", "pesado"],
+  "Em Q4_K_M cabe inteiro na sua placa": ["In Q4_K_M it fits entirely on your card", "En Q4_K_M cabe entero en tu tarjeta"],
+  "Em Q4_K_M não cabe inteiro na VRAM: vai ficar mais lento": ["In Q4_K_M it doesn't fit entirely in VRAM: it will be slower", "En Q4_K_M no cabe entero en la VRAM: será más lento"],
+  "🎮 GPU": ["🎮 GPU", "🎮 GPU"],
+  "🧠 RAM (modelos na CPU)": ["🧠 RAM (models on CPU)", "🧠 RAM (modelos en CPU)"],
+  "VRAM ocupada pelos modelos carregados (estimativa)": ["VRAM used by the loaded models (estimate)", "VRAM ocupada por los modelos cargados (estimación)"],
+  "RAM ocupada pelos modelos que rodam na CPU (estimativa). Disponível no PC agora: {gb} GB": ["RAM used by models running on the CPU (estimate). Available on the PC now: {gb} GB", "RAM ocupada por los modelos que corren en la CPU (estimación). Disponible en el PC ahora: {gb} GB"],
+  // busca no HF
+  "Buscar no Hugging Face (ex.: qwen, gemma, llama, mistral, abliterated...)": ["Search Hugging Face (e.g. qwen, gemma, llama, mistral, abliterated...)", "Buscar en Hugging Face (ej.: qwen, gemma, llama, mistral, abliterated...)"],
+  "Buscar": ["Search", "Buscar"],
+  "Buscando...": ["Searching...", "Buscando..."],
+  "Filtrar:": ["Filter:", "Filtrar:"],
+  "👁 Visão": ["👁 Vision", "👁 Visión"], "🎧 Áudio": ["🎧 Audio", "🎧 Audio"], "🛠️ Codex ": ["🛠️ Codex", "🛠️ Codex"],
+  "🧠 Raciocínio": ["🧠 Reasoning", "🧠 Razonamiento"], "💻 Programação": ["💻 Coding", "💻 Programación"],
+  "🔓 Sem censura": ["🔓 Uncensored", "🔓 Sin censura"], "⚡ MoE rápido": ["⚡ Fast MoE", "⚡ MoE rápido"],
+  "🖥️ Cabe na minha GPU": ["🖥️ Fits my GPU", "🖥️ Cabe en mi GPU"],
+  "Nada encontrado.": ["Nothing found.", "No se encontró nada."],
+  "Nenhum resultado com esses filtros.": ["No results with these filters.", "Ningún resultado con estos filtros."],
+  "Carregando arquivos...": ["Loading files...", "Cargando archivos..."],
+  "ver página ↗": ["view page ↗", "ver página ↗"],
+  "Passe o mouse nos ícones para ver o que significam. ⭐ = melhor qualidade que cabe na sua placa.": ["Hover over the icons to see what they mean. ⭐ = best quality that fits your card.", "Pasa el mouse sobre los íconos para ver qué significan. ⭐ = mejor calidad que cabe en tu tarjeta."],
+  "Incluir visão (o modelo poderá ver imagens)": ["Include vision (the model will be able to see images)", "Incluir visión (el modelo podrá ver imágenes)"],
+  "👁 Incluir visão (o modelo poderá ver imagens)": ["👁 Include vision (the model will be able to see images)", "👁 Incluir visión (el modelo podrá ver imágenes)"],
+  "Nenhum arquivo .gguf neste repositório.": ["No .gguf files in this repository.", "Ningún archivo .gguf en este repositorio."],
+  "Baixar": ["Download", "Descargar"],
+  "Download iniciado": ["Download started", "Descarga iniciada"],
+  "({n} partes)": ["({n} parts)", "({n} partes)"],
+  "🔎 Este modelo não serve para conversar.": ["🔎 This model is not meant for chatting.", "🔎 Este modelo no sirve para conversar."],
+  "Este é um modelo de": ["This is a model to", "Este es un modelo para"],
+  "gerar imagens": ["generate images", "generar imágenes"],
+  ", não de conversa. Use os modelos de imagem em Modelos → Mídia.": [", not for chatting. Use the image models in Models → Media.", ", no de conversación. Usa los modelos de imagen en Modelos → Multimedia."],
+  "Tamanho do modelo em parâmetros. Mais parâmetros = mais inteligente e mais pesado.": ["Model size in parameters. More parameters = smarter and heavier.", "Tamaño del modelo en parámetros. Más parámetros = más inteligente y más pesado."],
+  "Contexto máximo que o modelo suporta (quanto texto ele consegue considerar de uma vez).": ["Maximum context the model supports (how much text it can consider at once).", "Contexto máximo que admite el modelo (cuánto texto puede considerar a la vez)."],
+  "Licença de uso": ["License", "Licencia de uso"],
+  // etiquetas (vindas do servidor)
+  "Visão": ["Vision", "Visión"], "Vídeo": ["Video", "Video"], "Áudio": ["Audio", "Audio"], "Ferramentas": ["Tools", "Herramientas"],
+  "Programação": ["Coding", "Programación"], "Sem censura": ["Uncensored", "Sin censura"], "MoE rápido": ["Fast MoE", "MoE rápido"],
+  "Otimizado": ["Optimized", "Optimizado"], "Gera imagens": ["Generates images", "Genera imágenes"], "Embedding": ["Embedding", "Embedding"],
+  "Enxerga imagens. Ao baixar, deixe marcado \"Incluir visão\" para baixar o arquivo mmproj.": ["Sees images. When downloading, keep \"Include vision\" checked to get the mmproj file.", "Ve imágenes. Al descargar, deja marcado \"Incluir visión\" para bajar el archivo mmproj."],
+  "Entende vídeos pelos quadros que o app extrai (precisa da visão).": ["Understands videos through frames the app extracts (needs vision).", "Entiende videos por los cuadros que extrae la app (necesita visión)."],
+  "Entende áudio direto. Sem isso, o app transcreve com o Whisper.": ["Understands audio directly. Otherwise the app transcribes it with Whisper.", "Entiende audio directamente. Si no, la app lo transcribe con Whisper."],
+  "Sabe usar ferramentas (tool calling): funciona no modo Codex.": ["Can use tools (tool calling): works in Codex mode.", "Sabe usar herramientas (tool calling): funciona en el modo Codex."],
+  "Pensa antes de responder (mais inteligente, mais lento). O pensamento aparece num bloco recolhível.": ["Thinks before answering (smarter, slower). The thinking shows in a collapsible block.", "Piensa antes de responder (más inteligente, más lento). El pensamiento aparece en un bloque plegable."],
+  "Especializado em código.": ["Specialized in code.", "Especializado en código."],
+  "Ajustado para recusar menos pedidos.": ["Tuned to refuse fewer requests.", "Ajustado para rechazar menos pedidos."],
+  "Mistura de especialistas: usa só parte dos parâmetros por vez, então roda bem mais rápido que o tamanho sugere.": ["Mixture of experts: uses only part of the parameters at a time, so it runs much faster than its size suggests.", "Mezcla de expertos: usa solo parte de los parámetros a la vez, así que corre mucho más rápido de lo que sugiere su tamaño."],
+  "Quantização otimizada (imatrix/dinâmica): mais qualidade no mesmo tamanho de arquivo.": ["Optimized quantization (imatrix/dynamic): more quality at the same file size.", "Cuantización optimizada (imatrix/dinámica): más calidad con el mismo tamaño de archivo."],
+  "Modelo de GERAR imagens, não de conversa. Use-o pelo modo 🎨 Imagem (Modelos → Mídia), não aqui.": ["An image GENERATION model, not a chat model. Use it through 🎨 Image mode (Models → Media), not here.", "Modelo para GENERAR imágenes, no de conversación. Úsalo en el modo 🎨 Imagen (Modelos → Multimedia), no aquí."],
+  "Modelo de busca semântica (embeddings). Não serve para conversar.": ["Semantic search model (embeddings). Not for chatting.", "Modelo de búsqueda semántica (embeddings). No sirve para conversar."],
+  "Original (sem perda, pesado)": ["Original (lossless, heavy)", "Original (sin pérdida, pesado)"], "Formato FP4 otimizado": ["Optimized FP4 format", "Formato FP4 optimizado"],
+  "Quase idêntico ao original": ["Almost identical to the original", "Casi idéntico al original"], "Ótima": ["Excellent", "Excelente"], "Muito boa": ["Very good", "Muy buena"],
+  "Boa (melhor equilíbrio)": ["Good (best balance)", "Buena (mejor equilibrio)"], "Razoável (perde um pouco)": ["Fair (loses a little)", "Razonable (pierde un poco)"],
+  "Baixa (só se não couber outra)": ["Low (only if nothing else fits)", "Baja (solo si no cabe otra)"],
+  // mídia
+  "🎧 Áudio e vídeo: transcrição com Whisper": ["🎧 Audio and video: transcription with Whisper", "🎧 Audio y video: transcripción con Whisper"],
+  "Transforma a fala de áudios e vídeos anexados em texto para o modelo entender. Roda no seu PC, com o whisper.cpp (licença MIT).": ["Turns speech in attached audio and video into text for the model. Runs on your PC with whisper.cpp (MIT license).", "Convierte el habla de audios y videos adjuntos en texto para el modelo. Corre en tu PC con whisper.cpp (licencia MIT)."],
+  "✓ Motor instalado": ["✓ Engine installed", "✓ Motor instalado"], "✓ baixado": ["✓ downloaded", "✓ descargado"],
+  "Instalar GPU (CUDA, ~650 MB)": ["Install GPU (CUDA, ~650 MB)", "Instalar GPU (CUDA, ~650 MB)"], "Reinstalar GPU (CUDA, ~650 MB)": ["Reinstall GPU (CUDA, ~650 MB)", "Reinstalar GPU (CUDA, ~650 MB)"],
+  "Instalar CPU (~5 MB, mais lento)": ["Install CPU (~5 MB, slower)", "Instalar CPU (~5 MB, más lento)"], "Reinstalar CPU (~5 MB, mais lento)": ["Reinstall CPU (~5 MB, slower)", "Reinstalar CPU (~5 MB, más lento)"],
+  "Large v3 Turbo (melhor, 530 MB)": ["Large v3 Turbo (best, 530 MB)", "Large v3 Turbo (mejor, 530 MB)"], "Small (bom e leve, 250 MB)": ["Small (good and light, 250 MB)", "Small (bueno y ligero, 250 MB)"], "Base (rápido, 80 MB)": ["Base (fast, 80 MB)", "Base (rápido, 80 MB)"],
+  "🎨 Geração de imagens: stable-diffusion.cpp": ["🎨 Image generation: stable-diffusion.cpp", "🎨 Generación de imágenes: stable-diffusion.cpp"],
+  "Use o modo": ["Use the", "Usa el modo"], "na caixa de mensagem. O Codex também consegue criar imagens para os projetos.": ["mode in the message box. Codex can also create images for projects.", "en el cuadro de mensaje. Codex también puede crear imágenes para los proyectos."],
+  "Instalar Vulkan (recomendado, ~30 MB)": ["Install Vulkan (recommended, ~30 MB)", "Instalar Vulkan (recomendado, ~30 MB)"], "Reinstalar Vulkan (recomendado, ~30 MB)": ["Reinstall Vulkan (recommended, ~30 MB)", "Reinstalar Vulkan (recomendado, ~30 MB)"],
+  "CUDA (~860 MB)": ["CUDA (~860 MB)", "CUDA (~860 MB)"], "CPU (muito lento)": ["CPU (very slow)", "CPU (muy lento)"],
+  "Melhor qualidade, ótimo com textos na imagem. 8 passos. ~6,2 GB.": ["Best quality, great with text in images. 8 steps. ~6.2 GB.", "Mejor calidad, excelente con texto en la imagen. 8 pasos. ~6,2 GB."],
+  "Muito rápido (1 a 4 passos), ideal em 512x512. ~6,5 GB.": ["Very fast (1 to 4 steps), best at 512x512. ~6.5 GB.", "Muy rápido (1 a 4 pasos), ideal en 512x512. ~6,5 GB."],
+  "👁 Ver imagens (visão)": ["👁 Seeing images (vision)", "👁 Ver imágenes (visión)"],
+  "Para o modelo": ["For the model to", "Para que el modelo"], "enxergar": ["see", "vea"],
+  "imagens e quadros de vídeo, ele precisa de um arquivo de visão (": ["images and video frames, it needs a vision file (", "imágenes y cuadros de video, necesita un archivo de visión ("],
+  "). Ao baixar um modelo com visão (ex.: Gemma 3, Qwen2.5-VL, Qwen3-VL), deixe marcado \"Incluir visão\". Para modelos já baixados, escolha o arquivo em": ["). When downloading a model with vision (e.g. Gemma 3, Qwen2.5-VL, Qwen3-VL), keep \"Include vision\" checked. For models already downloaded, choose the file in", "). Al descargar un modelo con visión (ej.: Gemma 3, Qwen2.5-VL, Qwen3-VL), deja marcado \"Incluir visión\". Para modelos ya descargados, elige el archivo en"],
+  // motor
+  "O motor é o": ["The engine is", "El motor es"],
+  "(open source, licença MIT), baixado direto do GitHub oficial. Ele é o que roda o modelo na sua GPU.": ["(open source, MIT license), downloaded straight from the official GitHub. It runs the model on your GPU.", "(código abierto, licencia MIT), descargado directamente del GitHub oficial. Es lo que ejecuta el modelo en tu GPU."],
+  "GPU detectada:": ["GPU detected:", "GPU detectada:"], "Nenhuma GPU NVIDIA detectada.": ["No NVIDIA GPU detected.", "No se detectó ninguna GPU NVIDIA."],
+  "recomendado": ["recommended", "recomendado"], "Para placas NVIDIA. O mais rápido.": ["For NVIDIA cards. The fastest.", "Para tarjetas NVIDIA. El más rápido."],
+  "Funciona em NVIDIA, AMD e Intel.": ["Works on NVIDIA, AMD and Intel.", "Funciona en NVIDIA, AMD e Intel."], "Sem GPU. Lento, mas funciona em qualquer PC.": ["No GPU. Slow, but works on any PC.", "Sin GPU. Lento, pero funciona en cualquier PC."],
+  "Instalar": ["Install", "Instalar"], "Atualizar": ["Update", "Actualizar"], "✅ Instalado: {v}": ["✅ Installed: {v}", "✅ Instalado: {v}"],
+  "Baixando motor...": ["Downloading engine...", "Descargando motor..."], "Log do motor": ["Engine log", "Registro del motor"],
+  "(vazio: carregue um modelo)": ["(empty: load a model)", "(vacío: carga un modelo)"],
+  "Concluído": ["Done", "Completado"], "Cancelado": ["Cancelled", "Cancelado"], "Erro: {e}": ["Error: {e}", "Error: {e}"],
+
+  // ---- configurações
+  "Idioma": ["Language", "Idioma"],
+  "Idioma do app": ["App language", "Idioma de la app"],
+  "A IA responde": ["The AI answers", "La IA responde"],
+  "No idioma da pergunta": ["In the language of the question", "En el idioma de la pregunta"],
+  "Sempre no idioma do app": ["Always in the app language", "Siempre en el idioma de la app"],
+  "App desktop": ["Desktop app", "App de escritorio"],
+  "Atalho da pergunta rápida (clique e pressione as teclas)": ["Quick ask shortcut (click and press the keys)", "Atajo de la pregunta rápida (haz clic y presiona las teclas)"],
+  "Salvar": ["Save", "Guardar"],
+  "Iniciar junto com o Windows": ["Start with Windows", "Iniciar con Windows"],
+  "Esconder a pergunta rápida ao clicar fora": ["Hide quick ask when clicking outside", "Ocultar la pregunta rápida al hacer clic fuera"],
+  "Modelo da pergunta rápida": ["Quick ask model", "Modelo de la pregunta rápida"],
+  "O mesmo modelo principal do app": ["The app's main model", "El mismo modelo principal de la app"],
+  "Um modelo leve deixa a pergunta rápida bem mais ágil. Ele é carregado junto com o principal.": ["A light model makes quick ask much snappier. It's loaded alongside the main one.", "Un modelo ligero hace la pregunta rápida mucho más ágil. Se carga junto con el principal."],
+  "Onde rodar o modelo da pergunta rápida": ["Where to run the quick ask model", "Dónde ejecutar el modelo de la pregunta rápida"],
+  "Na CPU, o modelo leve usa a RAM e deixa a GPU livre para o principal.": ["On the CPU, the light model uses RAM and leaves the GPU free for the main one.", "En la CPU, el modelo ligero usa la RAM y deja la GPU libre para el principal."],
+  "Automático (GPU se couber, senão CPU)": ["Automatic (GPU if it fits, otherwise CPU)", "Automático (GPU si cabe, si no CPU)"],
+  "GPU (VRAM): mais rápido": ["GPU (VRAM): faster", "GPU (VRAM): más rápido"],
+  "CPU (RAM): não ocupa a GPU": ["CPU (RAM): doesn't use the GPU", "CPU (RAM): no ocupa la GPU"],
+  "Pasta de dados (modelos, motor e conversas)": ["Data folder (models, engine and chats)", "Carpeta de datos (modelos, motor y conversaciones)"],
+  "Mudar...": ["Change...", "Cambiar..."],
+  "Verificar atualizações": ["Check for updates", "Buscar actualizaciones"],
+  "Versão —": ["Version —", "Versión —"],
+  "Reiniciar e atualizar": ["Restart and update", "Reiniciar y actualizar"],
+  "Baixar instalador": ["Download installer", "Descargar instalador"],
+  "Versão {v}": ["Version {v}", "Versión {v}"],
+  "Verificando atualizações...": ["Checking for updates...", "Buscando actualizaciones..."],
+  "Você está na versão mais recente.": ["You're on the latest version.", "Tienes la versión más reciente."],
+  "Baixando a versão {v}... {p}%": ["Downloading version {v}... {p}%", "Descargando la versión {v}... {p}%"],
+  "Versão {v} pronta para instalar.": ["Version {v} ready to install.", "Versión {v} lista para instalar."],
+  "A versão {v} troca o Electron e precisa do instalador completo.": ["Version {v} changes Electron and needs the full package.", "La versión {v} cambia Electron y necesita el paquete completo."],
+  "Não foi possível verificar: {e}": ["Couldn't check: {e}", "No se pudo verificar: {e}"],
+  "Atualização automática só funciona no app instalado.": ["Automatic updates only work in the installed app.", "Las actualizaciones automáticas solo funcionan en la app instalada."],
+  "Conversa": ["Chat", "Conversación"],
+  "Prompt de sistema (instruções fixas para o modelo)": ["System prompt (fixed instructions for the model)", "Prompt de sistema (instrucciones fijas para el modelo)"],
+  "Ex.: Você é um assistente direto, responde em português...": ["E.g.: You are a straightforward assistant who answers in English...", "Ej.: Eres un asistente directo que responde en español..."],
+  "Geração": ["Generation", "Generación"],
+  "Temperatura": ["Temperature", "Temperatura"],
+  "Penalidade de repetição": ["Repetition penalty", "Penalización por repetición"],
+  "Máx. tokens (0 = sem limite)": ["Max tokens (0 = no limit)", "Máx. tokens (0 = sin límite)"],
+  "Carregamento do modelo": ["Model loading", "Carga del modelo"],
+  "(aplica ao carregar)": ["(applies when loading)", "(se aplica al cargar)"],
+  "Contexto (tokens)": ["Context (tokens)", "Contexto (tokens)"],
+  "Camadas na GPU (999 = todas)": ["GPU layers (999 = all)", "Capas en la GPU (999 = todas)"],
+  "Uso da CPU": ["CPU usage", "Uso de la CPU"],
+  "0 = automático (o motor usa os núcleos físicos, cerca de 50%). Acima de 75% raramente acelera e deixa o PC lento.": ["0 = automatic (the engine uses the physical cores, about 50%). Above 75% rarely speeds up and slows the PC down.", "0 = automático (el motor usa los núcleos físicos, cerca del 50%). Por encima del 75% rara vez acelera y vuelve lento el PC."],
+  "{pct}% · {n} de {total} threads": ["{pct}% · {n} of {total} threads", "{pct}% · {n} de {total} hilos"],
+  "Automático ({n} threads no PC)": ["Automatic ({n} threads on the PC)", "Automático ({n} hilos en el PC)"],
+  "Automático": ["Automatic", "Automático"],
+  "CUDA (NVIDIA)": ["CUDA (NVIDIA)", "CUDA (NVIDIA)"], "Só CPU": ["CPU only", "Solo CPU"],
+  "Carregar o último modelo automaticamente ao abrir o app": ["Load the last model automatically when the app opens", "Cargar el último modelo automáticamente al abrir la app"],
+  "Descarregar modelos extras parados há (minutos)": ["Unload extra models idle for (minutes)", "Descargar modelos extra inactivos durante (minutos)"],
+  "Modelos extras são os usados por agentes ou pela pergunta rápida além do principal. 0 = só ao fechar o app.": ["Extra models are the ones used by agents or quick ask besides the main one. 0 = only when closing the app.", "Los modelos extra son los que usan los agentes o la pregunta rápida además del principal. 0 = solo al cerrar la app."],
+  "Argumentos extras do llama-server": ["Extra llama-server arguments", "Argumentos extra de llama-server"],
+  "Codex (agente de programação)": ["Codex (coding agent)", "Codex (agente de programación)"],
+  "O Codex só consegue ler e alterar arquivos dentro das pastas abaixo.": ["Codex can only read and change files inside the folders below.", "Codex solo puede leer y modificar archivos dentro de las carpetas de abajo."],
+  "Nenhuma pasta liberada.": ["No folder allowed.", "Ninguna carpeta autorizada."],
+  "+ Adicionar pasta": ["+ Add folder", "+ Agregar carpeta"],
+  "Pedir confirmação antes de rodar comandos": ["Ask for confirmation before running commands", "Pedir confirmación antes de ejecutar comandos"],
+  "Pedir confirmação antes de criar ou alterar arquivos": ["Ask for confirmation before creating or changing files", "Pedir confirmación antes de crear o modificar archivos"],
+  "Máximo de passos por pedido": ["Maximum steps per request", "Máximo de pasos por pedido"],
+  "Áudio e imagem": ["Audio and image", "Audio e imagen"],
+  "Idioma da transcrição": ["Transcription language", "Idioma de la transcripción"],
+  "Detectar automaticamente": ["Detect automatically", "Detectar automáticamente"],
+  "Português": ["Portuguese", "Portugués"], "Inglês": ["English", "Inglés"], "Espanhol": ["Spanish", "Español"],
+  "Passos da imagem (0 = padrão do modelo)": ["Image steps (0 = model default)", "Pasos de la imagen (0 = predeterminado del modelo)"],
+  "Melhorar a descrição da imagem com o modelo de texto (recomendado)": ["Improve the image description with the text model (recommended)", "Mejorar la descripción de la imagen con el modelo de texto (recomendado)"],
+  "Economizar VRAM ao gerar imagens (um pouco mais lento)": ["Save VRAM when generating images (a bit slower)", "Ahorrar VRAM al generar imágenes (un poco más lento)"],
+  "Descarregar o modelo de texto enquanto gera imagens (libera a GPU toda)": ["Unload the text model while generating images (frees the whole GPU)", "Descargar el modelo de texto mientras genera imágenes (libera toda la GPU)"],
+  "Pesquisa na web": ["Web search", "Búsqueda web"],
+  "Provedor": ["Provider", "Proveedor"],
+  "DuckDuckGo (grátis, sem chave)": ["DuckDuckGo (free, no key)", "DuckDuckGo (gratis, sin clave)"],
+  "Google (API oficial, precisa de chave)": ["Google (official API, needs a key)", "Google (API oficial, necesita clave)"],
+  "SearXNG (instância própria)": ["SearXNG (your own instance)", "SearXNG (instancia propia)"],
+  "Resultados lidos por pesquisa": ["Results read per search", "Resultados leídos por búsqueda"],
+  "Região": ["Region", "Región"], "Brasil": ["Brazil", "Brasil"], "Estados Unidos": ["United States", "Estados Unidos"], "Mundial": ["Worldwide", "Mundial"],
+  "Chave da API do Google": ["Google API key", "Clave de la API de Google"],
+  "ID do mecanismo (cx)": ["Engine ID (cx)", "ID del motor (cx)"],
+  "Crie em": ["Create it at", "Créalo en"],
+  "(marque \"Pesquisar em toda a Web\") e gere a chave em": ["(check \"Search the entire web\") and generate the key at", "(marca \"Buscar en toda la Web\") y genera la clave en"],
+  ". A cota grátis é de 100 pesquisas por dia.": [". The free quota is 100 searches per day.", ". La cuota gratuita es de 100 búsquedas por día."],
+  "Endereço do SearXNG": ["SearXNG address", "Dirección de SearXNG"],
+  "Contador de tokens": ["Token counter", "Contador de tokens"],
+  "Zerar contador": ["Reset counter", "Reiniciar contador"],
+  "Zerar o contador geral de tokens?": ["Reset the overall token counter?", "¿Reiniciar el contador general de tokens?"],
+  "{a} gerados · {b} de entrada · {c} respostas · {d} pesquisas": ["{a} generated · {b} input · {c} answers · {d} searches", "{a} generados · {b} de entrada · {c} respuestas · {d} búsquedas"],
+  " (desde {date})": [" (since {date})", " (desde {date})"],
+  "Token (opcional, só para modelos restritos/gated)": ["Token (optional, only for restricted/gated models)", "Token (opcional, solo para modelos restringidos/gated)"],
+  "Restaurar padrões": ["Restore defaults", "Restaurar valores predeterminados"],
+  "Configurações salvas": ["Settings saved", "Configuración guardada"],
+  "Salvo. Recarregue o modelo para aplicar contexto/GPU.": ["Saved. Reload the model to apply context/GPU.", "Guardado. Recarga el modelo para aplicar contexto/GPU."],
+  "Valor inválido em": ["Invalid value in", "Valor no válido en"],
+  "Atalho salvo: {k}": ["Shortcut saved: {k}", "Atajo guardado: {k}"],
+  "Esse atalho já está em uso por outro programa. Tente outro.": ["That shortcut is already used by another program. Try another one.", "Ese atajo ya lo usa otro programa. Prueba otro."],
+  "Use pelo menos um modificador (Ctrl, Alt ou Shift).": ["Use at least one modifier (Ctrl, Alt or Shift).", "Usa al menos un modificador (Ctrl, Alt o Shift)."],
+
+  // ---- backup
+  "Backup das conversas": ["Chat backup", "Copia de seguridad de las conversaciones"],
+  "💾 Criar backup": ["💾 Create backup", "💾 Crear copia de seguridad"],
+  "Gera um arquivo": ["Creates a", "Genera un archivo"],
+  "com todas as conversas (inclusive as do Codex e as imagens geradas). Guarde na nuvem, num pendrive ou em outro PC.": ["file with all chats (including Codex ones and generated images). Keep it in the cloud, on a USB drive or on another PC.", "con todas las conversaciones (incluidas las de Codex y las imágenes generadas). Guárdalo en la nube, en un pendrive o en otro PC."],
+  "Incluir anexos e imagens geradas": ["Include attachments and generated images", "Incluir adjuntos e imágenes generadas"],
+  "Criar backup...": ["Create backup...", "Crear copia de seguridad..."],
+  "📂 Restaurar backup": ["📂 Restore backup", "📂 Restaurar copia de seguridad"],
+  "Junta as conversas do backup com as que já existem aqui. Se a mesma conversa estiver nos dois, fica a versão mais recente. Nada é apagado.": ["Merges the backup chats with the ones already here. If the same chat is in both, the newest version is kept. Nothing is deleted.", "Une las conversaciones de la copia con las que ya existen aquí. Si la misma conversación está en ambas, se queda la versión más reciente. No se borra nada."],
+  "Restaurar também as configurações (prompt de sistema, geração etc.)": ["Also restore the settings (system prompt, generation, etc.)", "Restaurar también la configuración (prompt de sistema, generación, etc.)"],
+  "Escolher arquivo de backup...": ["Choose backup file...", "Elegir archivo de copia de seguridad..."],
+  "Os modelos não entram no backup (são arquivos grandes que podem ser baixados de novo). Tokens e chaves de API também ficam de fora.": ["Models aren't included in the backup (they're big files that can be downloaded again). Tokens and API keys are also left out.", "Los modelos no entran en la copia (son archivos grandes que se pueden volver a descargar). Los tokens y claves de API también quedan fuera."],
+  "{n} conversas ({s})": ["{n} chats ({s})", "{n} conversaciones ({s})"],
+  " · {n} anexos e imagens ({s})": [" · {n} attachments and images ({s})", " · {n} adjuntos e imágenes ({s})"],
+  "Escolha onde salvar o arquivo de backup.": ["Choose where to save the backup file.", "Elige dónde guardar el archivo de copia de seguridad."],
+  "Restaurando...": ["Restoring...", "Restaurando..."],
+  "✅ {a} conversas novas, {b} atualizadas, {c} já estavam em dia, {d} arquivos restaurados.": ["✅ {a} new chats, {b} updated, {c} already up to date, {d} files restored.", "✅ {a} conversaciones nuevas, {b} actualizadas, {c} ya estaban al día, {d} archivos restaurados."],
+  "Excluir esta conversa (e os arquivos anexados nela)?": ["Delete this chat (and its attached files)?", "¿Eliminar esta conversación (y sus archivos adjuntos)?"],
+
+  // ---- agentes
+  "Agentes e grupos": ["Agents and groups", "Agentes y grupos"],
+  "🤖 Agentes": ["🤖 Agents", "🤖 Agentes"], "👥 Grupos": ["👥 Groups", "👥 Grupos"], "+ Novo": ["+ New", "+ Nuevo"],
+  "Nenhum agente ainda.": ["No agents yet.", "Aún no hay agentes."], "Nenhum grupo ainda.": ["No groups yet.", "Aún no hay grupos."],
+  "✨ Modelos prontos": ["✨ Ready-made templates", "✨ Plantillas listas"],
+  "Cria o grupo e os agentes já configurados.": ["Creates the group and its agents already set up.", "Crea el grupo y los agentes ya configurados."],
+  "🧮 Matemática": ["🧮 Math", "🧮 Matemáticas"], "📝 Redação": ["📝 Writing", "📝 Redacción"], "💻 Programação ": ["💻 Coding", "💻 Programación"],
+  "Como funciona": ["How it works", "Cómo funciona"],
+  "🤖 Agente": ["🤖 Agent", "🤖 Agente"], "👥 Grupo": ["👥 Group", "👥 Grupo"], "✅ Validador": ["✅ Validator", "✅ Validador"],
+  ": um assistente com uma": [": an assistant with its own", ": un asistente con una"],
+  "função": ["role", "función"],
+  "(instruções) só dele. Ex.: \"crie um problema de matemática\".": ["(instructions). E.g. \"create a math problem\".", "(instrucciones) propia. Ej.: \"crea un problema de matemáticas\"."],
+  ": uma sequência de agentes. Cada um recebe o seu pedido": [": a sequence of agents. Each one receives your request", ": una secuencia de agentes. Cada uno recibe tu pedido"],
+  "e o trabalho dos anteriores": ["and the work of the previous ones", "y el trabajo de los anteriores"],
+  ": marque um agente do grupo como validador. Se ele": [": mark an agent in the group as validator. If it", ": marca un agente del grupo como validador. Si"],
+  "reprovar": ["rejects", "rechaza"],
+  ", o agente anterior refaz com o feedback e o validador confere de novo.": [", the previous agent redoes it with the feedback and the validator checks again.", ", el agente anterior lo rehace con el feedback y el validador revisa de nuevo."],
+  "Para usar, escolha o modo": ["To use it, choose the", "Para usarlo, elige el modo"],
+  "na caixa de mensagem e selecione o grupo ou agente.": ["mode in the message box and select the group or agent.", "en el cuadro de mensaje y selecciona el grupo o agente."],
+  "Comece por um modelo pronto ao lado (ex.: 🧮 Matemática) e edite como quiser.": ["Start from a template on the side (e.g. 🧮 Math) and edit it as you like.", "Empieza con una plantilla al lado (ej.: 🧮 Matemáticas) y edítala como quieras."],
+  "Novo agente": ["New agent", "Nuevo agente"], "Editar agente": ["Edit agent", "Editar agente"],
+  "Novo grupo": ["New group", "Nuevo grupo"], "Editar grupo": ["Edit group", "Editar grupo"],
+  "Nome": ["Name", "Nombre"], "Ex.: Resolvedor": ["E.g.: Solver", "Ej.: Resolvedor"], "Ícone": ["Icon", "Ícono"], "Cor": ["Color", "Color"],
+  "Ou digite/cole outro emoji": ["Or type/paste another emoji", "O escribe/pega otro emoji"],
+  "Modelo": ["Model", "Modelo"], "Onde rodar": ["Where to run", "Dónde ejecutar"],
+  "Modelo principal (o carregado no topo)": ["Main model (the one loaded at the top)", "Modelo principal (el cargado arriba)"],
+  "modelo principal": ["main model", "modelo principal"], "(não encontrado)": ["(not found)", "(no encontrado)"],
+  "Função do agente (instruções)": ["Agent role (instructions)", "Función del agente (instrucciones)"],
+  "Descreva o que este agente faz, como deve responder e o que NÃO deve fazer.\nEx.: Você resolve o problema do agente anterior mostrando o passo a passo e destaca a resposta final.": ["Describe what this agent does, how it should answer and what it should NOT do.\nE.g.: You solve the previous agent's problem showing the step by step and highlight the final answer.", "Describe qué hace este agente, cómo debe responder y qué NO debe hacer.\nEj.: Resuelves el problema del agente anterior mostrando el paso a paso y destacas la respuesta final."],
+  "Temperatura própria": ["Own temperature", "Temperatura propia"], "Criatividade:": ["Creativity:", "Creatividad:"],
+  "Baixa = preciso e consistente (bom para validar e calcular). Alta = criativo.": ["Low = precise and consistent (good for validating and calculating). High = creative.", "Baja = preciso y consistente (bueno para validar y calcular). Alta = creativo."],
+  "🌐 Pode pesquisar na web antes de responder": ["🌐 Can search the web before answering", "🌐 Puede buscar en la web antes de responder"],
+  "Pode pesquisar na web": ["Can search the web", "Puede buscar en la web"],
+  "Conversar com ele": ["Chat with it", "Conversar con él"], "Salvar agente": ["Save agent", "Guardar agente"],
+  "Ex.: Matemática": ["E.g.: Math", "Ej.: Matemáticas"], "Objetivo do grupo": ["Group goal", "Objetivo del grupo"],
+  "Ex.: Cria um cálculo, resolve e valida": ["E.g.: Creates a calculation, solves and validates it", "Ej.: Crea un cálculo, lo resuelve y lo valida"],
+  "Etapas": ["Steps", "Pasos"], "(executadas em ordem; cada agente vê o trabalho dos anteriores)": ["(run in order; each agent sees the previous ones' work)", "(se ejecutan en orden; cada agente ve el trabajo de los anteriores)"],
+  "Agente": ["Agent", "Agente"], "Subir": ["Move up", "Subir"], "Descer": ["Move down", "Bajar"],
+  "Crie agentes primeiro": ["Create agents first", "Crea agentes primero"], "Crie agentes primeiro.": ["Create agents first.", "Crea agentes primero."],
+  "Nenhuma etapa. Adicione agentes abaixo.": ["No steps. Add agents below.", "Ningún paso. Agrega agentes abajo."],
+  "+ Adicionar etapa": ["+ Add step", "+ Agregar paso"],
+  "Tentativas extras quando o validador reprovar": ["Extra attempts when the validator rejects", "Intentos extra cuando el validador rechace"],
+  "Usar no chat": ["Use in chat", "Usar en el chat"], "Salvar grupo": ["Save group", "Guardar grupo"],
+  "Dê um nome.": ["Give it a name.", "Ponle un nombre."], "Descreva a função do agente.": ["Describe the agent's role.", "Describe la función del agente."],
+  "Adicione pelo menos uma etapa.": ["Add at least one step.", "Agrega al menos un paso."],
+  "Agente salvo": ["Agent saved", "Agente guardado"], "Grupo salvo": ["Group saved", "Grupo guardado"], "Excluído": ["Deleted", "Eliminado"],
+  "Grupo criado! Edite à vontade ou use no chat.": ["Group created! Edit it freely or use it in chat.", "¡Grupo creado! Edítalo como quieras o úsalo en el chat."],
+  "Grupo não encontrado.": ["Group not found.", "Grupo no encontrado."],
+  "Excluir \"{name}\"?": ["Delete \"{name}\"?", "¿Eliminar \"{name}\"?"],
+  "\n\nEle será removido dos grupos: {groups}.": ["\n\nIt will be removed from the groups: {groups}.", "\n\nSe quitará de los grupos: {groups}."],
+  "Cada agente pode usar um modelo diferente. Os diferentes do principal são carregados juntos: na GPU se couberem, ou na CPU usando a RAM (bom para modelos leves, sem disputar a GPU).": ["Each agent can use a different model. Models other than the main one are loaded alongside it: on the GPU if they fit, or on the CPU using RAM (good for light models, without competing for the GPU).", "Cada agente puede usar un modelo distinto. Los distintos del principal se cargan juntos: en la GPU si caben, o en la CPU usando la RAM (bueno para modelos ligeros, sin competir por la GPU)."],
+  "Com o modelo principal, ele roda onde o principal estiver.": ["With the main model, it runs wherever the main one is.", "Con el modelo principal, se ejecuta donde esté el principal."],
+  "etapa {n}": ["step {n}", "paso {n}"], "validador": ["validator", "validador"], "tentativa {n}": ["attempt {n}", "intento {n}"],
+  "✅ Aprovado": ["✅ Approved", "✅ Aprobado"], "❌ Reprovado": ["❌ Rejected", "❌ Rechazado"],
+  "🔁 O validador reprovou: refazendo (tentativa {n})": ["🔁 The validator rejected it: redoing (attempt {n})", "🔁 El validador lo rechazó: rehaciendo (intento {n})"],
+  "Carregando o modelo {model} para a etapa {n}...": ["Loading the model {model} for step {n}...", "Cargando el modelo {model} para el paso {n}..."],
+  "⚠ O validador não aprovou o resultado, mesmo depois das tentativas extras. Veja o feedback acima.": ["⚠ The validator didn't approve the result, even after the extra attempts. See the feedback above.", "⚠ El validador no aprobó el resultado, incluso después de los intentos extra. Mira el feedback arriba."],
+  "Copiar resultado": ["Copy result", "Copiar resultado"],
+
+  // ---- pergunta rápida
+  "Pergunta rápida": ["Quick ask", "Pregunta rápida"],
+  "Pergunte qualquer coisa...": ["Ask anything...", "Pregunta lo que quieras..."],
+  "Copiar a última resposta (Ctrl+Shift+C)": ["Copy the last answer (Ctrl+Shift+C)", "Copiar la última respuesta (Ctrl+Shift+C)"],
+  "Nova conversa (Ctrl+N)": ["New chat (Ctrl+N)", "Nueva conversación (Ctrl+N)"],
+  "Continuar no app (Ctrl+O)": ["Continue in the app (Ctrl+O)", "Continuar en la app (Ctrl+O)"],
+  "Fixar: não esconder ao clicar fora": ["Pin: don't hide when clicking outside", "Fijar: no ocultar al hacer clic fuera"],
+  "Nova": ["New", "Nueva"], "Abrir no app ↗": ["Open in app ↗", "Abrir en la app ↗"],
+  "{name} · modelo rápido": ["{name} · quick model", "{name} · modelo rápido"],
+  "{name} · será carregado ao perguntar": ["{name} · loads when you ask", "{name} · se cargará al preguntar"],
+  "Modelo descarregado: será carregado ao perguntar": ["Model unloaded: it will load when you ask", "Modelo descargado: se cargará al preguntar"],
+  "Nenhum modelo: abra o app para baixar um": ["No model: open the app to download one", "Ningún modelo: abre la app para descargar uno"],
+  "Erro no motor: abra o app para ver": ["Engine error: open the app to see it", "Error del motor: abre la app para verlo"],
+  "Nenhum modelo para carregar: abra o app": ["No model to load: open the app", "Ningún modelo para cargar: abre la app"],
+  "Falha ao carregar o modelo: abra o app": ["Failed to load the model: open the app", "Error al cargar el modelo: abre la app"],
+  "⏳ Carregando {name}...": ["⏳ Loading {name}...", "⏳ Cargando {name}..."],
+  "Resposta copiada": ["Answer copied", "Respuesta copiada"],
+  "🌐 Criando a consulta...": ["🌐 Creating the query...", "🌐 Creando la consulta..."],
+  "🌐 Pesquisando “{q}”...": ["🌐 Searching “{q}”...", "🌐 Buscando “{q}”..."],
+  "🌐 Lendo as páginas...": ["🌐 Reading the pages...", "🌐 Leyendo las páginas..."],
+
+  // ---- mensagens do servidor
+  "Nenhum modelo carregado.": ["No model loaded.", "Ningún modelo cargado."],
+  "Nenhum modelo carregado. Carregue um modelo no topo do app.": ["No model loaded. Load a model at the top of the app.", "Ningún modelo cargado. Carga un modelo arriba en la app."],
+  "Mensagem vazia.": ["Empty message.", "Mensaje vacío."],
+};
+
+function _pick(key) {
+  const d = DICT[key];
+  return d ? d[LANG === "en" ? 0 : 1] : null;
+}
+
+// Traduz uma chave (com {variáveis}). Em português devolve o original.
+function t(key, vars) {
+  let s = LANG === "pt-BR" ? key : (_pick(key) ?? key);
+  if (vars) s = s.replace(/\{(\w+)\}/g, (m, k) => vars[k] ?? m);
+  return s;
+}
+
+function trText(s) {
+  if (LANG === "pt-BR" || !s) return s;
+  const k = s.trim(); if (!k) return s;
+  const v = _pick(k);
+  return v == null ? s : s.replace(k, v);
+}
+
+// títulos podem juntar várias frases ("Visão: Enxerga imagens...")
+function trAttr(s) {
+  if (LANG === "pt-BR" || !s) return s;
+  const whole = trText(s); if (whole !== s) return whole;
+  return s.split("\n").map(line => {
+    const tl = trText(line); if (tl !== line) return tl;
+    const i = line.indexOf(": ");
+    return i > 0 ? trText(line.slice(0, i)) + ": " + trText(line.slice(i + 2)) : line;
+  }).join("\n");
+}
+
+// conteúdo que nunca deve ser traduzido
+const I18N_SKIP = ".content, .bubble, .think-body, .tool-out, .tool-body pre, .diff, pre, code, .att-transcript, .tool-prompt, .gen-meta div, textarea, .chat-item .t, .log, [data-noi18n]";
+
+function translateAttrs(el) {
+  for (const a of ["title", "placeholder", "label"]) {
+    const old = el.getAttribute?.(a); if (!old) continue;
+    const v = trAttr(old); if (v !== old) el.setAttribute(a, v);
+  }
+}
+
+function translateTree(root) {
+  if (LANG === "pt-BR" || !root) return;
+  if (root.nodeType === 3) { if (!root.parentElement?.closest(I18N_SKIP)) { const v = trText(root.nodeValue); if (v !== root.nodeValue) root.nodeValue = v; } return; }
+  if (root.nodeType !== 1 || root.parentElement?.closest(I18N_SKIP)) return;
+  // campos de texto e conteúdo das conversas: só o title/placeholder do próprio elemento é traduzido
+  if (root.matches(I18N_SKIP)) return translateAttrs(root);
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+    acceptNode: n => { if (n.nodeType === 1 && n.matches(I18N_SKIP)) { translateAttrs(n); return NodeFilter.FILTER_REJECT; } return NodeFilter.FILTER_ACCEPT; },
+  });
+  for (let n = root; n; n = walker.nextNode()) {
+    if (n.nodeType === 3) { const v = trText(n.nodeValue); if (v !== n.nodeValue) n.nodeValue = v; continue; }
+    translateAttrs(n);
+  }
+}
+
+function startI18n() {
+  if (LANG === "pt-BR") return;
+  document.title = trText(document.title);
+  translateTree(document.body);
+  new MutationObserver(muts => {
+    for (const m of muts) {
+      if (m.type === "childList") m.addedNodes.forEach(translateTree);
+      else if (m.type === "characterData") translateTree(m.target);
+      else if (m.type === "attributes" && !m.target.parentElement?.closest(I18N_SKIP)) {
+        const old = m.target.getAttribute(m.attributeName); const v = trAttr(old);
+        if (v !== old) m.target.setAttribute(m.attributeName, v);
+      }
+    }
+  }).observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["title", "placeholder", "label"] });
+}
+
+// troca o idioma (salvo no navegador; a página recarrega para aplicar do zero)
+function setLanguage(lang) {
+  if (!LANGS[lang] || lang === LANG) return false;
+  try { localStorage.setItem("lang", lang); } catch {}
+  location.reload();
+  return true;
+}
+
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", startI18n); else startI18n();

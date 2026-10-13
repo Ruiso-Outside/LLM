@@ -17,6 +17,63 @@ const LOG_FILE = path.join(app.getPath("userData"), "server.log");
 const QUICK_W = 720;
 
 let mainWin = null, quickWin = null, tray = null, server = null;
+
+// ------------------------------------------------------------------ idioma (bandeja, avisos e janelas do sistema)
+// O idioma vem das Configurações do app (settings.language); antes do servidor subir, usa o do Windows.
+const MAIN_I18N = {
+  "Abrir LLM Local": ["Open LLM Local", "Abrir LLM Local"],
+  "Pergunta rápida": ["Quick ask", "Pregunta rápida"],
+  "Descarregar modelos (liberar GPU)": ["Unload models (free the GPU)", "Descargar modelos (liberar la GPU)"],
+  "Carregar último modelo": ["Load last model", "Cargar último modelo"],
+  "Iniciar com o Windows": ["Start with Windows", "Iniciar con Windows"],
+  "Abrir pasta de dados": ["Open data folder", "Abrir carpeta de datos"],
+  "Criar atalhos (Menu Iniciar e Área de Trabalho)": ["Create shortcuts (Start Menu and Desktop)", "Crear accesos directos (Menú Inicio y Escritorio)"],
+  "Atalhos criados.": ["Shortcuts created.", "Accesos directos creados."],
+  "Reiniciar e atualizar para {v}": ["Restart and update to {v}", "Reiniciar y actualizar a {v}"],
+  "Baixar o pacote da versão {v}": ["Download the package for version {v}", "Descargar el paquete de la versión {v}"],
+  "Baixando atualização {v} ({p}%)": ["Downloading update {v} ({p}%)", "Descargando actualización {v} ({p}%)"],
+  "Verificar atualizações (versão {v})": ["Check for updates (version {v})", "Buscar actualizaciones (versión {v})"],
+  "Sair": ["Quit", "Salir"],
+  "Carregando {name}...": ["Loading {name}...", "Cargando {name}..."],
+  "Nenhum modelo carregado": ["No model loaded", "Ningún modelo cargado"],
+  "Erro no motor": ["Engine error", "Error del motor"],
+  "Servidor offline": ["Server offline", "Servidor desconectado"],
+  "LLM Local continua rodando": ["LLM Local is still running", "LLM Local sigue en ejecución"],
+  "Use {k} para uma pergunta rápida. Para sair, clique com o botão direito no ícone perto do relógio.": ["Use {k} for a quick question. To quit, right-click the icon next to the clock.", "Usa {k} para una pregunta rápida. Para salir, haz clic derecho en el ícono junto al reloj."],
+  "Atualização do LLM Local": ["LLM Local update", "Actualización de LLM Local"],
+  "A versão {v} precisa do pacote completo. Abra Configurações → App desktop.": ["Version {v} needs the full package. Open Settings → Desktop app.", "La versión {v} necesita el paquete completo. Abre Configuración → App de escritorio."],
+  "Baixando a versão {v} em segundo plano...": ["Downloading version {v} in the background...", "Descargando la versión {v} en segundo plano..."],
+  "A versão {v} do LLM Local está pronta.": ["LLM Local version {v} is ready.", "La versión {v} de LLM Local está lista."],
+  "Reinicie para atualizar agora. Se preferir, a atualização será aplicada quando você fechar o app.": ["Restart to update now. Or the update will be applied when you close the app.", "Reinicia para actualizar ahora. Si prefieres, la actualización se aplicará al cerrar la app."],
+  "Reiniciar e atualizar": ["Restart and update", "Reiniciar y actualizar"],
+  "Depois": ["Later", "Después"],
+  "Criar atalhos do LLM Local?": ["Create LLM Local shortcuts?", "¿Crear accesos directos de LLM Local?"],
+  "No Menu Iniciar e na Área de Trabalho, apontando para:\n{p}\n\nDeixe a pasta do app onde ela está (se mover, crie os atalhos de novo pelo menu do ícone perto do relógio).": ["In the Start Menu and on the Desktop, pointing to:\n{p}\n\nKeep the app folder where it is (if you move it, create the shortcuts again from the menu of the icon next to the clock).", "En el Menú Inicio y en el Escritorio, apuntando a:\n{p}\n\nDeja la carpeta de la app donde está (si la mueves, vuelve a crear los accesos desde el menú del ícono junto al reloj)."],
+  "Criar atalhos": ["Create shortcuts", "Crear accesos directos"],
+  "Agora não": ["Not now", "Ahora no"],
+  "Não foi possível criar os atalhos.": ["Couldn't create the shortcuts.", "No se pudieron crear los accesos directos."],
+  "Salvar arquivo": ["Save file", "Guardar archivo"],
+  "Escolha uma pasta para o Codex trabalhar": ["Choose a folder for Codex to work in", "Elige una carpeta para que Codex trabaje"],
+  "Onde guardar os modelos, o motor e as conversas?": ["Where should models, the engine and chats be stored?", "¿Dónde guardar los modelos, el motor y las conversaciones?"],
+  "Os modelos costumam ter de 3 a 20 GB cada, então prefira um disco com bastante espaço.\n\nPasta padrão: {d}": ["Models are usually 3 to 20 GB each, so prefer a drive with plenty of space.\n\nDefault folder: {d}", "Los modelos suelen tener de 3 a 20 GB cada uno, así que prefiere un disco con bastante espacio.\n\nCarpeta predeterminada: {d}"],
+  "Usar a pasta padrão": ["Use the default folder", "Usar la carpeta predeterminada"],
+  "Escolher outra pasta...": ["Choose another folder...", "Elegir otra carpeta..."],
+  "Pasta de dados do LLM Local": ["LLM Local data folder", "Carpeta de datos de LLM Local"],
+  "O atalho {k} já está em uso por outro programa.": ["The shortcut {k} is already used by another program.", "El atajo {k} ya lo usa otro programa."],
+  "Escolha outro em Configurações → App desktop.": ["Choose another one in Settings → Desktop app.", "Elige otro en Configuración → App de escritorio."],
+};
+let uiLang = null;
+const curLang = () => {
+  if (uiLang) return uiLang;
+  const l = (app.getLocale() || "").toLowerCase();
+  return l.startsWith("pt") ? "pt-BR" : l.startsWith("es") ? "es" : "en";
+};
+function tm(key, vars) {
+  const lang = curLang();
+  let s = lang === "pt-BR" ? key : (MAIN_I18N[key]?.[lang === "en" ? 0 : 1] ?? key);
+  if (vars) s = s.replace(/\{(\w+)\}/g, (m, k) => vars[k] ?? m);
+  return s;
+}
 let quitting = false, quickPinned = false, quickHiddenAt = 0, trayHintShown = false;
 let config = { homeDir: "", hotkey: "Ctrl+Shift+Space", autoStart: true, quickHideOnBlur: true };
 
@@ -39,13 +96,13 @@ async function askHomeDir(firstRun) {
   if (firstRun) {
     const r = await dialog.showMessageBox({
       type: "question", title: "LLM Local", icon: nativeImage.createFromPath(ICON),
-      message: "Onde guardar os modelos, o motor e as conversas?",
-      detail: `Os modelos costumam ter de 3 a 20 GB cada, então prefira um disco com bastante espaço.\n\nPasta padrão: ${def}`,
-      buttons: ["Usar a pasta padrão", "Escolher outra pasta..."], defaultId: 0, cancelId: 0, noLink: true,
+      message: tm("Onde guardar os modelos, o motor e as conversas?"),
+      detail: tm("Os modelos costumam ter de 3 a 20 GB cada, então prefira um disco com bastante espaço.\n\nPasta padrão: {d}", { d: def }),
+      buttons: [tm("Usar a pasta padrão"), tm("Escolher outra pasta...")], defaultId: 0, cancelId: 0, noLink: true,
     });
     if (r.response === 0) return def;
   }
-  const r = await dialog.showOpenDialog({ title: "Pasta de dados do LLM Local", properties: ["openDirectory", "createDirectory"],
+  const r = await dialog.showOpenDialog({ title: tm("Pasta de dados do LLM Local"), properties: ["openDirectory", "createDirectory"],
     defaultPath: config.homeDir || def });
   return r.canceled ? (firstRun ? def : null) : r.filePaths[0];
 }
@@ -135,8 +192,8 @@ function createMain(show) {
     e.preventDefault(); mainWin.hide();
     if (!trayHintShown && Notification.isSupported()) {
       trayHintShown = true;
-      new Notification({ title: "LLM Local continua rodando", icon: ICON,
-        body: `Use ${prettyKey(config.hotkey)} para uma pergunta rápida. Para sair, clique com o botão direito no ícone perto do relógio.` }).show();
+      new Notification({ title: tm("LLM Local continua rodando"), icon: ICON,
+        body: tm("Use {k} para uma pergunta rápida. Para sair, clique com o botão direito no ícone perto do relógio.", { k: prettyKey(config.hotkey) }) }).show();
     }
   });
 }
@@ -192,33 +249,34 @@ async function updateTray() {
   try { st = JSON.parse(await ping("/api/status") || "null"); } catch {}
   const e = st?.engine || { state: "offline" };
   const name = st ? ((st.models.find(m => m.path === e.model) || {}).name || e.model) : "";
-  const label = { ready: `● ${name}`, loading: `Carregando ${name}...`, stopped: "Nenhum modelo carregado", error: "Erro no motor", offline: "Servidor offline" }[e.state];
-  const sig = [label, config.autoStart, config.hotkey, updateState.status, updateState.percent].join("|");
+  if (st?.settings) uiLang = st.settings.language || uiLang;
+  const label = { ready: `● ${name}`, loading: tm("Carregando {name}...", { name }), stopped: tm("Nenhum modelo carregado"), error: tm("Erro no motor"), offline: tm("Servidor offline") }[e.state];
+  const sig = [label, config.autoStart, config.hotkey, updateState.status, updateState.percent, curLang()].join("|");
   if (sig === lastTrayState) return;
   lastTrayState = sig;
   tray.setToolTip("LLM Local - " + label);
   const lastModel = st?.settings?.last_model;
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: "Abrir LLM Local", click: () => showMain() },
-    { label: `Pergunta rápida\t${prettyKey(config.hotkey)}`, click: showQuick },
+    { label: tm("Abrir LLM Local"), click: () => showMain() },
+    { label: `${tm("Pergunta rápida")}\t${prettyKey(config.hotkey)}`, click: showQuick },
     { type: "separator" },
     { label, enabled: false },
     e.state === "ready" || e.state === "loading"
-      ? { label: "Descarregar modelos (liberar GPU)", click: () => post("/api/unload", { all: true }) }
-      : { label: "Carregar último modelo", enabled: !!lastModel, click: () => post("/api/load", { model: lastModel }) },
+      ? { label: tm("Descarregar modelos (liberar GPU)"), click: () => post("/api/unload", { all: true }) }
+      : { label: tm("Carregar último modelo"), enabled: !!lastModel, click: () => post("/api/load", { model: lastModel }) },
     { type: "separator" },
-    { label: "Iniciar com o Windows", type: "checkbox", checked: config.autoStart, click: i => setOption("autoStart", i.checked) },
-    { label: "Abrir pasta de dados", click: () => shell.openPath(config.homeDir) },
-    { label: "Criar atalhos (Menu Iniciar e Área de Trabalho)", visible: app.isPackaged, click: () => { if (createShortcuts()) new Notification({ title: "LLM Local", body: "Atalhos criados.", icon: ICON }).show(); } },
+    { label: tm("Iniciar com o Windows"), type: "checkbox", checked: config.autoStart, click: i => setOption("autoStart", i.checked) },
+    { label: tm("Abrir pasta de dados"), click: () => shell.openPath(config.homeDir) },
+    { label: tm("Criar atalhos (Menu Iniciar e Área de Trabalho)"), visible: app.isPackaged, click: () => { if (createShortcuts()) new Notification({ title: "LLM Local", body: tm("Atalhos criados."), icon: ICON }).show(); } },
     updateState.status === "ready"
-      ? { label: `Reiniciar e atualizar para ${updateState.version}`, click: installUpdate }
+      ? { label: tm("Reiniciar e atualizar para {v}", { v: updateState.version }), click: installUpdate }
       : updateState.status === "manual"
-        ? { label: `Baixar o instalador da versão ${updateState.version}`, click: installUpdate }
+        ? { label: tm("Baixar o pacote da versão {v}", { v: updateState.version }), click: installUpdate }
       : updateState.status === "downloading"
-        ? { label: `Baixando atualização ${updateState.version} (${updateState.percent}%)`, enabled: false }
-        : { label: `Verificar atualizações (versão ${app.getVersion()})`, click: checkForUpdates },
+        ? { label: tm("Baixando atualização {v} ({p}%)", { v: updateState.version, p: updateState.percent }), enabled: false }
+        : { label: tm("Verificar atualizações (versão {v})", { v: app.getVersion() }), click: checkForUpdates },
     { type: "separator" },
-    { label: "Sair", click: () => { quitting = true; app.quit(); } },
+    { label: tm("Sair"), click: () => { quitting = true; app.quit(); } },
   ]));
 }
 
@@ -261,7 +319,7 @@ ipcMain.handle("choose-home", async () => {
   return dir;
 });
 ipcMain.handle("choose-folder", async () => {
-  const r = await dialog.showOpenDialog(mainWin, { title: "Escolha uma pasta para o Codex trabalhar", properties: ["openDirectory", "createDirectory"] });
+  const r = await dialog.showOpenDialog(mainWin, { title: tm("Escolha uma pasta para o Codex trabalhar"), properties: ["openDirectory", "createDirectory"] });
   return r.canceled ? null : r.filePaths[0];
 });
 // so abre PASTAS (nunca executa arquivos)
@@ -336,7 +394,7 @@ async function checkForUpdates() {
       // a versao nova troca o Electron: precisa do instalador completo
       sendUpdateState({ status: "manual", version: m.version });
       if (Notification.isSupported())
-        new Notification({ title: "Atualização do LLM Local", icon: ICON, body: `A versão ${m.version} precisa do instalador completo. Abra Configurações → App desktop.` }).show();
+        new Notification({ title: tm("Atualização do LLM Local"), icon: ICON, body: tm("A versão {v} precisa do pacote completo. Abra Configurações → App desktop.", { v: m.version }) }).show();
       return;
     }
     await downloadPatch(m);
@@ -348,7 +406,7 @@ async function checkForUpdates() {
 async function downloadPatch(m) {
   sendUpdateState({ status: "downloading", version: m.version, percent: 0 });
   if (Notification.isSupported())
-    new Notification({ title: "Atualização do LLM Local", icon: ICON, body: `Baixando a versão ${m.version} em segundo plano...` }).show();
+    new Notification({ title: tm("Atualização do LLM Local"), icon: ICON, body: tm("Baixando a versão {v} em segundo plano...", { v: m.version }) }).show();
   const staging = path.join(RES, `_update_${m.version}`);
   fs.rmSync(staging, { recursive: true, force: true });
   fs.mkdirSync(staging, { recursive: true }); // falha aqui se a pasta do app nao permitir escrita
@@ -381,9 +439,9 @@ async function downloadPatch(m) {
   updatePromptShown = true;
   const res = await dialog.showMessageBox({
     type: "info", title: "LLM Local", icon: nativeImage.createFromPath(ICON),
-    message: `A versão ${m.version} do LLM Local está pronta.`,
-    detail: "Reinicie para atualizar agora. Se preferir, a atualização será aplicada quando você fechar o app.",
-    buttons: ["Reiniciar e atualizar", "Depois"], defaultId: 0, cancelId: 1, noLink: true,
+    message: tm("A versão {v} do LLM Local está pronta.", { v: m.version }),
+    detail: tm("Reinicie para atualizar agora. Se preferir, a atualização será aplicada quando você fechar o app."),
+    buttons: [tm("Reiniciar e atualizar"), tm("Depois")], defaultId: 0, cancelId: 1, noLink: true,
   });
   if (res.response === 0) installUpdate();
 }
@@ -458,11 +516,11 @@ async function offerShortcuts() {
   if (fs.existsSync(START_MENU_LNK()) || fs.existsSync(DESKTOP_LNK())) return; // ja tem atalhos (instalacao antiga)
   const r = await dialog.showMessageBox({
     type: "question", title: "LLM Local", icon: nativeImage.createFromPath(ICON),
-    message: "Criar atalhos do LLM Local?",
-    detail: `No Menu Iniciar e na Área de Trabalho, apontando para:\n${process.execPath}\n\nDeixe a pasta do app onde ela está (se mover, crie os atalhos de novo pelo menu do ícone perto do relógio).`,
-    buttons: ["Criar atalhos", "Agora não"], defaultId: 0, cancelId: 1, noLink: true,
+    message: tm("Criar atalhos do LLM Local?"),
+    detail: tm("No Menu Iniciar e na Área de Trabalho, apontando para:\n{p}\n\nDeixe a pasta do app onde ela está (se mover, crie os atalhos de novo pelo menu do ícone perto do relógio).", { p: process.execPath }),
+    buttons: [tm("Criar atalhos"), tm("Agora não")], defaultId: 0, cancelId: 1, noLink: true,
   });
-  if (r.response === 0 && !createShortcuts()) dialog.showErrorBox("LLM Local", "Não foi possível criar os atalhos.");
+  if (r.response === 0 && !createShortcuts()) dialog.showErrorBox("LLM Local", tm("Não foi possível criar os atalhos."));
 }
 
 // ------------------------------------------------------------------ inicio
@@ -475,7 +533,7 @@ app.whenReady().then(async () => {
 
   // downloads (backup, imagens): sempre pergunta onde salvar, comecando em Documentos
   session.defaultSession.on("will-download", (_e, item) => {
-    item.setSaveDialogOptions({ title: "Salvar arquivo", defaultPath: path.join(app.getPath("documents"), item.getFilename()) });
+    item.setSaveDialogOptions({ title: tm("Salvar arquivo"), defaultPath: path.join(app.getPath("documents"), item.getFilename()) });
   });
 
   tray = new Tray(nativeImage.createFromPath(TRAY_ICON));
@@ -483,8 +541,8 @@ app.whenReady().then(async () => {
   updateTray(); setInterval(updateTray, 4000);
 
   if (!registerHotkey(config.hotkey)) {
-    dialog.showMessageBox({ type: "warning", title: "LLM Local", message: `O atalho ${prettyKey(config.hotkey)} já está em uso por outro programa.`,
-      detail: "Escolha outro em Configurações → App desktop." });
+    dialog.showMessageBox({ type: "warning", title: "LLM Local", message: tm("O atalho {k} já está em uso por outro programa.", { k: prettyKey(config.hotkey) }),
+      detail: tm("Escolha outro em Configurações → App desktop.") });
   }
   createQuick();
   initUpdater();

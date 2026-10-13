@@ -97,15 +97,15 @@ function splitThink(msg) {
 }
 
 function webBoxHTML(w, streaming) {
-  const label = { query: "Criando a consulta de pesquisa...", search: `Pesquisando: “${esc(w.query)}”...`,
-                  read: `Lendo ${w.sources?.length || 0} páginas sobre “${esc(w.query)}”...` }[w.stage];
+  const label = { query: t("Criando a consulta de pesquisa..."), search: t("Pesquisando: “{q}”...", { q: esc(w.query) }),
+                  read: t("Lendo {n} páginas sobre “{q}”...", { n: w.sources?.length || 0, q: esc(w.query) }) }[w.stage];
   if (label) return `<div class="web-box"><span class="status">🌐 ${label}</span></div>`;
-  if (w.stage === "error") return `<div class="web-box"><span class="status err">🌐 ${esc(w.text)}${w.query ? ` (consulta: “${esc(w.query)}”)` : ""}. Respondendo sem a web.</span></div>`;
+  if (w.stage === "error") return `<div class="web-box"><span class="status err">🌐 ${esc(w.text)}${w.query ? ` (${t("consulta")}: “${esc(w.query)}”)` : ""}. ${t("Respondendo sem a web.")}</span></div>`;
   const items = (w.sources || []).map(s => {
     let host = ""; try { host = new URL(s.url).hostname.replace(/^www\./, ""); } catch {}
     return `<li><a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.title || host)}</a><small>${esc(host)}</small></li>`;
   }).join("");
-  return `<details class="web-box"${streaming ? " open" : ""}><summary>🌐 Pesquisou “${esc(w.query)}” · ${w.sources?.length || 0} fontes</summary><ol>${items}</ol></details>`;
+  return `<details class="web-box"${streaming ? " open" : ""}><summary>${t("🌐 Pesquisou “{q}” · {n} fontes", { q: esc(w.query), n: w.sources?.length || 0 })}</summary><ol>${items}</ol></details>`;
 }
 
 function linkCitations(html, sources) {

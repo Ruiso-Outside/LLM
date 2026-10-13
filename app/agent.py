@@ -359,7 +359,8 @@ class AgentRun:
     def run(self, workspace, history, chat_id, sampling):
         ws = Workspace(workspace)
         tools = TOOLS + ([IMAGE_TOOL] if self.image_fn else [])
-        messages = [{"role": "system", "content": system_prompt(ws.root, bool(self.image_fn))}] + history
+        sp = system_prompt(ws.root, bool(self.image_fn)) + ("\n" + self.s["_reply_rule"] if self.s.get("_reply_rule") else "")
+        messages = [{"role": "system", "content": sp}] + history
         trace, last_timings = [], None
         max_steps = max(1, min(int(self.s.get("agent_max_steps") or 40), 200))
         for step in range(max_steps):

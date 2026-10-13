@@ -145,6 +145,10 @@ A barra embaixo da caixa de mensagem mostra:
 
 Enquanto o modelo escreve, a velocidade aparece ao vivo (⚡ tok/s) no topo da resposta.
 
+## Idioma
+
+Em **Configurações → Idioma** escolha a língua do app: **Português (Brasil)**, **English** ou **Español**. Vale para a janela principal, a pergunta rápida e o menu do ícone perto do relógio. Em **A IA responde**, escolha se a IA responde no idioma da pergunta ou sempre no idioma do app.
+
 ## Dicas
 
 - **Prompt de sistema** (Configurações): instruções fixas que o modelo segue em toda conversa.
@@ -171,4 +175,5 @@ Enquanto o modelo escreve, a velocidade aparece ao vivo (⚡ tok/s) no topo da r
 | `app/catalog.py` | Etiquetas dos modelos (capacidades, tamanho, qualidade dos arquivos) |
 | `app/agents.py` | Agentes personalizados, grupos e o validador com novas tentativas |
 | `app/media.py` | Whisper, stable-diffusion.cpp, anexos e extração de texto de documentos |
+| `app/web/i18n.js` | Traduções da interface (PT-BR, EN, ES) |
 | `app/web/` | Interface: `index.html` (janela principal), `quick.html` (pergunta rápida), `common.js` (código compartilhado), `attach.js` (processamento dos anexos), `agents.js` (editor de agentes e grupos), `vendor/pdfjs` (leitor de PDF da Mozilla) |

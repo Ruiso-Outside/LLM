@@ -9,7 +9,7 @@ const agentById = id => AG.doc.agents.find(a => a.id === id);
 const groupById = id => AG.doc.groups.find(g => g.id === id);
 const clone = o => JSON.parse(JSON.stringify(o));
 const modelNameOf = path => (S.status?.models.find(m => m.path === path) || {}).name || (path ? path.split("/").pop().replace(/\.gguf$/i, "") : "");
-const agentModelName = a => a.model ? (modelNameOf(a.model) + (S.status?.models.some(m => m.path === a.model) ? "" : " (não encontrado)") + (a.device === "cpu" ? " · CPU" : a.device === "gpu" ? " · GPU" : "")) : "modelo principal";
+const agentModelName = a => a.model ? (modelNameOf(a.model) + (S.status?.models.some(m => m.path === a.model) ? "" : " " + t("(não encontrado)")) + (a.device === "cpu" ? " · CPU" : a.device === "gpu" ? " · GPU" : "")) : t("modelo principal");
 function modelOptions(sel) {
   const models = S.status?.models || [];
   return '<option value="">Modelo principal (o carregado no topo)</option>' + models.map(m =>
@@ -31,7 +31,7 @@ async function saveAgentsDoc(msg) {
 // ------------------------------------------------------------------ seletor do compositor
 function renderAgentSelect() {
   const sel = $("#agentSelect"); const cur = ls("agentSel", "");
-  const g = AG.doc.groups.map(x => `<option value="g:${x.id}">${esc(x.icon)} ${esc(x.name)} · ${x.steps.length} agentes</option>`).join("");
+  const g = AG.doc.groups.map(x => `<option value="g:${x.id}">${esc(x.icon)} ${esc(x.name)} · ${t("{n} agentes", { n: x.steps.length })}</option>`).join("");
   const a = AG.doc.agents.map(x => `<option value="a:${x.id}">${esc(x.icon)} ${esc(x.name)}</option>`).join("");
   const html = (g ? `<optgroup label="Grupos">${g}</optgroup>` : "") + (a ? `<optgroup label="Agentes sozinhos">${a}</optgroup>` : "")
     || '<option value="">Nenhum agente: clique em ⚙️</option>';
@@ -45,9 +45,9 @@ function currentAgentSel() {
 }
 function agentsHint() {
   const s = currentAgentSel();
-  if (s.group) return `👥 ${s.group.name}: ` + s.group.steps.map(st => { const a = agentById(st.agent); return a ? `${a.icon} ${a.name}${st.role === "validator" ? " (valida)" : ""}` : ""; }).join(" → ");
-  if (s.agent) return `${s.agent.icon} Conversando com o agente ${s.agent.name}.`;
-  return "Crie um agente ou grupo no ⚙️ ao lado (ou na barra lateral, em Agentes).";
+  if (s.group) return `👥 ${s.group.name}: ` + s.group.steps.map(st => { const a = agentById(st.agent); return a ? `${a.icon} ${a.name}${st.role === "validator" ? " " + t("(valida)") : ""}` : ""; }).join(" → ");
+  if (s.agent) return `${s.agent.icon} ` + t("Conversando com o agente {name}.", { name: s.agent.name });
+  return t("Crie um agente ou grupo no ⚙️ ao lado (ou na barra lateral, em Agentes).");
 }
 
 // ------------------------------------------------------------------ janela de edição
@@ -194,7 +194,7 @@ $("#agentEditor").addEventListener("click", async e => {
   }
   if (act === "delete") {
     const inGroups = AG.edit.type === "agent" ? AG.doc.groups.filter(g => g.steps.some(s => s.agent === d.id)).map(g => g.name) : [];
-    if (!confirm(`Excluir "${d.name}"?` + (inGroups.length ? `\n\nEle será removido dos grupos: ${inGroups.join(", ")}.` : ""))) return;
+    if (!confirm(t("Excluir \"{name}\"?", { name: d.name }) + (inGroups.length ? t("\n\nEle será removido dos grupos: {groups}.", { groups: inGroups.join(", ") }) : ""))) return;
     if (AG.edit.type === "agent") { AG.doc.agents = AG.doc.agents.filter(a => a.id !== d.id); AG.doc.groups.forEach(g => g.steps = g.steps.filter(s => s.agent !== d.id)); }
     else AG.doc.groups = AG.doc.groups.filter(g => g.id !== d.id);
     AG.edit = AG.draft = null; return saveAgentsDoc("Excluído");
@@ -241,20 +241,20 @@ async function runGroup(group) {
 }
 
 function groupMsgHTML(msg, idx, isLast, streaming) {
-  const live = streaming ? (msg.loadingModel ? `⏳ carregando ${esc(msg.loadingModel.model)}...` : msg.stats?.tokens ? `⚡ ${msg.stats.tps.toFixed(1)} tok/s · ${fmtNum(msg.stats.tokens)} tokens` : "começando...") : "";
+  const live = streaming ? (msg.loadingModel ? t("⏳ carregando {model}...", { model: esc(msg.loadingModel.model) }) : msg.stats?.tokens ? `⚡ ${msg.stats.tps.toFixed(1)} tok/s · ${fmtNum(msg.stats.tokens)} tokens` : t("começando...")) : "";
   let h = `<div class="msg assistant group-msg ${isLast ? "last" : ""}" data-i="${idx}"><div class="role">👥 ${esc(msg.group.icon)} ${esc(msg.group.name)} · ${esc(msg.model || "")}${live ? `<span class="live">${live}</span>` : ""}</div><div class="g-steps">`;
   for (const s of msg.steps) {
-    if (s.type === "retry") { h += `<div class="g-retry">🔁 O validador reprovou: refazendo (tentativa ${s.attempt})</div>`; continue; }
+    if (s.type === "retry") { h += `<div class="g-retry">${t("🔁 O validador reprovou: refazendo (tentativa {n})", { n: s.attempt })}</div>`; continue; }
     const verdict = s.verdict === "APROVADO" ? '<span class="verdict ok">✅ Aprovado</span>' : s.verdict === "REPROVADO" ? '<span class="verdict bad">❌ Reprovado</span>' : "";
-    const tag = s.role === "validator" ? "validador" : `etapa ${s.index + 1}`;
+    const tag = s.role === "validator" ? t("validador") : t("etapa {n}", { n: s.index + 1 });
     h += `<div class="g-step" style="--c:${esc(s.agent.color)}"><div class="g-head"><span class="ag-dot" style="--c:${esc(s.agent.color)}">${esc(s.agent.icon)}</span>
-      <b>${esc(s.agent.name)}</b><small class="muted">${tag}${s.attempt > 1 ? ` · tentativa ${s.attempt}` : ""}${s.model ? ` · ${esc(s.model)}` : ""}${s.device ? ` <span class="dev-tag dev-${esc(s.device)}">${esc(s.device.toUpperCase())}</span>` : ""}</small><span class="spacer"></span>${s.status === "running" ? '<span class="spin"></span>' : verdict}</div>`;
+      <b>${esc(s.agent.name)}</b><small class="muted">${tag}${s.attempt > 1 ? " · " + t("tentativa {n}", { n: s.attempt }) : ""}${s.model ? ` · ${esc(s.model)}` : ""}${s.device ? ` <span class="dev-tag dev-${esc(s.device)}">${esc(s.device.toUpperCase())}</span>` : ""}</small><span class="spacer"></span>${s.status === "running" ? '<span class="spin"></span>' : verdict}</div>`;
     if (s.web) h += webBoxHTML(s.web, s.status === "running");
     if (s.reasoning) h += `<details class="think"><summary>Raciocínio</summary><div class="think-body">${esc(s.reasoning)}</div></details>`;
     const shown = s.role === "validator" ? s.text.replace(/\n?\**\s*VEREDITO\s*[:\-–][^\n]*/gi, "").trim() : s.text;
     h += `<div class="content ${s.status === "running" ? "cursor" : ""}">${linkCitations(md(shown), s.web?.sources)}</div></div>`;
   }
-  if (streaming && msg.loadingModel) h += `<div class="g-loading"><span class="spin"></span> Carregando o modelo <b>${esc(msg.loadingModel.model)}</b> para a etapa ${msg.loadingModel.index + 1}...</div>`;
+  if (streaming && msg.loadingModel) h += `<div class="g-loading"><span class="spin"></span> ${t("Carregando o modelo {model} para a etapa {n}...", { model: `<b>${esc(msg.loadingModel.model)}</b>`, n: msg.loadingModel.index + 1 })}</div>`;
   h += "</div>";
   if (!streaming && msg.approved === false) h += `<div class="err">⚠ O validador não aprovou o resultado, mesmo depois das tentativas extras. Veja o feedback acima.</div>`;
   if (msg.error) h += `<div class="err">${esc(msg.error)}</div>`;

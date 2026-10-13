@@ -132,7 +132,7 @@ def _run_step(h, emit, group, agents, steps, i, ag, is_val, eng, task_msg, histo
         f"\n\nVocê é o agente \"{ag['name']}\" do grupo \"{group['name']}\"." + \
         (f" Objetivo do grupo: {group['description']}" if group["description"] else "") + \
         " Faça somente a sua função, sem repetir o trabalho dos outros agentes. Responda no idioma do usuário." + \
-        (VALIDATOR_SUFFIX if is_val else "")
+        (VALIDATOR_SUFFIX if is_val else "") + (("\n\n" + h.reply_rule()) if h.reply_rule() else "")
     task_text, task_parts = h.split_content(task_msg, eng.modalities)
     user = f"Pedido do usuário:\n{task_text}"
     prev = [(steps[j], outputs[j]) for j in range(i) if j in outputs]

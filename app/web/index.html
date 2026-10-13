@@ -132,8 +132,21 @@
     <div class="modal-head"><h3>Configurações</h3><button class="icon-btn" data-close>✕</button></div>
     <div class="modal-body">
       <form id="settingsForm">
+        <h4 style="margin-top:0">Idioma</h4>
+        <div class="grid">
+          <label>Idioma do app
+            <select name="language" id="langSelect" class="input">
+              <option value="pt-BR">Português (Brasil)</option><option value="en">English</option><option value="es">Español</option>
+            </select>
+          </label>
+          <label>A IA responde
+            <select name="reply_language" class="input">
+              <option value="auto">No idioma da pergunta</option><option value="app">Sempre no idioma do app</option>
+            </select>
+          </label>
+        </div>
         <div id="desktopSettings">
-          <h4 style="margin-top:0">App desktop</h4>
+          <h4>App desktop</h4>
           <div class="grid">
             <label>Atalho da pergunta rápida (clique e pressione as teclas)
               <div class="row"><input id="hotkeyInput" class="input" readonly><button type="button" class="btn" id="hotkeySave">Salvar</button></div>
@@ -165,16 +178,16 @@
         </label>
         <h4>Geração</h4>
         <div class="grid">
-          <label>Temperatura <input name="temperature" type="number" step="0.05" min="0" max="5" class="input"></label>
-          <label>Top P <input name="top_p" type="number" step="0.01" min="0" max="1" class="input"></label>
+          <label>Temperatura <input name="temperature" type="number" step="any" min="0" max="5" class="input"></label>
+          <label>Top P <input name="top_p" type="number" step="any" min="0" max="1" class="input"></label>
           <label>Top K <input name="top_k" type="number" step="1" min="0" class="input"></label>
-          <label>Min P <input name="min_p" type="number" step="0.01" min="0" max="1" class="input"></label>
-          <label>Penalidade de repetição <input name="repeat_penalty" type="number" step="0.01" min="0" class="input"></label>
+          <label>Min P <input name="min_p" type="number" step="any" min="0" max="1" class="input"></label>
+          <label>Penalidade de repetição <input name="repeat_penalty" type="number" step="any" min="0" max="5" class="input"></label>
           <label>Máx. tokens (0 = sem limite) <input name="max_tokens" type="number" step="1" min="0" class="input"></label>
         </div>
         <h4>Carregamento do modelo <small class="muted">(aplica ao carregar)</small></h4>
         <div class="grid">
-          <label>Contexto (tokens) <input name="ctx_size" type="number" step="1024" min="512" class="input"></label>
+          <label>Contexto (tokens) <input name="ctx_size" type="number" step="any" min="512" max="1048576" class="input"></label>
           <label>Camadas na GPU (999 = todas) <input name="gpu_layers" type="number" step="1" min="0" class="input"></label>
           <label>Uso da CPU <span id="cpuLabel" class="muted"></span>
             <input name="cpu_percent" id="cpuRange" type="range" min="0" max="100" step="5" class="range">
@@ -310,6 +323,7 @@
 </div>
 
 <div id="toast"></div>
+<script src="i18n.js"></script>
 <script src="common.js"></script>
 <script src="attach.js"></script>
 <script src="agents.js"></script>
