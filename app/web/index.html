@@ -137,6 +137,10 @@
             <label>Atalho da pergunta rápida (clique e pressione as teclas)
               <div class="row"><input id="hotkeyInput" class="input" readonly><button type="button" class="btn" id="hotkeySave">Salvar</button></div>
             </label>
+            <label>Modelo da pergunta rápida
+              <select name="quick_model" id="quickModelSelect" class="input"></select>
+              <small class="muted">Um modelo leve deixa a pergunta rápida bem mais ágil. Ele é carregado junto com o principal, se couber na GPU.</small>
+            </label>
             <div class="checks">
               <label class="check"><input type="checkbox" id="autoStart"> Iniciar junto com o Windows</label>
               <label class="check"><input type="checkbox" id="hideOnBlur"> Esconder a pergunta rápida ao clicar fora</label>
@@ -178,6 +182,10 @@
             </select>
           </label>
           <label class="check full"><input type="checkbox" name="auto_load"> Carregar o último modelo automaticamente ao abrir o app</label>
+          <label>Descarregar modelos extras parados há (minutos)
+            <input name="extra_idle_minutes" type="number" min="0" max="1440" class="input">
+            <small class="muted">Modelos extras são os usados por agentes ou pela pergunta rápida além do principal. 0 = só ao fechar o app.</small>
+          </label>
           <label class="full">Argumentos extras do llama-server <input name="extra_args" class="input" placeholder="ex.: --flash-attn on --cache-type-k q8_0"></label>
         </div>
         <h4>Codex (agente de programação)</h4>

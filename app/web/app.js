@@ -78,8 +78,11 @@ function renderTopbar() {
   const caps = (e.vision ? " · 👁 visão" : "") + (e.audio ? " · 🎧 áudio" : "");
   const map = { stopped: ["Nenhum modelo carregado", ""], loading: ["Carregando " + name + "...", "loading"],
                 ready: ["● " + name + (e.backend ? ` · ${e.backend.toUpperCase()}` : "") + caps, "ready"], error: ["Erro no motor (clique)", "error"] };
-  pill.textContent = map[e.state][0]; pill.className = "pill " + map[e.state][1];
-  pill.title = e.error || "";
+  const extras = (st.extras || []).filter(x => x.state === "ready" || x.state === "loading");
+  pill.textContent = map[e.state][0] + (extras.length ? ` · +${extras.length} extra${extras.length > 1 ? "s" : ""}` : "");
+  if (e.state === "stopped" && extras.length) { pill.textContent = `● ${extras.length} modelo${extras.length > 1 ? "s" : ""} extra${extras.length > 1 ? "s" : ""}`; pill.className = "pill ready"; }
+  else pill.className = "pill " + map[e.state][1];
+  pill.title = e.error || (extras.length ? "Modelos extras (agentes / pergunta rápida):\n" + extras.map(x => `• ${x.name}${x.state === "loading" ? " (carregando)" : ""}`).join("\n") : "");
   const loadedSelected = (e.state === "ready" || e.state === "loading") && sel.value === e.model;
   btn.textContent = loadedSelected ? (e.state === "loading" ? "Cancelar" : "Descarregar") : "Carregar";
   btn.className = "btn " + (loadedSelected ? "" : "primary");
@@ -313,7 +316,8 @@ function msgHTML(msg, idx, isLast) {
   const thinking = streaming && (open || (reasoning && !content));
   let live = "";
   if (streaming) {
-    if (msg.web && msg.web.stage !== "done" && msg.web.stage !== "error") live = "";
+    if (msg.loadingModel) live = `⏳ carregando ${esc(msg.loadingModel)}...`;
+    else if (msg.web && msg.web.stage !== "done" && msg.web.stage !== "error") live = "";
     else if (msg.stats?.tokens) live = `⚡ ${msg.stats.tps.toFixed(1)} tok/s · ${fmtNum(msg.stats.tokens)} tokens`;
     else live = "processando o prompt...";
   }
@@ -592,6 +596,7 @@ async function generate(isContinue = false, agent = null) {
   const t0 = performance.now(); let tokens = 0;
   try {
     await streamChat({ messages, web: S.web && !isContinue && !agent, ...sampling(), ...(agent ? { agent_id: agent.id } : {}) }, S.abort.signal, j => {
+      if (j.engine) { msg.loadingModel = j.engine.stage === "loading" ? j.engine.model : null; if (j.engine.stage === "ready" && j.engine.model) msg.model = j.engine.model; renderLastMessage(); return; }
       if (j.llmlocal) { msg.web = { ...msg.web, ...j.llmlocal }; renderLastMessage(); return; }
       const d = j.choices?.[0]?.delta || {};
       if (d.content) { msg.content += d.content; tokens++; }
@@ -607,7 +612,7 @@ async function generate(isContinue = false, agent = null) {
     if (e.name !== "AbortError") msg.error = e.message;
   } finally {
     if (!msg.stats && tokens) msg.stats = { tps: tokens / ((performance.now() - t0) / 1000), tokens };
-    delete msg._base;
+    delete msg._base; delete msg.loadingModel;
     if (msg.web && msg.web.stage !== "done" && msg.web.stage !== "error") delete msg.web;
     await finishGenerating();
   }
@@ -733,20 +738,22 @@ function renderLocalModels() {
   const st = S.status; const mms = S.media?.mmproj || [];
   const html = st.models.length ? st.models.map(m => {
     const on = st.engine.model === m.path && st.engine.state === "ready";
+    const extra = (st.extras || []).find(x => x.model === m.path && (x.state === "ready" || x.state === "loading"));
     const vis = mms.length ? `<select class="input small-input" data-mm="${esc(m.path)}" title="Arquivo de visão (mmproj): permite o modelo ver imagens">
         <option value="">Sem visão</option>${mms.map(x => `<option value="${esc(x)}" ${x === m.mmproj ? "selected" : ""}>👁 ${esc(baseName(x))}</option>`).join("")}</select>` : "";
     const visionNoFile = (m.info?.caps || []).some(c => c.key === "vision") && !m.mmproj;
     return `<div class="item model-item"><div class="name-col"><span class="name" title="${esc(m.path)}">${esc(m.name)}</span>
       <div class="sub">${capsHTML(m.info, true)}${m.info?.params ? `<span class="meta-pill">🧩 ${esc(m.info.params)}</span>` : ""}${m.quant?.quant ? `<span class="meta-pill" title="${esc(m.quant.tip)}">${esc(m.quant.quant)} ${starsHTML(m.quant)}</span>` : ""}
       ${visionNoFile ? '<span class="warn-pill" title="Este modelo tem visão, mas o arquivo mmproj não foi baixado. Baixe de novo com Incluir visão ou escolha o arquivo ao lado.">👁 sem arquivo de visão</span>' : ""}</div></div>
-      ${on ? '<span class="tag on">carregado</span>' : ""}${m.mmproj ? '<span class="tag vis">👁 visão</span>' : ""}${fitTag(m.size)}<span class="meta">${fmtSize(m.size)}</span>${vis}
+      ${on ? '<span class="tag on">carregado</span>' : ""}${extra ? `<span class="tag on" title="Carregado como modelo extra (agentes/pergunta rápida)">extra${extra.state === "loading" ? "…" : ""}</span><button class="btn small" data-unload-extra="${esc(m.path)}">Descarregar</button>` : ""}${m.mmproj ? '<span class="tag vis">👁 visão</span>' : ""}${fitTag(m.size)}<span class="meta">${fmtSize(m.size)}</span>${vis}
       <button class="btn small" data-load="${esc(m.path)}">${on ? "Recarregar" : "Carregar"}</button>
       <button class="btn small danger" data-del="${esc(m.path)}">Excluir</button></div>`;
   }).join("") : '<p class="muted">Nenhum modelo ainda. Vá na aba <b>Baixar modelos</b>.</p>';
   if ($("#localModels").dataset.sig !== html) { $("#localModels").innerHTML = html; $("#localModels").dataset.sig = html; }
 }
 $("#localModels").addEventListener("click", async e => {
-  const l = e.target.dataset.load, d = e.target.dataset.del;
+  const l = e.target.dataset.load, d = e.target.dataset.del, ux = e.target.dataset.unloadExtra;
+  if (ux) { await post("/api/unload", { extra: ux }); toast("Modelo extra descarregado"); return refreshStatus(); }
   try {
     if (l) { await post("/api/load", { model: l }); $("#modelSelect").value = l; toast("Carregando modelo..."); $("#modelsModal").classList.remove("open"); }
     if (d && confirm("Excluir o arquivo do modelo do disco?")) { await post("/api/models/delete", { path: d }); toast("Modelo excluído"); }
@@ -917,17 +924,23 @@ async function loadLog() {
 
 // ------------------------------------------------------------------ configurações
 const NUM_FIELDS = ["temperature", "top_p", "top_k", "min_p", "repeat_penalty", "max_tokens", "ctx_size", "gpu_layers", "cpu_percent",
-  "search_results", "agent_max_steps", "image_steps"];
+  "search_results", "agent_max_steps", "image_steps", "extra_idle_minutes"];
 const DEFAULTS = { system_prompt: "", temperature: 0.7, top_p: 0.95, top_k: 40, min_p: 0.05, repeat_penalty: 1.0, max_tokens: 0,
   ctx_size: 8192, gpu_layers: 999, cpu_percent: 0, backend: "auto", extra_args: "", search_provider: "duckduckgo",
   search_region: "br-pt", search_results: 4, auto_load: true, agent_confirm_commands: true, agent_confirm_writes: false,
-  agent_max_steps: 40, whisper_language: "auto", image_steps: 0, image_enhance: true, image_offload: true, image_unload_llm: false };
+  agent_max_steps: 40, quick_model: "", extra_idle_minutes: 10, whisper_language: "auto", image_steps: 0, image_enhance: true, image_offload: true, image_unload_llm: false };
 function cpuLabel() {
   const pct = +$("#cpuRange").value; const n = S.status?.gpu?.cpu_count || 0;
   $("#cpuLabel").textContent = pct ? `${pct}% · ${Math.max(1, Math.round(n * pct / 100))} de ${n} threads` : `Automático (${n} threads no PC)`;
 }
 $("#cpuRange").oninput = cpuLabel;
+function fillQuickModels() {
+  const cur = S.status.settings.quick_model || "";
+  $("#quickModelSelect").innerHTML = '<option value="">O mesmo modelo principal do app</option>' +
+    S.status.models.map(m => `<option value="${esc(m.path)}" ${m.path === cur ? "selected" : ""}>${esc(m.name)} (${fmtSize(m.size)})</option>`).join("");
+}
 function fillSettings(src = S.status.settings) {
+  fillQuickModels();
   const f = $("#settingsForm");
   for (const el of f.elements) if (el.name && src[el.name] !== undefined) { if (el.type === "checkbox") el.checked = !!src[el.name]; else el.value = src[el.name]; }
   S.wsEdit = [...(S.status.settings.workspaces || [])]; renderWorkspaceList(); cpuLabel();

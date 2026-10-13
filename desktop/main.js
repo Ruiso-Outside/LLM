@@ -204,7 +204,7 @@ async function updateTray() {
     { type: "separator" },
     { label, enabled: false },
     e.state === "ready" || e.state === "loading"
-      ? { label: "Descarregar modelo (liberar GPU)", click: () => post("/api/unload") }
+      ? { label: "Descarregar modelos (liberar GPU)", click: () => post("/api/unload", { all: true }) }
       : { label: "Carregar último modelo", enabled: !!lastModel, click: () => post("/api/load", { model: lastModel }) },
     { type: "separator" },
     { label: "Iniciar com o Windows", type: "checkbox", checked: config.autoStart, click: i => setOption("autoStart", i.checked) },

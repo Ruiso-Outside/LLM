@@ -8,6 +8,14 @@ const AGENT_ICONS = ["🤖", "🧮", "✏️", "✅", "🔎", "📝", "🧐", "�
 const agentById = id => AG.doc.agents.find(a => a.id === id);
 const groupById = id => AG.doc.groups.find(g => g.id === id);
 const clone = o => JSON.parse(JSON.stringify(o));
+const modelNameOf = path => (S.status?.models.find(m => m.path === path) || {}).name || (path ? path.split("/").pop().replace(/\.gguf$/i, "") : "");
+const agentModelName = a => a.model ? (modelNameOf(a.model) + (S.status?.models.some(m => m.path === a.model) ? "" : " (não encontrado)")) : "modelo principal";
+function modelOptions(sel) {
+  const models = S.status?.models || [];
+  return '<option value="">Modelo principal (o carregado no topo)</option>' + models.map(m =>
+    `<option value="${esc(m.path)}" ${m.path === sel ? "selected" : ""}>${esc(m.name)} ${capIcons(m.info)} (${fmtSize(m.size)})</option>`).join("") +
+    (sel && !models.some(m => m.path === sel) ? `<option value="${esc(sel)}" selected>⚠ ${esc(modelNameOf(sel))} (não encontrado)</option>` : "");
+}
 
 async function loadAgents() {
   try { AG.doc = await api("/api/agents"); } catch { return; }
@@ -46,7 +54,7 @@ function agentsHint() {
 function renderAgentsModal() {
   const ed = AG.edit;
   $("#agentList").innerHTML = AG.doc.agents.map(a => `<div class="item clickable ${ed?.type === "agent" && ed.id === a.id ? "sel" : ""}" data-edit="agent:${a.id}">
-      <span class="ag-dot" style="--c:${esc(a.color)}">${esc(a.icon)}</span><span class="name">${esc(a.name)}</span>${a.web ? '<span title="Pode pesquisar na web">🌐</span>' : ""}</div>`).join("")
+      <span class="ag-dot" style="--c:${esc(a.color)}">${esc(a.icon)}</span><div class="name-col"><span class="name">${esc(a.name)}</span><small class="muted ag-model">${esc(agentModelName(a))}</small></div>${a.web ? '<span title="Pode pesquisar na web">🌐</span>' : ""}</div>`).join("")
     || '<p class="muted small-note">Nenhum agente ainda.</p>';
   $("#groupList").innerHTML = AG.doc.groups.map(g => `<div class="item clickable ${ed?.type === "group" && ed.id === g.id ? "sel" : ""}" data-edit="group:${g.id}">
       <span class="ag-dot" style="--c:#4a4d60">${esc(g.icon)}</span><span class="name">${esc(g.name)}</span><span class="meta">${g.steps.length}</span></div>`).join("")
@@ -72,6 +80,9 @@ function renderAgentEditor() {
         <label>Ícone <div class="icon-pick">${AGENT_ICONS.map(i => `<button type="button" class="${i === d.icon ? "on" : ""}" data-icon="${i}">${i}</button>`).join("")}
           <input class="input icon-input" id="agIcon" value="${esc(d.icon)}" maxlength="8" title="Ou digite/cole outro emoji"></div></label>
         <label>Cor <div class="color-pick">${AGENT_COLORS.map(c => `<button type="button" class="${c === d.color ? "on" : ""}" data-color="${c}" style="--c:${c}"></button>`).join("")}</div></label>
+        <label>Modelo
+          <select class="input" id="agModel">${modelOptions(d.model)}</select>
+          <small class="muted">Cada agente pode usar um modelo diferente (ex.: um leve e rápido para criar, um mais forte para validar). Modelos diferentes do principal são carregados juntos, se couberem na GPU.</small></label>
         <label>Função do agente (instruções)
           <textarea class="input" id="agInstr" rows="9" placeholder="Descreva o que este agente faz, como deve responder e o que NÃO deve fazer.&#10;Ex.: Você resolve o problema do agente anterior mostrando o passo a passo e destaca a resposta final.">${esc(d.instructions)}</textarea></label>
         <div class="grid">
@@ -88,7 +99,7 @@ function renderAgentEditor() {
       </div>`;
     return;
   }
-  const opts = sel => AG.doc.agents.map(a => `<option value="${a.id}" ${a.id === sel ? "selected" : ""}>${esc(a.icon)} ${esc(a.name)}</option>`).join("");
+  const opts = sel => AG.doc.agents.map(a => `<option value="${a.id}" ${a.id === sel ? "selected" : ""}>${esc(a.icon)} ${esc(a.name)} · ${esc(agentModelName(a))}</option>`).join("");
   box.innerHTML = `<h3>${AG.edit.isNew ? "Novo grupo" : "Editar grupo"}</h3>
     <div class="ag-form">
       <div class="row"><label style="width:90px">Ícone <input class="input icon-input" id="grIcon" value="${esc(d.icon)}" maxlength="8"></label>
@@ -116,7 +127,7 @@ function syncDraft() {
   const d = AG.draft; if (!d) return;
   if (AG.edit.type === "agent") {
     d.name = $("#agName").value.trim(); d.icon = $("#agIcon").value.trim() || "🤖"; d.instructions = $("#agInstr").value;
-    d.temperature = $("#agTempOn").checked ? +$("#agTemp").value : null; d.web = $("#agWeb").checked;
+    d.temperature = $("#agTempOn").checked ? +$("#agTemp").value : null; d.web = $("#agWeb").checked; d.model = $("#agModel").value;
   } else {
     d.name = $("#grName").value.trim(); d.icon = $("#grIcon").value.trim() || "👥"; d.description = $("#grDesc").value.trim();
     d.max_retries = Math.max(0, Math.min(5, +$("#grRetries").value || 0));
@@ -128,7 +139,7 @@ function editItem(type, id) {
   const src = type === "agent" ? agentById(id) : groupById(id);
   AG.edit = { type, id, isNew: !src };
   AG.draft = src ? clone(src) : type === "agent"
-    ? { id: uid(), name: "", icon: "🤖", color: AGENT_COLORS[AG.doc.agents.length % AGENT_COLORS.length], instructions: "", temperature: null, web: false }
+    ? { id: uid(), name: "", icon: "🤖", color: AGENT_COLORS[AG.doc.agents.length % AGENT_COLORS.length], instructions: "", temperature: null, web: false, model: "" }
     : { id: uid(), name: "", icon: "👥", description: "", steps: [], max_retries: 2 };
   renderAgentsModal();
   (type === "agent" ? $("#agName") : $("#grName"))?.focus();
@@ -206,7 +217,8 @@ async function runGroup(group) {
       }
       if (j.llmlocal && cur) cur.web = { ...cur.web, ...j.llmlocal };
       const g = j.group;
-      if (g?.type === "step_start") { base += lastPred; lastPred = 0; cur = { index: g.index, agent: g.agent, role: g.role, attempt: g.attempt, text: "", reasoning: "", status: "running" }; msg.steps.push(cur); }
+      if (g?.type === "loading") msg.loadingModel = { index: g.index, model: g.model };
+      if (g?.type === "step_start") { msg.loadingModel = null; base += lastPred; lastPred = 0; cur = { index: g.index, agent: g.agent, role: g.role, attempt: g.attempt, model: g.model, text: "", reasoning: "", status: "running" }; msg.steps.push(cur); }
       else if (g?.type === "delta" && cur) cur.text += g.delta;
       else if (g?.type === "reasoning" && cur) cur.reasoning += g.delta;
       else if (g?.type === "step_end" && cur) { cur.status = "done"; cur.verdict = g.verdict; }
@@ -217,26 +229,27 @@ async function runGroup(group) {
   } catch (e) {
     if (e.name !== "AbortError") msg.error = e.message;
   } finally {
-    msg.steps.forEach(s => { if (s.status === "running") s.status = "stopped"; });
+    msg.steps.forEach(s => { if (s.status === "running") s.status = "stopped"; }); delete msg.loadingModel;
     if (!msg.content) msg.content = [...msg.steps].reverse().find(s => s.text && s.role !== "validator")?.text || "";
     await finishGenerating();
   }
 }
 
 function groupMsgHTML(msg, idx, isLast, streaming) {
-  const live = streaming ? (msg.stats?.tokens ? `⚡ ${msg.stats.tps.toFixed(1)} tok/s · ${fmtNum(msg.stats.tokens)} tokens` : "começando...") : "";
+  const live = streaming ? (msg.loadingModel ? `⏳ carregando ${esc(msg.loadingModel.model)}...` : msg.stats?.tokens ? `⚡ ${msg.stats.tps.toFixed(1)} tok/s · ${fmtNum(msg.stats.tokens)} tokens` : "começando...") : "";
   let h = `<div class="msg assistant group-msg ${isLast ? "last" : ""}" data-i="${idx}"><div class="role">👥 ${esc(msg.group.icon)} ${esc(msg.group.name)} · ${esc(msg.model || "")}${live ? `<span class="live">${live}</span>` : ""}</div><div class="g-steps">`;
   for (const s of msg.steps) {
     if (s.type === "retry") { h += `<div class="g-retry">🔁 O validador reprovou: refazendo (tentativa ${s.attempt})</div>`; continue; }
     const verdict = s.verdict === "APROVADO" ? '<span class="verdict ok">✅ Aprovado</span>' : s.verdict === "REPROVADO" ? '<span class="verdict bad">❌ Reprovado</span>' : "";
     const tag = s.role === "validator" ? "validador" : `etapa ${s.index + 1}`;
     h += `<div class="g-step" style="--c:${esc(s.agent.color)}"><div class="g-head"><span class="ag-dot" style="--c:${esc(s.agent.color)}">${esc(s.agent.icon)}</span>
-      <b>${esc(s.agent.name)}</b><small class="muted">${tag}${s.attempt > 1 ? ` · tentativa ${s.attempt}` : ""}</small><span class="spacer"></span>${s.status === "running" ? '<span class="spin"></span>' : verdict}</div>`;
+      <b>${esc(s.agent.name)}</b><small class="muted">${tag}${s.attempt > 1 ? ` · tentativa ${s.attempt}` : ""}${s.model ? ` · ${esc(s.model)}` : ""}</small><span class="spacer"></span>${s.status === "running" ? '<span class="spin"></span>' : verdict}</div>`;
     if (s.web) h += webBoxHTML(s.web, s.status === "running");
     if (s.reasoning) h += `<details class="think"><summary>Raciocínio</summary><div class="think-body">${esc(s.reasoning)}</div></details>`;
     const shown = s.role === "validator" ? s.text.replace(/\n?\**\s*VEREDITO\s*[:\-–][^\n]*/gi, "").trim() : s.text;
     h += `<div class="content ${s.status === "running" ? "cursor" : ""}">${linkCitations(md(shown), s.web?.sources)}</div></div>`;
   }
+  if (streaming && msg.loadingModel) h += `<div class="g-loading"><span class="spin"></span> Carregando o modelo <b>${esc(msg.loadingModel.model)}</b> para a etapa ${msg.loadingModel.index + 1}...</div>`;
   h += "</div>";
   if (!streaming && msg.approved === false) h += `<div class="err">⚠ O validador não aprovou o resultado, mesmo depois das tentativas extras. Veja o feedback acima.</div>`;
   if (msg.error) h += `<div class="err">${esc(msg.error)}</div>`;

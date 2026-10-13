@@ -11,6 +11,7 @@ import json
 import os
 import random
 import re
+import socket
 import shlex
 import shutil
 import subprocess
@@ -72,6 +73,8 @@ DEFAULT_SETTINGS = {
     "hf_token": "",
     "last_model": "",
     "auto_load": True,  # carrega o ultimo modelo ao iniciar
+    "quick_model": "",  # modelo da pergunta rapida ("" = o principal)
+    "extra_idle_minutes": 10,  # modelos extras (agentes/pergunta rapida) sao descarregados apos X min parados
     "search_provider": "duckduckgo",  # duckduckgo | google | searxng
     "search_region": "br-pt",
     "search_results": 4,
@@ -376,7 +379,10 @@ def _job_object():
 
 
 class EngineProcess:
-    def __init__(self):
+    def __init__(self, port=ENGINE_PORT):
+        self.port = port
+        self.busy = 0
+        self.last_used = time.time()
         self.proc = None
         self.model = ""
         self.backend = ""
@@ -410,7 +416,9 @@ class EngineProcess:
         if backend not in backs:
             backend = next(b for b in BACKENDS if b in backs)
         self.stop()
-        cmd = [backs[backend]["exe"], "-m", str(model_path), "--host", "127.0.0.1", "--port", str(ENGINE_PORT),
+        if self is ENGINE_PROC:
+            POOL.stop(model_rel)  # se ja estava carregado como extra, libera antes
+        cmd = [backs[backend]["exe"], "-m", str(model_path), "--host", "127.0.0.1", "--port", str(self.port),
                "-c", str(int(s["ctx_size"])), "-ngl", str(int(s["gpu_layers"])), "--jinja"]
         mm = mmproj_for(model_rel)
         if mm:
@@ -442,7 +450,7 @@ class EngineProcess:
     def _wait_ready(self, proc):
         while proc is self.proc and proc.poll() is None:
             try:
-                with urllib.request.urlopen(f"http://127.0.0.1:{ENGINE_PORT}/health", timeout=2) as r:
+                with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/health", timeout=2) as r:
                     if r.status == 200:
                         self.n_ctx, self.modalities = self._read_props()
                         self.state = "ready"
@@ -457,7 +465,7 @@ class EngineProcess:
 
     def _read_props(self):
         try:
-            with urllib.request.urlopen(f"http://127.0.0.1:{ENGINE_PORT}/props", timeout=3) as r:
+            with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/props", timeout=3) as r:
                 p = json.loads(r.read().decode("utf-8"))
             n_ctx = int((p.get("default_generation_settings") or {}).get("n_ctx") or p.get("n_ctx") or 0)
             return n_ctx, {k: bool(v) for k, v in (p.get("modalities") or {}).items()}
@@ -468,13 +476,150 @@ class EngineProcess:
         if self.state == "ready" and self.proc and self.proc.poll() is not None:
             self.state, self.error = "error", "O motor fechou inesperadamente (veja o log)."
         return {"state": self.state, "model": self.model, "backend": self.backend, "error": self.error,
-                "port": ENGINE_PORT, "n_ctx": self.n_ctx,
+                "port": self.port, "n_ctx": self.n_ctx,
                 "vision": self.state == "ready" and self.modalities.get("vision", False),
                 "audio": self.state == "ready" and self.modalities.get("audio", False)}
 
 
 ENGINE_PROC = EngineProcess()
+
+
+def model_display(rel):
+    return Path(rel).stem if rel else "modelo principal"
+
+
+def model_bytes(rel):
+    """Tamanho em disco do modelo (com partes e arquivo de visao)."""
+    p = MODELS / rel
+    if not p.is_file():
+        return 0
+    m = SPLIT_RE.match(p.name)
+    size = sum(q.stat().st_size for q in p.parent.glob(f"{m.group(1)}-*-of-{m.group(3)}.gguf")) if m else p.stat().st_size
+    mm = mmproj_for(rel)
+    return size + (mm.stat().st_size if mm else 0)
+
+
+class EnginePool:
+    """Modelos extras: cada agente ou a pergunta rapida pode usar um modelo diferente do principal.
+    Cada modelo extra roda num llama-server proprio (porta propria) enquanto couber na VRAM;
+    os menos usados sao descarregados quando falta memoria ou depois de ficarem parados."""
+
+    def __init__(self):
+        self.extra = {}  # caminho do modelo -> EngineProcess
+        self.lock = threading.Lock()
+        threading.Thread(target=self._reaper, daemon=True).start()
+
+    def _free_port(self):
+        used = {ENGINE_PORT} | {e.port for e in self.extra.values()}
+        for port in range(ENGINE_PORT + 1, ENGINE_PORT + 60):
+            if port in used:
+                continue
+            with socket.socket() as s:
+                try:
+                    s.bind(("127.0.0.1", port))
+                    return port
+                except OSError:
+                    continue
+        raise RuntimeError("Sem portas livres para outro modelo.")
+
+    def _make_room(self, need):
+        """Descarrega extras (do menos usado para o mais usado) ate o novo modelo caber na VRAM."""
+        vram = GPU.get("vram_mb", 0) * 1024 * 1024
+        if not vram:
+            return
+        overhead = 1.3 * 1024 ** 3  # contexto + buffers por modelo (aproximado)
+        def used():
+            total = model_bytes(ENGINE_PROC.model) + overhead if ENGINE_PROC.state in ("ready", "loading") else 0
+            return total + sum(model_bytes(m) + overhead for m, e in self.extra.items() if e.state in ("ready", "loading"))
+        for m, e in sorted(self.extra.items(), key=lambda kv: kv[1].last_used):
+            if used() + need + overhead <= vram * 0.95:
+                break
+            if e.busy == 0:
+                e.stop()
+                self.extra.pop(m, None)
+
+    def use(self, model_rel, s, on_wait=None):
+        return _PoolLease(self, model_rel, s, on_wait)
+
+    def acquire(self, model_rel, s, on_wait=None):
+        """Garante o modelo pronto e devolve o motor (o principal se model_rel for vazio ou igual a ele)."""
+        if not model_rel or model_rel == ENGINE_PROC.model:
+            eng = ENGINE_PROC
+            if not model_rel and eng.state != "ready":
+                raise RuntimeError("Nenhum modelo carregado. Carregue um modelo no topo do app.")
+        else:
+            if not (MODELS / model_rel).is_file():
+                raise RuntimeError(f"O modelo \"{model_display(model_rel)}\" não foi encontrado. Escolha outro.")
+            with self.lock:
+                eng = self.extra.get(model_rel)
+                if not eng or eng.state in ("stopped", "error") or (eng.proc and eng.proc.poll() is not None):
+                    self._make_room(model_bytes(model_rel))
+                    eng = EngineProcess(self._free_port())
+                    eng.start(model_rel, s)
+                    self.extra[model_rel] = eng
+        eng.busy += 1
+        eng.last_used = time.time()
+        announced = False
+        t0 = time.time()
+        while eng.state == "loading":
+            if on_wait and not on_wait(model_display(model_rel or eng.model), not announced):
+                eng.busy -= 1
+                raise ConnectionError("cliente desconectou")
+            announced = True
+            if time.time() - t0 > 600:
+                break
+            time.sleep(0.5)
+        if eng.state != "ready":
+            eng.busy -= 1
+            err = eng.error or "não carregou"
+            if "out of memory" in err.lower() or "failed to allocate" in err.lower():
+                err = "Sem memória de vídeo para carregar este modelo junto com o principal. Escolha um modelo menor ou descarregue o principal."
+            raise RuntimeError(f"Falha ao carregar \"{model_display(model_rel)}\": {err}")
+        return eng
+
+    def release(self, eng):
+        eng.busy = max(0, eng.busy - 1)
+        eng.last_used = time.time()
+
+    def stop(self, model_rel=None):
+        with self.lock:
+            for m in [model_rel] if model_rel else list(self.extra):
+                e = self.extra.pop(m, None)
+                if e:
+                    e.stop()
+
+    def status(self):
+        return [{"model": m, "name": model_display(m), "state": e.status()["state"], "port": e.port,
+                 "busy": e.busy, "idle": round(time.time() - e.last_used)} for m, e in self.extra.items()]
+
+    def _reaper(self):
+        while True:
+            time.sleep(30)
+            limit = int(load_settings().get("extra_idle_minutes") or 0) * 60
+            if limit <= 0:
+                continue
+            with self.lock:
+                for m, e in list(self.extra.items()):
+                    if e.busy == 0 and time.time() - e.last_used > limit:
+                        e.stop()
+                        self.extra.pop(m, None)
+
+
+class _PoolLease:
+    def __init__(self, pool, model_rel, s, on_wait):
+        self.pool, self.model_rel, self.s, self.on_wait, self.eng = pool, model_rel, s, on_wait, None
+
+    def __enter__(self):
+        self.eng = self.pool.acquire(self.model_rel, self.s, self.on_wait)
+        return self.eng
+
+    def __exit__(self, *exc):
+        self.pool.release(self.eng)
+
+
+POOL = EnginePool()
 atexit.register(ENGINE_PROC.stop)
+atexit.register(POOL.stop)
 
 
 # ---------------------------------------------------------------- modelos
@@ -872,7 +1017,7 @@ class Handler(BaseHTTPRequestHandler):
         p, q = url.path, urllib.parse.parse_qs(url.query)
         try:
             if p == "/api/status":
-                return self.send_json({"engine": ENGINE_PROC.status(), "backends": installed_backends(),
+                return self.send_json({"engine": ENGINE_PROC.status(), "extras": POOL.status(), "backends": installed_backends(),
                                        "gpu": GPU | {"cpu_count": CPU_COUNT},
                                        "models": list_models(), "tasks": public_tasks(),
                                        "settings": masked(load_settings()), "chats": list_chats(),
@@ -1003,7 +1148,12 @@ class Handler(BaseHTTPRequestHandler):
                 ENGINE_PROC.start(b.get("model", ""), s)
                 return self.send_json({"ok": True})
             if p == "/api/unload":
-                ENGINE_PROC.stop()
+                if b.get("extra"):
+                    POOL.stop(None if b["extra"] == "all" else b["extra"])
+                else:
+                    ENGINE_PROC.stop()
+                    if b.get("all"):
+                        POOL.stop()
                 return self.send_json({"ok": True})
             if p == "/api/engine/install":
                 backend = b.get("backend")
@@ -1098,7 +1248,8 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.flush()
 
     def engine_call(self, payload, stream):
-        req = urllib.request.Request(f"http://127.0.0.1:{ENGINE_PORT}/v1/chat/completions",
+        port = getattr(self, "engine_port", ENGINE_PORT)
+        req = urllib.request.Request(f"http://127.0.0.1:{port}/v1/chat/completions",
                                      data=json.dumps(payload).encode("utf-8"),
                                      headers={"Content-Type": "application/json"})
         try:
@@ -1223,16 +1374,14 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"error": str(e)}, 400)
 
     # ---- grupos de agentes ----
-    def split_content(self, m):
+    def split_content(self, m, modalities=None):
         """Separa o texto e as partes de midia (imagens/audio) de uma mensagem do usuario."""
-        c = build_content(m, ENGINE_PROC.modalities)
+        c = build_content(m, ENGINE_PROC.modalities if modalities is None else modalities)
         if isinstance(c, list):
             return text_of(c), [x for x in c if x.get("type") != "text"]
         return c, []
 
     def run_group(self, b):
-        if ENGINE_PROC.state != "ready":
-            return self.send_json({"error": "Nenhum modelo carregado."}, 503)
         self.start_sse()
         sampling = {k: b[k] for k in ("temperature", "top_p", "top_k", "min_p", "repeat_penalty") if k in b}
         if int(b.get("max_tokens") or 0) > 0:
@@ -1247,6 +1396,8 @@ class Handler(BaseHTTPRequestHandler):
                 add_stats(timings)
         except RuntimeError as e:
             self.sse_safe({"error": {"message": str(e)}})
+        except ConnectionError:
+            pass
 
     # ---- backup ----
     def send_backup(self, with_files):
@@ -1380,16 +1531,30 @@ class Handler(BaseHTTPRequestHandler):
         except (RuntimeError, agent.ToolError) as e:
             run.send({"error": {"message": str(e)}})
 
+    def engine_for(self, model_rel, on_wait=None):
+        """Motor para esta requisicao: o principal ou um modelo extra (carregado sob demanda)."""
+        return POOL.use(model_rel or "", load_settings(), on_wait)
+
+    def loading_notifier(self, make_event):
+        """on_wait do POOL: avisa a interface uma vez e depois so manda pings (detecta desconexao)."""
+        return lambda name, first: self.sse_safe(make_event(name) if first else None)
+
     def proxy_chat(self, b):
-        if ENGINE_PROC.state != "ready":
+        ag = agents.get_agent(b["agent_id"]) if b.get("agent_id") else None
+        model = (ag or {}).get("model") or b.get("model") or ""
+        if not model and ENGINE_PROC.state != "ready":
             return self.send_json({"error": "Nenhum modelo carregado."}, 503)
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache")
         self.end_headers()
-        upstream = None
+        upstream = lease = None
         try:
-            ag = agents.get_agent(b["agent_id"]) if b.get("agent_id") else None
+            lease = self.engine_for(model, self.loading_notifier(lambda n: {"engine": {"stage": "loading", "model": n}}))
+            eng = lease.__enter__()
+            self.engine_port = eng.port
+            if model:
+                self.sse({"engine": {"stage": "ready", "model": model_display(eng.model)}})
             msgs = b.get("messages", [])
             if ag:
                 msgs = [{"role": "system", "content": (ag["instructions"] or "Você é um assistente útil.")
@@ -1399,7 +1564,7 @@ class Handler(BaseHTTPRequestHandler):
                     b["temperature"] = ag["temperature"]
                 if ag["web"]:
                     b["web"] = True
-            messages = build_history(msgs, ENGINE_PROC.modalities)
+            messages = build_history(msgs, eng.modalities)
             if b.get("web"):
                 messages = self.web_augment(messages)
             payload = {"messages": messages, "stream": True, "cache_prompt": True, "timings_per_token": True}
@@ -1429,6 +1594,8 @@ class Handler(BaseHTTPRequestHandler):
                     add_stats(json.loads(last_timings.decode("utf-8")[5:])["timings"]) if last_timings else None
                 except (ValueError, KeyError):
                     pass
+            if lease and lease.eng:
+                lease.__exit__(None, None, None)
 
 
 def watch_parent():
@@ -1446,6 +1613,7 @@ def watch_parent():
 
     def wait():
         k32.WaitForSingleObject(handle, 0xFFFFFFFF)
+        POOL.stop()
         ENGINE_PROC.stop()
         os._exit(0)
 
@@ -1476,6 +1644,7 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
+        POOL.stop()
         ENGINE_PROC.stop()
 
 

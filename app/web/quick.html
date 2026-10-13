@@ -56,12 +56,20 @@ new ResizeObserver(resize).observe($("#card"));
 
 function setStatus(text, cls = "") { const s = $("#st"); s.textContent = text; s.className = "st " + cls; }
 function modelName(st) { return (st.models.find(m => m.path === st.engine.model) || {}).name || st.engine.model; }
+// modelo próprio da pergunta rápida (Configurações → App desktop); "" = usa o principal
+const quickModel = st => { const q = st?.settings?.quick_model; return q && st.models.some(m => m.path === q) ? q : ""; };
+const quickName = st => (st.models.find(m => m.path === quickModel(st)) || {}).name || "";
 
 async function refresh() {
   try { Q.status = await api("/api/status"); } catch { setStatus("Servidor offline", "err"); return; }
   if (Q.generating) return;
   const e = Q.status.engine;
-  if (e.state === "ready") setStatus("● " + modelName(Q.status), "ok");
+  const qm = quickModel(Q.status);
+  if (qm) {
+    const x = (Q.status.extras || []).find(x => x.model === qm) || (e.model === qm ? { state: e.state } : null);
+    setStatus(x?.state === "ready" ? `● ${quickName(Q.status)} · modelo rápido` : `${quickName(Q.status)} · será carregado ao perguntar`, x?.state === "ready" ? "ok" : "");
+  }
+  else if (e.state === "ready") setStatus("● " + modelName(Q.status), "ok");
   else if (e.state === "loading") setStatus("Carregando " + modelName(Q.status) + "...", "warn");
   else if (e.state === "error") setStatus("Erro no motor: abra o app para ver", "err");
   else setStatus(Q.status.settings.last_model ? "Modelo descarregado: será carregado ao perguntar" : "Nenhum modelo: abra o app para baixar um");
@@ -69,6 +77,7 @@ async function refresh() {
 
 async function ensureModel() {
   let st = Q.status; if (!st) return false;
+  if (quickModel(st)) return true; // o servidor carrega o modelo rápido sob demanda
   if (st.engine.state === "ready") return true;
   if (st.engine.state !== "loading") {
     const m = st.settings.last_model;
@@ -114,15 +123,19 @@ async function ask() {
   const messages = [];
   if (st.system_prompt?.trim()) messages.push({ role: "system", content: st.system_prompt });
   for (const m of Q.chat.messages) messages.push({ role: m.role, content: m.role === "assistant" ? splitThink(m).content : m.content });
-  const msg = { role: "assistant", content: "", reasoning: "", model: modelName(Q.status) };
+  const msg = { role: "assistant", content: "", reasoning: "", model: quickName(Q.status) || modelName(Q.status) };
   if (Q.web) msg.web = { stage: "query" };
   Q.chat.messages.push(msg);
   Q.generating = true; Q.abort = new AbortController(); render();
   let pending = false;
   const schedule = () => { if (!pending) { pending = true; setTimeout(() => { pending = false; render(); }, 40); } };
   try {
-    await streamChat({ messages, web: Q.web, temperature: +st.temperature, top_p: +st.top_p, top_k: +st.top_k,
+    await streamChat({ messages, web: Q.web, model: quickModel(Q.status) || undefined, temperature: +st.temperature, top_p: +st.top_p, top_k: +st.top_k,
       min_p: +st.min_p, repeat_penalty: +st.repeat_penalty, max_tokens: +st.max_tokens }, Q.abort.signal, j => {
+      if (j.engine) {
+        if (j.engine.stage === "loading") setStatus(`⏳ Carregando ${j.engine.model}...`, "warn");
+        return;
+      }
       if (j.llmlocal) {
         msg.web = { ...msg.web, ...j.llmlocal };
         const lbl = { query: "Criando a consulta...", search: `Pesquisando “${j.llmlocal.query}”...`, read: "Lendo as páginas..." }[j.llmlocal.stage];

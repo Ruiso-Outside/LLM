@@ -47,6 +47,7 @@ def save(doc):
             "color": _s(a.get("color"), 20) or "#7c6cf2", "instructions": _s(a.get("instructions"), 20000),
             "temperature": None if temp in (None, "") else max(0.0, min(float(temp), 2.0)),
             "web": bool(a.get("web")),
+            "model": _s(a.get("model"), 400),  # "" = modelo principal
         })
         ids.add(aid)
     groups = []
@@ -74,7 +75,8 @@ def verdict_of(text):
 
 
 def run_group(h, group_id, task_msg, history, sampling):
-    """Executa um grupo. h = Handler do servidor (engine_call, sse_safe, web_augment, build_content)."""
+    """Executa um grupo. h = Handler do servidor (engine_for, engine_call, sse_safe, web_augment, split_content).
+    Cada agente usa o proprio modelo (ou o principal), carregado sob demanda pelo gerenciador de modelos."""
     doc = load()
     group = next((g for g in doc["groups"] if g["id"] == group_id), None)
     if not group:
@@ -91,61 +93,19 @@ def run_group(h, group_id, task_msg, history, sampling):
             alive["ok"] = h.sse_safe(obj)
         return alive["ok"]
 
-    outputs = {}      # indice da etapa -> ultimo texto produzido
-    feedback = {}     # indice da etapa -> (resposta anterior, feedback do validador)
-    retries = {}
-    task_text, task_parts = h.split_content(task_msg)
+    outputs, feedback, retries = {}, {}, {}
     last_timings, i, n_run, approved = None, 0, 0, None
     while i < len(steps):
         st, ag = steps[i], agents[steps[i]["agent"]]
         is_val = st["role"] == "validator"
-        system = (ag["instructions"] or "Você é um assistente útil.") + \
-            f"\n\nVocê é o agente \"{ag['name']}\" do grupo \"{group['name']}\"." + \
-            (f" Objetivo do grupo: {group['description']}" if group["description"] else "") + \
-            " Faça somente a sua função, sem repetir o trabalho dos outros agentes. Responda no idioma do usuário." + \
-            (VALIDATOR_SUFFIX if is_val else "")
-        user = f"Pedido do usuário:\n{task_text}"
-        prev = [(steps[j], outputs[j]) for j in range(i) if j in outputs]
-        if prev:
-            user += "\n\nTrabalho dos agentes anteriores:\n\n" + "\n\n".join(
-                f"### {agents[s['agent']]['icon']} {agents[s['agent']]['name']}\n{text}" for s, text in prev)
-        if i in feedback:
-            old, fb = feedback.pop(i)
-            user += (f"\n\nSua resposta anterior foi REPROVADA pelo validador.\n\nSua resposta anterior:\n{old}"
-                     f"\n\nFeedback do validador:\n{fb}\n\nRefaça a sua parte corrigindo os problemas apontados.")
-        content = task_parts + [{"type": "text", "text": user}] if task_parts else user
-        messages = [{"role": "system", "content": system}] + history + [{"role": "user", "content": content}]
-        attempt = retries.get(i, 0) + 1
-        if not emit({"group": {"type": "step_start", "index": i, "agent": {k: ag[k] for k in ("id", "name", "icon", "color")},
-                               "role": st["role"], "attempt": attempt}}):
+        with h.engine_for(ag.get("model", ""), h.loading_notifier(
+                lambda name, idx=i: {"group": {"type": "loading", "index": idx, "model": name}})) as eng:
+            h.engine_port = eng.port
+            text, timings = _run_step(h, emit, group, agents, steps, i, ag, is_val, eng, task_msg, history,
+                                      outputs, feedback, retries, sampling)
+        last_timings = timings or last_timings
+        if text is None:  # cliente desconectou
             return last_timings
-        if ag["web"]:
-            messages = h.web_augment(messages)
-        payload = {"messages": messages, "stream": True, "cache_prompt": True, "timings_per_token": True, **sampling}
-        if ag["temperature"] is not None:
-            payload["temperature"] = ag["temperature"]
-        text = ""
-        with h.engine_call(payload, True) as up:
-            for raw in iter(up.readline, b""):
-                line = raw.decode("utf-8", "replace").strip()
-                if not line.startswith("data:") or line == "data: [DONE]":
-                    continue
-                try:
-                    j = json.loads(line[5:])
-                except ValueError:
-                    continue
-                if j.get("timings"):
-                    last_timings = j["timings"]
-                    emit({"timings": j["timings"]})
-                d = ((j.get("choices") or [{}])[0].get("delta") or {})
-                if d.get("reasoning_content"):
-                    emit({"group": {"type": "reasoning", "delta": d["reasoning_content"]}})
-                if d.get("content"):
-                    text += d["content"]
-                    emit({"group": {"type": "delta", "delta": d["content"]}})
-                if not alive["ok"]:
-                    return last_timings
-        text = THINK_RE.sub("", text).strip()
         outputs[i] = text
         n_run += 1
         verdict = verdict_of(text) if is_val else None
@@ -162,6 +122,57 @@ def run_group(h, group_id, task_msg, history, sampling):
     final = next((outputs[j] for j in range(len(steps) - 1, -1, -1) if j in outputs and steps[j]["role"] != "validator"), "")
     emit({"group": {"type": "done", "final": final, "approved": approved, "steps_run": n_run}})
     return last_timings
+
+
+def _run_step(h, emit, group, agents, steps, i, ag, is_val, eng, task_msg, history, outputs, feedback, retries, sampling):
+    """Executa uma etapa no motor `eng`. Devolve (texto, timings); texto None se o cliente desconectou."""
+    system = (ag["instructions"] or "Você é um assistente útil.") + \
+        f"\n\nVocê é o agente \"{ag['name']}\" do grupo \"{group['name']}\"." + \
+        (f" Objetivo do grupo: {group['description']}" if group["description"] else "") + \
+        " Faça somente a sua função, sem repetir o trabalho dos outros agentes. Responda no idioma do usuário." + \
+        (VALIDATOR_SUFFIX if is_val else "")
+    task_text, task_parts = h.split_content(task_msg, eng.modalities)
+    user = f"Pedido do usuário:\n{task_text}"
+    prev = [(steps[j], outputs[j]) for j in range(i) if j in outputs]
+    if prev:
+        user += "\n\nTrabalho dos agentes anteriores:\n\n" + "\n\n".join(
+            f"### {agents[s['agent']]['icon']} {agents[s['agent']]['name']}\n{text}" for s, text in prev)
+    if i in feedback:
+        old, fb = feedback.pop(i)
+        user += (f"\n\nSua resposta anterior foi REPROVADA pelo validador.\n\nSua resposta anterior:\n{old}"
+                 f"\n\nFeedback do validador:\n{fb}\n\nRefaça a sua parte corrigindo os problemas apontados.")
+    content = task_parts + [{"type": "text", "text": user}] if task_parts else user
+    messages = [{"role": "system", "content": system}] + history + [{"role": "user", "content": content}]
+    model_name = Path(eng.model).stem if eng.model else ""
+    if not emit({"group": {"type": "step_start", "index": i, "agent": {k: ag[k] for k in ("id", "name", "icon", "color")},
+                           "role": steps[i]["role"], "attempt": retries.get(i, 0) + 1, "model": model_name}}):
+        return None, None
+    if ag["web"]:
+        messages = h.web_augment(messages)
+    payload = {"messages": messages, "stream": True, "cache_prompt": True, "timings_per_token": True, **sampling}
+    if ag["temperature"] is not None:
+        payload["temperature"] = ag["temperature"]
+    text, timings = "", None
+    with h.engine_call(payload, True) as up:
+        for raw in iter(up.readline, b""):
+            line = raw.decode("utf-8", "replace").strip()
+            if not line.startswith("data:") or line == "data: [DONE]":
+                continue
+            try:
+                j = json.loads(line[5:])
+            except ValueError:
+                continue
+            if j.get("timings"):
+                timings = j["timings"]
+                emit({"timings": j["timings"]})
+            d = ((j.get("choices") or [{}])[0].get("delta") or {})
+            if d.get("reasoning_content"):
+                emit({"group": {"type": "reasoning", "delta": d["reasoning_content"]}})
+            if d.get("content"):
+                text += d["content"]
+                if not emit({"group": {"type": "delta", "delta": d["content"]}}):
+                    return None, timings
+    return THINK_RE.sub("", text).strip(), timings
 
 
 # ---------------------------------------------------------------- modelos prontos

@@ -370,3 +370,6 @@ details.tool.approval { border-color: var(--warn); }
 .verdict { font-size: 12px; padding: 2px 9px; border-radius: 99px; }
 .verdict.ok { background: #3ecf8e1f; color: var(--ok); }
 .verdict.bad { background: #f2686a1f; color: var(--err); }
+
+.ag-model { font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.g-loading { font-size: 13px; color: var(--muted); background: var(--panel); border: 1px dashed var(--line); border-radius: 10px; padding: 8px 12px; }
