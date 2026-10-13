@@ -743,7 +743,8 @@ class EnginePool:
         e = next((e for (m, d), e in self.extra.items() if m == model and e.state in ("ready", "loading")), None)
         if not e and model and model == ENGINE_PROC.model and ENGINE_PROC.state in ("ready", "loading"):
             e = ENGINE_PROC
-        state = e.state if e else ("loading" if getattr(self, "_quick_loading", False) else "stopped")
+        loading = getattr(self, "_quick_loading", False) and not getattr(self, "_quick_cancel", False)
+        state = e.state if e else ("loading" if loading else "stopped")
         return {"model": model, "name": model_display(model) if model else "", "keep": bool(s.get("quick_keep_loaded")),
                 "device": quick_device(s), "state": state, "on": e.device if e else "",
                 "error": getattr(self, "quick_error", "")}
@@ -760,7 +761,7 @@ class EnginePool:
             return
 
         def run():
-            self._quick_loading, self.quick_error = True, ""
+            self._quick_loading, self._quick_cancel, self.quick_error = True, False, ""
             for _ in range(600):  # o principal carrega primeiro (prioridade na VRAM)
                 if ENGINE_PROC.state != "loading":
                     break
@@ -768,7 +769,8 @@ class EnginePool:
             try:
                 self.release(self.acquire(model, s, None, quick_device(s)))
             except (RuntimeError, ValueError, OSError) as e:
-                self.quick_error = str(e)
+                if not self._quick_cancel:  # descarregado de proposito no meio da carga: nao e erro
+                    self.quick_error = str(e)
             finally:
                 self._quick_loading = False
         threading.Thread(target=run, daemon=True).start()
@@ -1536,6 +1538,7 @@ class Handler(BaseHTTPRequestHandler):
             if p == "/api/quick/unload":
                 s = load_settings()
                 save_settings({"quick_keep_loaded": False})
+                POOL._quick_cancel = True
                 if s.get("quick_model") and s["quick_model"] != ENGINE_PROC.model:
                     POOL.stop(s["quick_model"])
                 return self.send_json(POOL.quick_status())
