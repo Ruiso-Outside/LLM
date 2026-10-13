@@ -1,0 +1,17 @@
+# Dados do usuario: modelos (GBs), motor baixado, conversas e configuracoes (podem conter chaves de API)
+/models/
+/engine/
+/data/
+
+# Build do app desktop
+desktop/node_modules/
+desktop/dist/
+
+# Python
+__pycache__/
+*.pyc
+
+# Downloads parciais e sistema
+*.part
+Thumbs.db
+desktop.ini

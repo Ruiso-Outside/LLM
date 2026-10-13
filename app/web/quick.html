@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Pergunta rápida</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  html, body { background: transparent; height: auto; overflow: hidden; }
+  body { padding: 10px; }
+  .card { background: #15161cf5; border: 1px solid #ffffff1f; border-radius: 16px;
+    box-shadow: 0 12px 40px #0009; overflow: hidden; }
+  .ask { display: flex; align-items: flex-start; gap: 10px; padding: 14px 14px 12px 16px; }
+  .ask .bolt { font-size: 20px; line-height: 30px; filter: saturate(1.3); }
+  #q { flex: 1; background: none; border: 0; outline: 0; resize: none; font-size: 17px; line-height: 30px; max-height: 150px; padding: 0; }
+  #q::placeholder { color: #8d90a0; }
+  .ask .web-toggle { margin-top: 2px; }
+  #answer { border-top: 1px solid #ffffff14; max-height: 460px; overflow-y: auto; padding: 4px 0 6px; }
+  #answer:empty { display: none; }
+  #answer .msg { max-width: none; padding: 8px 18px 6px; margin: 0; }
+  #answer .msg.user .bubble { background: #ffffff0d; font-size: 14px; padding: 6px 12px; }
+  #answer .msg.user .role, #answer .msg .actions { display: none; }
+  .foot { display: flex; align-items: center; gap: 8px; padding: 7px 10px 7px 16px; border-top: 1px solid #ffffff14;
+    font-size: 12px; color: var(--muted); background: #0000001f; }
+  .foot .st { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .foot .st.ok { color: var(--ok); } .foot .st.warn { color: var(--warn); } .foot .st.err { color: var(--err); }
+  .foot button { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 12px; padding: 4px 8px; border-radius: 7px; white-space: nowrap; }
+  .foot button:hover { background: #ffffff12; color: var(--text); }
+  .foot button.on { color: var(--accent2); }
+  kbd { font: 11px var(--mono); background: #ffffff14; border-radius: 4px; padding: 1px 4px; color: #aeb1c0; }
+</style>
+</head>
+<body>
+<div class="card" id="card">
+  <div class="ask">
+    <span class="bolt">⚡</span>
+    <textarea id="q" rows="1" placeholder="Pergunte qualquer coisa..." spellcheck="false"></textarea>
+    <button id="webBtn" class="web-toggle" title="Pesquisar na web antes de responder">🌐 Web</button>
+  </div>
+  <div id="answer"></div>
+  <div class="foot">
+    <span id="st" class="st">—</span>
+    <button id="copyBtn" title="Copiar a última resposta (Ctrl+Shift+C)">Copiar</button>
+    <button id="newBtn" title="Nova conversa (Ctrl+N)">Nova</button>
+    <button id="openBtn" title="Continuar no app (Ctrl+O)">Abrir no app ↗</button>
+    <button id="pinBtn" title="Fixar: não esconder ao clicar fora">📌</button>
+  </div>
+</div>
+<script src="common.js"></script>
+<script>
+"use strict";
+const Q = { chat: null, generating: false, abort: null, status: null, pinned: false,
+  web: (() => { try { return localStorage.getItem("web") === "1"; } catch { return false; } })() };
+
+const resize = () => desktop?.resizeQuick(Math.ceil($("#card").getBoundingClientRect().height) + 20);
+new ResizeObserver(resize).observe($("#card"));
+
+function setStatus(text, cls = "") { const s = $("#st"); s.textContent = text; s.className = "st " + cls; }
+function modelName(st) { return (st.models.find(m => m.path === st.engine.model) || {}).name || st.engine.model; }
+
+async function refresh() {
+  try { Q.status = await api("/api/status"); } catch { setStatus("Servidor offline", "err"); return; }
+  if (Q.generating) return;
+  const e = Q.status.engine;
+  if (e.state === "ready") setStatus("● " + modelName(Q.status), "ok");
+  else if (e.state === "loading") setStatus("Carregando " + modelName(Q.status) + "...", "warn");
+  else if (e.state === "error") setStatus("Erro no motor: abra o app para ver", "err");
+  else setStatus(Q.status.settings.last_model ? "Modelo descarregado: será carregado ao perguntar" : "Nenhum modelo: abra o app para baixar um");
+}
+
+async function ensureModel() {
+  let st = Q.status; if (!st) return false;
+  if (st.engine.state === "ready") return true;
+  if (st.engine.state !== "loading") {
+    const m = st.settings.last_model;
+    if (!m || !st.models.some(x => x.path === m)) { setStatus("Nenhum modelo para carregar: abra o app", "err"); return false; }
+    await post("/api/load", { model: m });
+  }
+  setStatus("Carregando modelo...", "warn");
+  for (let i = 0; i < 600; i++) {
+    await new Promise(r => setTimeout(r, 500));
+    st = Q.status = await api("/api/status");
+    if (st.engine.state === "ready") return true;
+    if (st.engine.state === "error" || st.engine.state === "stopped") { setStatus("Falha ao carregar o modelo: abra o app", "err"); return false; }
+  }
+  return false;
+}
+
+function render() {
+  const box = $("#answer");
+  if (!Q.chat) { box.innerHTML = ""; return; }
+  const msgs = Q.chat.messages;
+  box.innerHTML = msgs.map((m, i) => {
+    if (m.role === "user") return `<div class="msg user"><div class="bubble">${esc(m.content)}</div></div>`;
+    const streaming = Q.generating && i === msgs.length - 1;
+    const { content, reasoning, open } = splitThink(m);
+    let h = `<div class="msg assistant">`;
+    if (m.web) h += webBoxHTML(m.web, false);
+    if (reasoning && (open || !content) && streaming) h += `<details class="think" open><summary>Pensando...</summary><div class="think-body">${esc(reasoning.slice(-600))}</div></details>`;
+    else if (reasoning) h += `<details class="think"><summary>Raciocínio</summary><div class="think-body">${esc(reasoning)}</div></details>`;
+    h += `<div class="content ${streaming ? "cursor" : ""}">${linkCitations(md(content), m.web?.sources)}</div>`;
+    if (m.error) h += `<div class="err">${esc(m.error)}</div>`;
+    return h + "</div>";
+  }).join("");
+  box.scrollTop = box.scrollHeight;
+}
+
+async function ask() {
+  const text = $("#q").value.trim(); if (!text || Q.generating) return;
+  if (!(await ensureModel())) return;
+  if (!Q.chat) Q.chat = { id: uid(), title: "⚡ " + text.slice(0, 56).replace(/\s+/g, " "), created: Date.now() / 1000, messages: [] };
+  Q.chat.messages.push({ role: "user", content: text });
+  $("#q").value = ""; grow();
+  const st = Q.status.settings;
+  const messages = [];
+  if (st.system_prompt?.trim()) messages.push({ role: "system", content: st.system_prompt });
+  for (const m of Q.chat.messages) messages.push({ role: m.role, content: m.role === "assistant" ? splitThink(m).content : m.content });
+  const msg = { role: "assistant", content: "", reasoning: "", model: modelName(Q.status) };
+  if (Q.web) msg.web = { stage: "query" };
+  Q.chat.messages.push(msg);
+  Q.generating = true; Q.abort = new AbortController(); render();
+  let pending = false;
+  const schedule = () => { if (!pending) { pending = true; setTimeout(() => { pending = false; render(); }, 40); } };
+  try {
+    await streamChat({ messages, web: Q.web, temperature: +st.temperature, top_p: +st.top_p, top_k: +st.top_k,
+      min_p: +st.min_p, repeat_penalty: +st.repeat_penalty, max_tokens: +st.max_tokens }, Q.abort.signal, j => {
+      if (j.llmlocal) {
+        msg.web = { ...msg.web, ...j.llmlocal };
+        const lbl = { query: "Criando a consulta...", search: `Pesquisando “${j.llmlocal.query}”...`, read: "Lendo as páginas..." }[j.llmlocal.stage];
+        if (lbl) setStatus("🌐 " + lbl, "warn");
+        return schedule();
+      }
+      const d = j.choices?.[0]?.delta || {};
+      if (d.content) msg.content += d.content;
+      if (d.reasoning_content) msg.reasoning += d.reasoning_content;
+      if (j.timings) {
+        msg.stats = { tps: j.timings.predicted_per_second || 0, tokens: j.timings.predicted_n || 0,
+                      prompt: j.timings.prompt_n || 0, cached: j.timings.cache_n || 0 };
+        setStatus(`⚡ ${msg.stats.tps.toFixed(1)} tok/s · ${fmtNum(msg.stats.tokens)} tokens`, "ok");
+      }
+      schedule();
+    });
+  } catch (e) { if (e.name !== "AbortError") msg.error = e.message; }
+  Q.generating = false; Q.abort = null;
+  if (msg.web && !["done", "error"].includes(msg.web.stage)) delete msg.web;
+  render();
+  if (msg.stats) setStatus(`● ${msg.model} · ${msg.stats.tps.toFixed(1)} tok/s · ${fmtNum(msg.stats.tokens)} tokens`, "ok");
+  else refresh();
+  api("/api/chats/" + Q.chat.id, { method: "PUT", body: Q.chat }).catch(() => {});
+}
+
+function newConversation() { if (Q.generating) Q.abort?.abort(); Q.chat = null; render(); $("#q").focus(); refresh(); }
+function lastAnswer() { const a = Q.chat?.messages.filter(m => m.role === "assistant").at(-1); return a ? splitThink(a).content : ""; }
+async function copyLast() { const t = lastAnswer(); if (t) { await navigator.clipboard.writeText(t); setStatus("Resposta copiada", "ok"); } }
+function openInApp() { if (Q.generating) return; desktop?.openMain(Q.chat?.id || ""); }
+
+function grow() { const t = $("#q"); t.style.height = "auto"; t.style.height = Math.min(t.scrollHeight, 150) + "px"; }
+function setWeb(on) { Q.web = on; $("#webBtn").classList.toggle("on", on); try { localStorage.setItem("web", on ? "1" : "0"); } catch {} }
+
+$("#q").addEventListener("input", grow);
+$("#q").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); ask(); } });
+$("#webBtn").onclick = () => { setWeb(!Q.web); $("#q").focus(); };
+$("#newBtn").onclick = newConversation;
+$("#copyBtn").onclick = copyLast;
+$("#openBtn").onclick = openInApp;
+$("#pinBtn").onclick = () => { Q.pinned = !Q.pinned; $("#pinBtn").classList.toggle("on", Q.pinned); desktop?.setQuickPinned(Q.pinned); $("#q").focus(); };
+$("#answer").addEventListener("click", async e => {
+  const cb = e.target.closest(".copy-code");
+  if (cb) { await navigator.clipboard.writeText(cb.closest(".code").querySelector("code").textContent); cb.textContent = "Copiado!"; }
+});
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") { e.preventDefault(); if (Q.generating) Q.abort?.abort(); else desktop?.hideQuick(); }
+  else if (e.ctrlKey && e.key.toLowerCase() === "n") { e.preventDefault(); newConversation(); }
+  else if (e.ctrlKey && e.key.toLowerCase() === "o") { e.preventDefault(); openInApp(); }
+  else if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "c") { e.preventDefault(); copyLast(); }
+});
+
+// chamado pelo app sempre que a janela aparece
+desktop?.onQuickShow(({ hiddenFor }) => {
+  if (hiddenFor > 10 * 60 * 1000 && !Q.generating) { Q.chat = null; render(); }
+  setWeb((() => { try { return localStorage.getItem("web") === "1"; } catch { return Q.web; } })());
+  refresh(); $("#q").focus(); $("#q").select();
+});
+
+setWeb(Q.web); refresh(); setInterval(() => { if (document.hasFocus()) refresh(); }, 3000);
+$("#q").focus(); resize();
+</script>
+</body>
+</html>

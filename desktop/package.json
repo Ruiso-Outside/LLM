@@ -1,0 +1,39 @@
+{
+  "name": "llm-local",
+  "productName": "LLM Local",
+  "version": "1.0.0",
+  "description": "IA local no seu PC, sem conta e sem restrições",
+  "main": "main.js",
+  "author": "Piphin Studio",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "icon": "node gen-icon.js",
+    "dist": "node gen-icon.js && electron-builder --win nsis"
+  },
+  "build": {
+    "appId": "studio.piphin.llmlocal",
+    "productName": "LLM Local",
+    "copyright": "Piphin Studio",
+    "files": ["main.js", "preload.js", "icon.png", "icon-tray.png"],
+    "extraResources": [
+      { "from": "../app", "to": "app", "filter": ["**/*", "!__pycache__/**", "!**/*.pyc"] }
+    ],
+    "directories": { "output": "dist" },
+    "win": { "target": "nsis", "icon": "icon.png" },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "LLM Local",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false
+    }
+  },
+  "devDependencies": {
+    "electron": "44.4.5",
+    "electron-builder": "26.16.1"
+  }
+}
