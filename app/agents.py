@@ -11,6 +11,9 @@ import time
 import uuid
 from pathlib import Path
 
+import mcp
+from agent import AgentRun, wait_approval, _preview_args
+
 FILE = None
 ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,40}$")
 VERDICT_RE = re.compile(r"VEREDITO\s*[:\-–]\s*\**\s*(APROVAD[OA]|REPROVAD[OA])", re.I)
@@ -50,6 +53,7 @@ def save(doc):
             "model": _s(a.get("model"), 400),  # "" = modelo principal
             "device": a.get("device") if a.get("device") in ("gpu", "cpu") else "auto",
             "kb": a.get("kb") if re.match(r"^[a-f0-9]{10}$", str(a.get("kb") or "")) else "",
+            "mcp": [m for m in (a.get("mcp") or []) if mcp.ID_RE.match(str(m))][:10],  # servidores MCP que o agente usa
         })
         ids.add(aid)
     groups = []
@@ -81,6 +85,11 @@ def run_group(h, group_id, task_msg, history, sampling):
     Cada agente usa o proprio modelo (ou o principal), carregado sob demanda pelo gerenciador de modelos."""
     doc = load()
     group = next((g for g in doc["groups"] if g["id"] == group_id), None)
+    if not group and group_id.startswith("agent:"):
+        ag = next((a for a in doc["agents"] if a["id"] == group_id[6:]), None)
+        if ag:
+            group = {"id": group_id, "name": ag["name"], "icon": ag["icon"], "description": "", "max_retries": 0,
+                     "steps": [{"agent": ag["id"], "role": "agent"}]}
     if not group:
         raise RuntimeError("Grupo não encontrado.")
     agents = {a["id"]: a for a in doc["agents"]}
@@ -157,6 +166,8 @@ def _run_step(h, emit, group, agents, steps, i, ag, is_val, eng, task_msg, histo
         messages = h.web_augment(messages)
     payload = {"messages": messages, "stream": True, "cache_prompt": True, "timings_per_token": True, **sampling}
     h.apply_model_sampling(payload, eng.model, ag["temperature"])
+    if ag.get("mcp"):
+        return _tool_loop(h, emit, payload, ag)
     text, timings = "", None
     with h.engine_call(payload, True) as up:
         for raw in iter(up.readline, b""):
@@ -177,6 +188,91 @@ def _run_step(h, emit, group, agents, steps, i, ag, is_val, eng, task_msg, histo
                 text += d["content"]
                 if not emit({"group": {"type": "delta", "delta": d["content"]}}):
                     return None, timings
+    return THINK_RE.sub("", text).strip(), timings
+
+
+def _tool_loop(h, emit, payload, ag):
+    """Etapa de um agente com ferramentas MCP: o modelo chama ferramentas ate dar a resposta final."""
+    ping = lambda: emit(None)
+    tools, mapping = mcp.MANAGER.toolset(ag["mcp"], ping, lambda name, err: emit({"group": {"type": "notice", "level": "error", "text": f"⚠ {err}"}}))
+    if not tools:
+        emit({"group": {"type": "notice", "level": "error", "text": "⚠ Nenhuma ferramenta MCP disponível para este agente."}})
+    else:
+        names = sorted({s.cfg["name"] for s, _ in mapping.values()})
+        payload["messages"][0]["content"] += ("\n\nVocê tem ferramentas externas (MCP) de: " + ", ".join(names) +
+                                              ". Use-as quando o pedido exigir; consulte antes de alterar e confira o resultado.")
+        payload.update({"tools": tools, "tool_choice": "auto"})
+    messages, auto, text, timings = payload["messages"], set(), "", None
+    for _ in range(30):
+        content, calls = "", {}
+        with h.engine_call(payload, True) as up:
+            for raw in iter(up.readline, b""):
+                line = raw.decode("utf-8", "replace").strip()
+                if not line.startswith("data:") or line == "data: [DONE]":
+                    continue
+                try:
+                    j = json.loads(line[5:])
+                except ValueError:
+                    continue
+                if j.get("timings"):
+                    timings = j["timings"]
+                    emit({"timings": j["timings"]})
+                d = ((j.get("choices") or [{}])[0].get("delta") or {})
+                if d.get("reasoning_content"):
+                    emit({"group": {"type": "reasoning", "delta": d["reasoning_content"]}})
+                if d.get("content"):
+                    content += d["content"]
+                    if not emit({"group": {"type": "delta", "delta": d["content"]}}):
+                        return None, timings
+                for tc in d.get("tool_calls") or []:
+                    cl = calls.setdefault(tc.get("index", 0), {"id": "", "name": "", "arguments": ""})
+                    cl["id"] = tc.get("id") or cl["id"]
+                    fn = tc.get("function") or {}
+                    cl["name"] += fn.get("name") or ""
+                    cl["arguments"] += fn.get("arguments") or ""
+        text += content
+        if not calls:
+            break
+        tcs = [{"id": c["id"] or f"call_{uuid.uuid4().hex[:12]}", "type": "function",
+                "function": {"name": c["name"], "arguments": c["arguments"] or "{}"}} for _, c in sorted(calls.items())]
+        messages.append({"role": "assistant", "content": content, "tool_calls": tcs})
+        for tc in tcs:
+            name = tc["function"]["name"]
+            try:
+                args = json.loads(tc["function"]["arguments"])
+                if not isinstance(args, dict):
+                    raise ValueError
+            except ValueError:
+                args = None
+            srv, tool = mapping.get(name, (None, None))
+            label = f"{srv.cfg['name']} · {tool['name']}" if srv else name
+            emit({"group": {"type": "tool_start", "id": tc["id"], "name": name, "label": label, "args": _preview_args(args or {})}})
+            image, ok = None, False
+            if args is None:
+                result = "Erro: argumentos JSON inválidos. Tente de novo."
+            elif not srv:
+                result = f"Erro: ferramenta desconhecida: {name}"
+            else:
+                allowed = True
+                if mcp.needs_approval(srv, tool) and srv.cfg["id"] not in auto:
+                    ans = wait_approval(tc["id"], lambda: emit({"group": {"type": "approval", "id": tc["id"]}}), ping, AgentRun.PENDING)
+                    if ans is None:
+                        return None, timings
+                    allowed = bool(ans.get("ok"))
+                    if allowed and ans.get("always"):
+                        auto.add(srv.cfg["id"])
+                if not allowed:
+                    result = "O usuário NEGOU esta ação. Não tente de novo; siga sem ela."
+                else:
+                    try:
+                        result, images = mcp.result_text(srv.call(tool["name"], args, ping=ping), h.save_tool_image)
+                        image, ok = (images[0] if images else None), not result.startswith("Erro da ferramenta")
+                    except mcp.MCPError as e:
+                        result = f"Erro: {e}"
+            messages.append({"role": "tool", "tool_call_id": tc["id"], "content": result})
+            if not emit({"group": {"type": "tool_end", "id": tc["id"], "ok": ok, "result": result[:6000], "image": image}}):
+                return None, timings
+        text += "\n\n" if content else ""
     return THINK_RE.sub("", text).strip(), timings
 
 

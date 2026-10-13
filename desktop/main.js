@@ -1,7 +1,7 @@
 // LLM Local - app desktop.
 // Roda o servidor Python escondido, fica na bandeja do sistema e abre a
 // "pergunta rapida" por um atalho global.
-const { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain, nativeImage, screen, shell, dialog, Notification, session } = require("electron");
+const { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain, nativeImage, screen, shell, dialog, Notification, session, desktopCapturer, clipboard } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const http = require("http");
@@ -75,7 +75,7 @@ function tm(key, vars) {
   return s;
 }
 let quitting = false, quickPinned = false, quickHiddenAt = 0, trayHintShown = false;
-let config = { homeDir: "", hotkey: "Ctrl+Shift+Space", voiceHotkey: "Ctrl+Alt+Space", autoStart: true, quickHideOnBlur: true };
+let config = { homeDir: "", hotkey: "Ctrl+Shift+Space", voiceHotkey: "Ctrl+Alt+Space", screenHotkey: "Ctrl+Alt+S", autoStart: true, quickHideOnBlur: true };
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) app.quit();
@@ -245,6 +245,45 @@ function voiceShortcut() {
   if (!quickWin?.isVisible()) showQuick();
   quickWin.webContents.send("quick-voice");
 }
+
+// contexto da tela: captura o monitor onde está o mouse (sem a janela da pergunta rápida)
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+async function captureScreen() {
+  const wasVisible = quickWin?.isVisible();
+  if (wasVisible) { quickWin.setOpacity(0); quickWin.hide(); await sleep(250); }
+  try {
+    const disp = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+    const w = Math.round(disp.size.width * disp.scaleFactor), h = Math.round(disp.size.height * disp.scaleFactor);
+    const sources = await desktopCapturer.getSources({ types: ["screen"], thumbnailSize: { width: w, height: h } });
+    const src = sources.find(s => s.display_id === String(disp.id)) || sources[0];
+    if (!src || src.thumbnail.isEmpty()) return null;
+    let img = src.thumbnail;
+    if (img.getSize().width > 1920) img = img.resize({ width: 1920, quality: "best" }); // o modelo de visão não precisa de mais
+    return img.toJPEG(88);
+  } finally {
+    if (wasVisible) { quickWin.show(); quickWin.setOpacity(1); quickWin.focus(); }
+  }
+}
+// atalho de tela: captura primeiro e depois abre a pergunta rápida com o print anexado
+async function screenShortcut() {
+  const visible = quickWin?.isVisible();
+  let jpg = null;
+  try { jpg = await captureScreen(); } catch {}
+  if (!visible) showQuick();
+  if (jpg) quickWin.webContents.send("quick-context", { kind: "screen", data: jpg });
+}
+ipcMain.handle("capture-screen", async () => { try { return await captureScreen(); } catch { return null; } });
+ipcMain.handle("read-clipboard", () => {
+  const img = clipboard.readImage();
+  return { text: clipboard.readText(), image: img.isEmpty() ? null : img.toPNG() };
+});
+ipcMain.handle("set-screen-hotkey", (_e, k) => {
+  if (!k || k === config.screenHotkey) return { ok: true, hotkey: config.screenHotkey };
+  try { globalShortcut.unregister(toAccelerator(config.screenHotkey)); } catch {}
+  if (registerHotkey(k, screenShortcut)) { config.screenHotkey = k; saveConfig(); return { ok: true, hotkey: k }; }
+  registerHotkey(config.screenHotkey, screenShortcut);
+  return { ok: false, hotkey: config.screenHotkey };
+});
 
 // ------------------------------------------------------------------ bandeja
 let lastTrayState = "";
@@ -560,6 +599,7 @@ app.whenReady().then(async () => {
       detail: tm("Escolha outro em Configurações → App desktop.") });
   }
   registerHotkey(config.voiceHotkey, voiceShortcut);
+  registerHotkey(config.screenHotkey, screenShortcut);
   createQuick();
   initUpdater();
   setTimeout(offerShortcuts, 2500);

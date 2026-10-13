@@ -8,6 +8,8 @@ const AGENT_ICONS = ["🤖", "🧮", "✏️", "✅", "🔎", "📝", "🧐", "�
 const agentById = id => AG.doc.agents.find(a => a.id === id);
 const groupById = id => AG.doc.groups.find(g => g.id === id);
 const clone = o => JSON.parse(JSON.stringify(o));
+// agente sozinho com ferramentas MCP: roda pelo executor de grupos (que sabe chamar ferramentas)
+const soloGroup = a => a ? { id: "agent:" + a.id, name: a.name, icon: a.icon, steps: [{ agent: a.id, role: "agent" }] } : null;
 const modelNameOf = path => (S.status?.models.find(m => m.path === path) || {}).name || (path ? path.split("/").pop().replace(/\.gguf$/i, "") : "");
 const agentModelName = a => a.model ? (modelNameOf(a.model) + (S.status?.models.some(m => m.path === a.model) ? "" : " " + t("(não encontrado)")) + (a.device === "cpu" ? " · CPU" : a.device === "gpu" ? " · GPU" : "")) : t("modelo principal");
 function modelOptions(sel) {
@@ -54,7 +56,7 @@ function agentsHint() {
 function renderAgentsModal() {
   const ed = AG.edit;
   $("#agentList").innerHTML = AG.doc.agents.map(a => `<div class="item clickable ${ed?.type === "agent" && ed.id === a.id ? "sel" : ""}" data-edit="agent:${a.id}">
-      <span class="ag-dot" style="--c:${esc(a.color)}">${esc(a.icon)}</span><div class="name-col"><span class="name">${esc(a.name)}</span><small class="muted ag-model">${esc(agentModelName(a))}</small></div>${a.web ? '<span title="Pode pesquisar na web">🌐</span>' : ""}</div>`).join("")
+      <span class="ag-dot" style="--c:${esc(a.color)}">${esc(a.icon)}</span><div class="name-col"><span class="name">${esc(a.name)}</span><small class="muted ag-model">${esc(agentModelName(a))}</small></div>${a.web ? '<span title="Pode pesquisar na web">🌐</span>' : ""}${a.mcp?.length ? `<span title="${esc(a.mcp.map(mcpName).join(", "))}">🔌</span>` : ""}</div>`).join("")
     || '<p class="muted small-note">Nenhum agente ainda.</p>';
   $("#groupList").innerHTML = AG.doc.groups.map(g => `<div class="item clickable ${ed?.type === "group" && ed.id === g.id ? "sel" : ""}" data-edit="group:${g.id}">
       <span class="ag-dot" style="--c:#4a4d60">${esc(g.icon)}</span><span class="name">${esc(g.name)}</span><span class="meta">${g.steps.length}</span></div>`).join("")
@@ -90,6 +92,9 @@ function renderAgentEditor() {
         <label>Base de conhecimento
           <select class="input" id="agKb"><option value="">${t("Nenhuma")}</option>${KB.list.map(k => `<option value="${k.id}" ${k.id === d.kb ? "selected" : ""}>📚 ${esc(k.name)}</option>`).join("")}</select>
           <small class="muted">O agente consulta esta base antes de responder (crie bases em Conhecimento).</small></label>
+        <div><b>🔌 ${t("Ferramentas MCP")}</b> <small class="muted">${t("(o agente pode usar estes programas, ex.: Roblox Studio)")}</small>
+          <div class="mcp-pick">${MCP.list.length ? MCP.list.map(s => `<label class="check"><input type="checkbox" data-ag-mcp="${esc(s.id)}" ${(d.mcp || []).includes(s.id) ? "checked" : ""}> ${esc(s.name)}</label>`).join("")
+            : `<small class="muted">${t("Nenhum servidor: adicione em Configurações → Ferramentas MCP.")}</small>`}</div></div>
         <label>Função do agente (instruções)
           <textarea class="input" id="agInstr" rows="9" placeholder="Descreva o que este agente faz, como deve responder e o que NÃO deve fazer.&#10;Ex.: Você resolve o problema do agente anterior mostrando o passo a passo e destaca a resposta final.">${esc(d.instructions)}</textarea></label>
         <div class="grid">
@@ -135,6 +140,7 @@ function syncDraft() {
   if (AG.edit.type === "agent") {
     d.name = $("#agName").value.trim(); d.icon = $("#agIcon").value.trim() || "🤖"; d.instructions = $("#agInstr").value;
     d.temperature = $("#agTempOn").checked ? +$("#agTemp").value : null; d.web = $("#agWeb").checked; d.model = $("#agModel").value; d.device = $("#agDevice").value; d.kb = $("#agKb").value;
+    d.mcp = $$("#agentEditor [data-ag-mcp]").filter(x => x.checked).map(x => x.dataset.agMcp);
   } else {
     d.name = $("#grName").value.trim(); d.icon = $("#grIcon").value.trim() || "👥"; d.description = $("#grDesc").value.trim();
     d.max_retries = Math.max(0, Math.min(5, +$("#grRetries").value || 0));
@@ -228,7 +234,11 @@ async function runGroup(group) {
       const g = j.group;
       if (g?.type === "loading") msg.loadingModel = { index: g.index, model: g.model };
       if (g?.type === "step_start") { msg.loadingModel = null; base += lastPred; lastPred = 0; cur = { index: g.index, agent: g.agent, role: g.role, attempt: g.attempt, model: g.model, device: g.device, text: "", reasoning: "", status: "running" }; msg.steps.push(cur); }
-      else if (g?.type === "delta" && cur) cur.text += g.delta;
+      else if (g?.type === "delta" && cur) { cur.text += g.delta; const last = cur.parts?.at(-1); if (last?.type === "text") last.text += g.delta; else (cur.parts ||= []).push({ type: "text", text: g.delta }); }
+      else if (g?.type === "notice" && cur) (cur.parts ||= []).push({ type: "notice", text: g.text, level: g.level });
+      else if (g?.type === "tool_start" && cur) (cur.parts ||= []).push({ type: "tool", id: g.id, name: g.name, label: g.label, args: g.args, status: "running" });
+      else if (g?.type === "approval" && cur) { const s = cur.parts?.find(x => x.id === g.id); if (s) s.status = "approval"; }
+      else if (g?.type === "tool_end" && cur) { const s = cur.parts?.find(x => x.id === g.id); if (s) Object.assign(s, { status: g.ok ? "ok" : "error", ok: g.ok, result: g.result, image: g.image }); }
       else if (g?.type === "reasoning" && cur) cur.reasoning += g.delta;
       else if (g?.type === "step_end" && cur) { cur.status = "done"; cur.verdict = g.verdict; }
       else if (g?.type === "retry") msg.steps.push({ type: "retry", attempt: g.attempt });
@@ -238,7 +248,7 @@ async function runGroup(group) {
   } catch (e) {
     if (e.name !== "AbortError") msg.error = e.message;
   } finally {
-    msg.steps.forEach(s => { if (s.status === "running") s.status = "stopped"; }); delete msg.loadingModel;
+    msg.steps.forEach(s => { if (s.status === "running") s.status = "stopped"; s.parts?.forEach(p => { if (p.status === "running" || p.status === "approval") p.status = "error"; }); }); delete msg.loadingModel;
     if (!msg.content) msg.content = [...msg.steps].reverse().find(s => s.text && s.role !== "validator")?.text || "";
     await finishGenerating();
   }
@@ -256,6 +266,10 @@ function groupMsgHTML(msg, idx, isLast, streaming) {
     if (s.kb) h += kbBoxHTML(s.kb, s.status === "running");
     if (s.web) h += webBoxHTML(s.web, s.status === "running");
     if (s.reasoning) h += `<details class="think"><summary>Raciocínio</summary><div class="think-body">${esc(s.reasoning)}</div></details>`;
+    if (s.parts?.some(p => p.type !== "text")) { // agente com ferramentas MCP: texto e ferramentas na ordem
+      h += `<div class="steps">${s.parts.map((p, pi) => p.type === "text" ? (p.text.trim() ? `<div class="content">${md(p.text)}</div>` : "") : stepHTML(p, `${s.index}-${pi}`)).join("")}${s.status === "running" ? '<div class="cursor"></div>' : ""}</div></div>`;
+      continue;
+    }
     const shown = s.role === "validator" ? s.text.replace(/\n?\**\s*VEREDITO\s*[:\-–][^\n]*/gi, "").trim() : s.text;
     h += `<div class="content ${s.status === "running" ? "cursor" : ""}">${linkDocCitations(linkCitations(md(shown), s.web?.sources), s.kb?.sources)}</div></div>`;
   }

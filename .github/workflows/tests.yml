@@ -1,0 +1,45 @@
+# Testes automáticos: rodam a cada push e pull request (servidor com motor falso, sem GPU).
+name: Testes
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  tests:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Sintaxe do JavaScript
+        shell: bash
+        run: |
+          for f in app/web/*.js desktop/*.js desktop/scripts/*.js; do node --check "$f"; done
+          # scripts embutidos no HTML
+          python - <<'EOF'
+          import re, subprocess, pathlib, tempfile
+          for html in pathlib.Path("app/web").glob("*.html"):
+              for i, js in enumerate(re.findall(r"<script>([\s\S]*?)</script>", html.read_text("utf-8"))):
+                  f = pathlib.Path(tempfile.gettempdir()) / f"{html.stem}_{i}.js"
+                  f.write_text(js, "utf-8")
+                  subprocess.run(["node", "--check", str(f)], check=True)
+          EOF
+
+      - name: Compilação do Python
+        run: python -m compileall -q app tests
+
+      - name: Testes
+        env:
+          PYTHONIOENCODING: utf-8
+        run: python -m unittest discover -s tests -v

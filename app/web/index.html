@@ -169,6 +169,10 @@
               <div class="row"><input id="voiceHotkeyInput" class="input" readonly><button type="button" class="btn" id="voiceHotkeySave">Salvar</button></div>
               <small class="muted">Aperte uma vez para começar a falar e de novo para enviar. Precisa do Whisper (Modelos → Mídia).</small>
             </label>
+            <label>Atalho para perguntar sobre a tela
+              <div class="row"><input id="screenHotkeyInput" class="input" readonly><button type="button" class="btn" id="screenHotkeySave">Salvar</button></div>
+              <small class="muted">Tira um print do monitor onde está o mouse e abre a pergunta rápida com ele anexado. O modelo precisa ter visão 👁.</small>
+            </label>
             <label>Voz para ler as respostas
               <select id="ttsVoice" class="input"></select>
               <small class="muted">Usa as vozes instaladas no Windows (funciona sem internet).</small>
@@ -229,6 +233,23 @@
             <label class="check"><input type="checkbox" name="agent_confirm_writes"> Pedir confirmação antes de criar ou alterar arquivos</label>
           </div>
           <label>Máximo de passos por pedido <input name="agent_max_steps" type="number" min="1" max="200" class="input"></label>
+        </div>
+        <h4>🔌 Ferramentas MCP</h4>
+        <p class="muted small-note">Conecte o Codex e os agentes a outros programas que falam MCP, como o <b>Roblox Studio</b> (ler e alterar o jogo, testar no modo Play, ler o console). Os servidores marcados com "Usar no Codex" ficam disponíveis no Codex; nos agentes, escolha no editor de cada um.</p>
+        <div id="mcpList" class="list mcp-list"></div>
+        <div class="row" style="margin:8px 0 6px">
+          <button type="button" class="btn" id="mcpAddRoblox">+ Roblox Studio</button>
+          <button type="button" class="btn" id="mcpAddCustom">+ Outro servidor</button>
+        </div>
+        <div id="mcpForm" class="mcp-form" hidden>
+          <div class="grid">
+            <label>Nome <input class="input" id="mcpName" maxlength="60" placeholder="Ex.: Arquivos"></label>
+            <label>Tipo <select class="input" id="mcpType"><option value="stdio">Programa local (comando)</option><option value="http">Servidor remoto (URL)</option></select></label>
+            <label class="full" id="mcpCmdRow">Comando <input class="input" id="mcpCmd" placeholder='Ex.: npx -y @modelcontextprotocol/server-filesystem "C:\Projetos"'></label>
+            <label class="full" id="mcpUrlRow" hidden>URL <input class="input" id="mcpUrl" placeholder="https://exemplo.com/mcp"></label>
+            <label class="full" id="mcpEnvRow">Variáveis de ambiente <small class="muted">(opcional, CHAVE=valor por linha)</small><textarea class="input" id="mcpEnv" rows="2"></textarea></label>
+          </div>
+          <div class="row end"><button type="button" class="btn" id="mcpCancel">Cancelar</button><button type="button" class="btn primary" id="mcpSave">Adicionar</button></div>
         </div>
         <h4>Áudio e imagem</h4>
         <div class="grid">
@@ -387,6 +408,7 @@
 <script src="attach.js"></script>
 <script src="agents.js"></script>
 <script src="features.js"></script>
+<script src="mcp.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

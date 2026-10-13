@@ -31,6 +31,7 @@ from pathlib import Path
 import agent
 import agents
 import kb
+import mcp
 import modelsettings
 import catalog
 import media
@@ -287,6 +288,7 @@ media.configure(ROOT, lambda url, dest, task, base=0: download(url, dest, task, 
 agents.configure(DATA)
 kb.configure(DATA)
 modelsettings.configure(DATA)
+mcp.configure(DATA)
 CHECKPOINTS = DATA / "checkpoints"
 
 
@@ -718,6 +720,7 @@ class _PoolLease:
 POOL = EnginePool()
 atexit.register(ENGINE_PROC.stop)
 atexit.register(POOL.stop)
+atexit.register(mcp.MANAGER.stop)
 
 
 # ---------------------------------------------------------------- modelos
@@ -1178,6 +1181,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json({"log": list(ENGINE_PROC.log)})
             if p == "/api/agents":
                 return self.send_json(agents.load())
+            if p == "/api/mcp":
+                return self.send_json(self.mcp_status())
             if p == "/api/models/settings":
                 rel = q.get("model", [""])[0]
                 rec, family = model_recommended(rel)
@@ -1302,6 +1307,31 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send_json({"error": str(e)}, 400)
             if p == "/api/group/run":
                 return self.run_group(b)
+            if p == "/api/mcp/test":
+                srv = mcp.MANAGER.get(b.get("id", ""))
+                if not srv:
+                    return self.send_json({"error": "servidor não encontrado"}, 404)
+                srv.close()
+                try:
+                    srv.connect()
+                except mcp.MCPError as e:
+                    return self.send_json({"error": str(e), **self.mcp_status()}, 400)
+                return self.send_json(self.mcp_status())
+            if p == "/api/mcp/stop":
+                srv = mcp.MANAGER.get(b.get("id", ""))
+                if srv:
+                    srv.close()
+                return self.send_json(self.mcp_status())
+            if p == "/api/mcp/preset":
+                try:
+                    cfg = mcp.preset(b.get("kind", ""))
+                except mcp.MCPError as e:
+                    return self.send_json({"error": str(e)}, 400)
+                servers = mcp.load()
+                if any(s.get("command") == cfg["command"] and s.get("args") == cfg["args"] for s in servers):
+                    return self.send_json({"error": "Esse servidor já foi adicionado."}, 400)
+                mcp.save(servers + [cfg])
+                return self.send_json(self.mcp_status())
             if p == "/api/agents/template":
                 doc, gid = agents.template(b.get("kind", ""))
                 return self.send_json({"doc": doc, "group_id": gid})
@@ -1409,6 +1439,12 @@ class Handler(BaseHTTPRequestHandler):
         b = self.body()
         if p == "/api/agents":
             return self.send_json(agents.save(b))
+        if p == "/api/mcp":
+            try:
+                mcp.save(b.get("servers", []))
+            except mcp.MCPError as e:
+                return self.send_json({"error": str(e)}, 400)
+            return self.send_json(self.mcp_status())
         if p == "/api/models/settings":
             return self.send_json({"settings": modelsettings.save(b.get("model", ""), b.get("settings"))})
         if p.startswith("/api/kb/"):
@@ -1734,9 +1770,15 @@ class Handler(BaseHTTPRequestHandler):
         if ENGINE_PROC.state != "ready":
             return self.send_json({"error": "Nenhum modelo carregado."}, 503)
         s = load_settings()
-        ws = str(Path(b.get("workspace") or "_").resolve())
-        if ws not in s.get("workspaces", []):
-            return self.send_json({"error": "Pasta nao liberada. Adicione-a nas Configuracoes > Codex."}, 403)
+        mcp_ids = [x.cfg["id"] for x in mcp.MANAGER.all() if x.cfg.get("enabled")]
+        if b.get("mcp_only"):
+            if not mcp_ids:
+                return self.send_json({"error": "Nenhum servidor MCP ativo. Adicione um em Configurações > Ferramentas MCP."}, 400)
+            ws = None
+        else:
+            ws = str(Path(b.get("workspace") or "_").resolve())
+            if ws not in s.get("workspaces", []):
+                return self.send_json({"error": "Pasta nao liberada. Adicione-a nas Configuracoes > Codex."}, 403)
         self.start_sse()
         sampling = {k: b[k] for k in ("temperature", "top_p", "top_k", "min_p", "repeat_penalty") if k in b}
         if int(b.get("max_tokens") or 0) > 0:
@@ -1748,7 +1790,8 @@ class Handler(BaseHTTPRequestHandler):
         apply_model_sampling(sampling, ENGINE_PROC.model)
         chat_id = b.get("chat_id", "") if ID_RE.match(b.get("chat_id", "")) else "sem-conversa"
         ckpt = CHECKPOINTS / chat_id / uuid.uuid4().hex[:10]
-        run = agent.AgentRun(lambda payload: self.engine_call(payload, True), self.sse_safe, s, image_fn, ckpt)
+        run = agent.AgentRun(lambda payload: self.engine_call(payload, True), self.sse_safe, s, image_fn if ws else None,
+                             ckpt, mcp_ids, self.save_tool_image)
         try:
             trace, timings = run.run(ws, history, b.get("chat_id", ""), sampling)
             run.send({"agent": {"type": "trace", "trace": trace}})
@@ -1756,6 +1799,16 @@ class Handler(BaseHTTPRequestHandler):
                 add_stats(timings)
         except (RuntimeError, agent.ToolError) as e:
             run.send({"error": {"message": str(e)}})
+
+    def save_tool_image(self, data, mime):
+        """Guarda uma imagem devolvida por uma ferramenta MCP (ex.: print da tela) e devolve o id do arquivo."""
+        ext = {"image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif"}.get(mime, "png")
+        fid, path = media.new_media_path(ext)
+        path.write_bytes(data)
+        return fid
+
+    def mcp_status(self):
+        return {"servers": [x.public() for x in mcp.MANAGER.all()], "roblox_detected": bool(mcp.roblox_bat())}
 
     def checkpoint_dir(self, chat_id, run_id):
         if not re.match(r"^[A-Za-z0-9_-]{1,64}$", chat_id or "") or not re.match(r"^[a-f0-9]{10}$", run_id or ""):
@@ -1918,6 +1971,7 @@ def watch_parent():
 
     def wait():
         k32.WaitForSingleObject(handle, 0xFFFFFFFF)
+        mcp.MANAGER.stop()
         POOL.stop()
         ENGINE_PROC.stop()
         os._exit(0)
@@ -1950,6 +2004,7 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
+        mcp.MANAGER.stop()
         POOL.stop()
         ENGINE_PROC.stop()
 

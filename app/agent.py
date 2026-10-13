@@ -16,6 +16,8 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
+import mcp
+
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", "dist", "build", ".next", ".idea", ".vs",
              "target", "bin", "obj", ".gradle", ".cache"}
@@ -80,6 +82,33 @@ Como trabalhar:
 5. Nunca rode servidores ou programas interativos que nao terminam sozinhos; explique ao usuario como inicia-los.
 6. Ao terminar, responda com um resumo curto do que foi feito, arquivos criados e como executar.
 {"7. Para criar imagens (icones, ilustracoes, texturas), use generate_image." if has_image_tool else ""}
+Responda no idioma do usuario."""
+
+
+def mcp_prompt(servers, has_workspace):
+    """Instrucoes extras quando o Codex tem ferramentas MCP (ex.: Roblox Studio)."""
+    if not servers:
+        return ""
+    lines = ["", "Ferramentas externas (MCP): as ferramentas com nome mcp__<servidor>__<acao> controlam outros programas "
+             "do usuario. Use-as quando o pedido envolver esses programas."]
+    for s in servers:
+        lines.append(f"- {s.cfg['name']}" + (f": {s.instructions}" if s.instructions else ""))
+        if s.cfg["id"] == "roblox" or "roblox" in s.cfg["name"].lower():
+            lines.append("  Dicas para o Roblox Studio: o codigo e Luau. Antes de alterar, consulte o jogo (ex.: liste os "
+                         "filhos de workspace/ServerScriptService com run_code e print). Para criar ou editar scripts, "
+                         "use run_code definindo a propriedade Source. Depois de alterar, teste com o modo Play e leia o "
+                         "console (get_console_output) para corrigir erros. Volte ao modo de edicao ao terminar.")
+    if not has_workspace:
+        lines.append("Neste pedido NAO ha pasta de projeto: trabalhe apenas com as ferramentas externas.")
+    return "\n".join(lines)
+
+
+def system_prompt_mcp_only():
+    return f"""Voce e o Codex do LLM Local, um agente autonomo trabalhando no computador do usuario.
+- Sistema: Windows. Data de hoje: {datetime.now():%d/%m/%Y}.
+- Nao ha pasta de projeto neste pedido; voce so tem as ferramentas externas listadas abaixo.
+Como trabalhar: entenda o pedido, consulte o estado atual antes de alterar, execute em passos sem pedir permissao para
+cada um, confira o resultado e corrija os erros. Ao terminar, responda com um resumo curto do que foi feito.
 Responda no idioma do usuario."""
 
 
@@ -399,15 +428,32 @@ def diff_checkpoint(folder, max_lines=600):
 
 # ---------------------------------------------------------------- loop do agente
 
+def wait_approval(call_id, send_event, ping, pending):
+    """Pede confirmacao pela interface e espera (ate 10 min). Retorna o dict da resposta ou None se desconectou."""
+    ev = threading.Event()
+    pending[call_id] = {"event": ev, "answer": None}
+    send_event()
+    try:
+        for _ in range(1200):
+            if ev.wait(0.5):
+                break
+            if not ping():
+                return None
+        return pending[call_id]["answer"] or {"ok": False}
+    finally:
+        pending.pop(call_id, None)
+
+
 class AgentRun:
     """Executa uma resposta do Codex. emit(evento) envia SSE; retorna False se o cliente desconectou."""
 
     PENDING = {}  # id -> {"event": Event, "answer": dict}
     SESSION_AUTO = {}  # chat_id -> {"commands": bool, "files": bool}
 
-    def __init__(self, engine_call, emit, settings, image_fn=None, checkpoint_dir=None):
+    def __init__(self, engine_call, emit, settings, image_fn=None, checkpoint_dir=None, mcp_ids=(), save_image=None):
         self.engine_call, self.emit, self.s, self.image_fn = engine_call, emit, settings, image_fn
         self.checkpoint_dir = checkpoint_dir
+        self.mcp_ids, self.save_image, self.mcp_map = list(mcp_ids or ()), save_image, {}
         self.ckpt = None
         self.alive = True
 
@@ -419,6 +465,9 @@ class AgentRun:
     # -- confirmacao
     def needs_approval(self, name, chat_id):
         auto = self.SESSION_AUTO.get(chat_id, {})
+        if name in self.mcp_map:
+            srv, tool = self.mcp_map[name]
+            return mcp.needs_approval(srv, tool) and not auto.get("mcp:" + srv.cfg["id"])
         if name == "run_command":
             return self.s.get("agent_confirm_commands", True) and not auto.get("commands")
         if name == "delete_path":
@@ -428,20 +477,13 @@ class AgentRun:
         return False
 
     def ask(self, call_id, name, args, chat_id):
-        ev = threading.Event()
-        self.PENDING[call_id] = {"event": ev, "answer": None}
-        self.send({"agent": {"type": "approval", "id": call_id, "name": name, "args": args}})
-        try:
-            for _ in range(1200):  # ate 10 minutos
-                if ev.wait(0.5):
-                    break
-                if not self.send_ping():
-                    return False
-            ans = self.PENDING[call_id]["answer"] or {"ok": False}
-        finally:
-            self.PENDING.pop(call_id, None)
+        ans = wait_approval(call_id, lambda: self.send({"agent": {"type": "approval", "id": call_id, "name": name, "args": args}}),
+                            self.send_ping, self.PENDING)
+        if ans is None:
+            return False
         if ans.get("ok") and ans.get("always"):
-            kind = "commands" if name == "run_command" else "files"
+            kind = ("mcp:" + self.mcp_map[name][0].cfg["id"]) if name in self.mcp_map else \
+                "commands" if name == "run_command" else "files"
             self.SESSION_AUTO.setdefault(chat_id, {})[kind] = True
         return bool(ans.get("ok"))
 
@@ -461,6 +503,16 @@ class AgentRun:
 
     # -- ferramentas
     def execute(self, ws, name, args):
+        if name in self.mcp_map:
+            srv, tool = self.mcp_map[name]
+            try:
+                res = srv.call(tool["name"], args, ping=self.send_ping)
+            except mcp.MCPError as e:
+                raise ToolError(str(e)) from e
+            text, images = mcp.result_text(res, self.save_image)
+            return {"text": text, "image": images[0]} if images else text
+        if ws is None:
+            raise ToolError(f"Ferramenta indisponivel sem pasta de projeto: {name}")
         # guarda o estado original antes de qualquer alteracao (para "Desfazer")
         if self.ckpt and name in ("write_file", "edit_file", "delete_path") and args.get("path"):
             self.ckpt.touch(ws.path(args["path"]))
@@ -491,8 +543,8 @@ class AgentRun:
 
     # -- loop
     def run(self, workspace, history, chat_id, sampling):
-        ws = Workspace(workspace)
-        if self.checkpoint_dir:
+        ws = Workspace(workspace) if workspace else None
+        if self.checkpoint_dir and ws:
             self.ckpt = Checkpoint(self.checkpoint_dir, ws.root)
         try:
             return self._run(ws, history, chat_id, sampling)
@@ -501,8 +553,22 @@ class AgentRun:
                 self.send({"agent": {"type": "checkpoint", "id": self.ckpt.dir.name, "changes": self.ckpt.summary()}})
 
     def _run(self, ws, history, chat_id, sampling):
-        tools = TOOLS + ([IMAGE_TOOL] if self.image_fn else [])
-        sp = system_prompt(ws.root, bool(self.image_fn)) + ("\n" + self.s["_reply_rule"] if self.s.get("_reply_rule") else "")
+        tools = (TOOLS + ([IMAGE_TOOL] if self.image_fn else [])) if ws else []
+        servers = []
+        if self.mcp_ids:
+            self.send({"agent": {"type": "notice", "text": "🔌 Conectando às ferramentas MCP..."}})
+            mtools, self.mcp_map = mcp.MANAGER.toolset(
+                self.mcp_ids, self.send_ping,
+                lambda name, err: self.send({"agent": {"type": "notice", "level": "error", "text": f"⚠ {err}"}}))
+            tools += mtools
+            servers = list({id(s): s for s, _ in self.mcp_map.values()}.values())
+            self.send({"agent": {"type": "notice", "text": "🔌 " + ", ".join(
+                f"{s.cfg['name']} ({len(s.tools)} ferramentas)" for s in servers)}} if servers else
+                {"agent": {"type": "notice", "level": "error", "text": "⚠ Nenhuma ferramenta MCP disponível."}})
+        if not tools:
+            raise ToolError("Sem ferramentas: escolha uma pasta de projeto ou conecte um servidor MCP.")
+        sp = (system_prompt(ws.root, bool(self.image_fn)) if ws else system_prompt_mcp_only()) + \
+            mcp_prompt(servers, bool(ws)) + ("\n" + self.s["_reply_rule"] if self.s.get("_reply_rule") else "")
         messages = [{"role": "system", "content": sp}] + history
         trace, last_timings = [], None
         max_steps = max(1, min(int(self.s.get("agent_max_steps") or 40), 200))

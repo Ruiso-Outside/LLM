@@ -103,6 +103,7 @@ function updateHint() {
   else if (!st.models.length) h = "Baixe um modelo em Modelos → Baixar modelos.";
   else if (st.engine.state !== "ready") h = st.engine.state === "loading" ? "Carregando modelo na memória..." : "Selecione um modelo e clique em Carregar.";
   else if (S.mode === "agents") h = agentsHint();
+  else if (S.mode === "codex" && S.workspace === "__mcp") h = t("🔌 O Codex vai usar só as ferramentas MCP: {names}", { names: mcpEnabled().map(s => s.name).join(", ") });
   else if (S.mode === "codex") h = S.workspace ? t("🛠️ O Codex trabalha somente dentro de {path}", { path: S.workspace }) : t("Escolha ou adicione uma pasta para o Codex trabalhar.");
   else h = S.web ? "🌐 Pesquisa na web ligada: o modelo vai pesquisar antes de cada resposta." : "";
   $("#hint").textContent = h;
@@ -147,10 +148,13 @@ function renderModeBars() {
   if (!S.status) return;
   // pastas do Codex
   const wss = S.status.settings.workspaces || [];
-  if (S.workspace && !wss.includes(S.workspace)) S.workspace = "";
+  const hasMcp = mcpEnabled().length > 0;
+  if (S.workspace && !wss.includes(S.workspace) && !(S.workspace === "__mcp" && hasMcp)) S.workspace = "";
   if (!S.workspace && wss.length) S.workspace = wss[0];
   const wsOpts = (wss.length ? wss.map(w => `<option value="${esc(w)}" ${w === S.workspace ? "selected" : ""}>📁 ${esc(baseName(w))}</option>`).join("")
-    : '<option value="">Nenhuma pasta liberada</option>') + '<option value="__add">+ Adicionar pasta...</option>';
+    : '<option value="">Nenhuma pasta liberada</option>') +
+    (hasMcp ? `<option value="__mcp" ${S.workspace === "__mcp" ? "selected" : ""}>🔌 ${esc(t("Sem pasta: só ferramentas MCP"))}</option>` : "") +
+    '<option value="__add">+ Adicionar pasta...</option>';
   const ws = $("#workspaceSelect");
   if (ws.dataset.sig !== wsOpts + S.workspace) { ws.innerHTML = wsOpts; ws.dataset.sig = wsOpts + S.workspace; ws.title = S.workspace; }
   // modelos de imagem
@@ -165,7 +169,7 @@ $("#workspaceSelect").onchange = async e => {
   if (e.target.value === "__add") { e.target.value = S.workspace; return addWorkspace(); }
   S.workspace = e.target.value; lsSet("workspace", S.workspace); updateHint();
 };
-$("#openWorkspace").onclick = () => S.workspace ? desktop.openPath(S.workspace) : toast("Nenhuma pasta selecionada.");
+$("#openWorkspace").onclick = () => S.workspace && S.workspace !== "__mcp" ? desktop.openPath(S.workspace) : toast("Nenhuma pasta selecionada.");
 $("#imagePresetSelect").onchange = e => api("/api/settings", { method: "PUT", body: { image_preset: e.target.value } }).then(refreshStatus);
 
 async function addWorkspace() {
@@ -347,6 +351,7 @@ const TOOL_LABEL = {
 };
 function toolBody(step) {
   const a = step.args || {}; let b = "";
+  if (mcpToolLabel(step.name)) b += mcpArgsHTML(a);
   if (step.name === "write_file") b += codeBlock(extLang(a.path), a.content || "");
   if (step.name === "edit_file") b += `<div class="diff"><pre class="del">${esc(a.old_text || "")}</pre><pre class="add">${esc(a.new_text || "")}</pre></div>`;
   if (step.name === "generate_image") b += `<div class="tool-prompt">${esc(a.prompt || "")}</div>`;
@@ -357,24 +362,26 @@ function toolBody(step) {
 function stepHTML(step, si) {
   if (step.type === "text") return step.text.trim() ? `<div class="content">${md(step.text)}</div>` : "";
   if (step.type === "reasoning") return `<details class="think" data-si="${si}" ${step._open ? "open" : ""}><summary>Raciocínio</summary><div class="think-body">${esc(step.text)}</div></details>`;
-  const [icon, label] = (TOOL_LABEL[step.name] || (() => ["🔧", esc(step.name)]))(step.args || {});
+  if (step.type === "notice") return `<div class="notice ${step.level === "error" ? "bad" : ""}">${esc(trText(step.text))}</div>`;
+  const ml = mcpToolLabel(step.name);
+  const [icon, label] = ml ? ["🔌", esc(ml)] : (TOOL_LABEL[step.name] || (() => ["🔧", esc(step.name)]))(step.args || {});
   const mark = { running: '<span class="spin"></span>', approval: "⏸", ok: "✓", error: "✗" }[step.status] || "";
   const open = step.status === "approval" || step._open;
   let h = `<details class="tool ${step.status}" data-si="${si}" ${open ? "open" : ""}><summary><span class="ti">${icon}</span><span class="tl">${label}</span><span class="ts">${mark}</span></summary><div class="tool-body">${toolBody(step)}</div></details>`;
   if (step.status === "approval") {
-    const why = step.name === "run_command" ? "O Codex quer rodar este comando." : step.name === "delete_path" ? "O Codex quer apagar este item." : "O Codex quer alterar este arquivo.";
+    const why = ml ? t("A IA quer usar esta ferramenta de {name}.", { name: ml.split(" · ")[0] }) : step.name === "run_command" ? "O Codex quer rodar este comando." : step.name === "delete_path" ? "O Codex quer apagar este item." : "O Codex quer alterar este arquivo.";
     h += `<div class="approval" data-call="${esc(step.id)}"><span>${why}</span><button class="btn small primary" data-approve="once">Permitir</button><button class="btn small" data-approve="always">Sempre nesta conversa</button><button class="btn small danger" data-approve="deny">Negar</button></div>`;
   }
   return h;
 }
 function codexMsgHTML(msg, idx, isLast, streaming) {
   const live = streaming ? (msg.stats?.tokens ? `⚡ ${msg.stats.tps.toFixed(1)} tok/s · ${fmtNum(msg.stats.tokens)} tokens` : "pensando...") : "";
-  let h = `<div class="msg assistant codex ${isLast ? "last" : ""}" data-i="${idx}"><div class="role">🛠️ Codex · ${esc(msg.model || "")} <span class="ws-tag" title="${esc(msg.workspace)}">📁 ${esc(baseName(msg.workspace))}</span>${live ? `<span class="live">${live}</span>` : ""}</div>`;
+  let h = `<div class="msg assistant codex ${isLast ? "last" : ""}" data-i="${idx}"><div class="role">🛠️ Codex · ${esc(msg.model || "")} ${msg.workspace === "__mcp" ? '<span class="ws-tag">🔌 MCP</span>' : `<span class="ws-tag" title="${esc(msg.workspace)}">📁 ${esc(baseName(msg.workspace))}</span>`}${live ? `<span class="live">${live}</span>` : ""}</div>`;
   h += `<div class="steps">${(msg.steps || []).map(stepHTML).join("")}${streaming ? '<div class="cursor"></div>' : ""}</div>`;
   if (msg.error) h += `<div class="err">${esc(msg.error)}</div>`;
   if (!streaming) h += checkpointHTML(msg);
   const ck = msg.checkpoint?.changes?.length ? `<button data-act="ck-diff">🔍 Ver alterações</button>${msg.checkpoint.undone ? "" : '<button data-act="ck-undo">↩ Desfazer alterações</button>'}` : "";
-  if (!streaming) h += `<div class="actions"><button data-act="copy">Copiar</button>${ck}<button data-act="open-ws">Abrir pasta</button>${isLast ? '<button data-act="regen">Refazer</button>' : ""}<button data-act="del">Excluir</button>${statsHTML(msg.stats)}</div>`;
+  if (!streaming) h += `<div class="actions"><button data-act="copy">Copiar</button>${ck}${msg.workspace === "__mcp" ? "" : '<button data-act="open-ws">Abrir pasta</button>'}${isLast ? '<button data-act="regen">Refazer</button>' : ""}<button data-act="del">Excluir</button>${statsHTML(msg.stats)}</div>`;
   return h + "</div>";
 }
 
@@ -422,7 +429,9 @@ function renderMessages() {
 // mantém aberto/fechado o que o usuário expandiu enquanto a resposta é redesenhada
 $("#messages").addEventListener("toggle", e => {
   const d = e.target; if (d.dataset?.si === undefined) return;
-  const i = +d.closest(".msg")?.dataset.i; const step = S.chat?.messages[i]?.steps?.[+d.dataset.si];
+  const i = +d.closest(".msg")?.dataset.i; const steps = S.chat?.messages[i]?.steps;
+  const [a, b] = String(d.dataset.si).split("-"); // "3" (Codex) ou "etapa-parte" (agente com ferramentas)
+  const step = b === undefined ? steps?.[+a] : steps?.find(s => s.index === +a && s.parts)?.parts?.[+b];
   if (step) step._open = d.open;
 }, true);
 
@@ -487,9 +496,9 @@ $("#messages").addEventListener("click", async ev => {
   const ap = ev.target.closest("[data-approve]");
   if (ap) {
     const id = ap.closest(".approval").dataset.call; const v = ap.dataset.approve;
+    const msg = S.chat.messages.at(-1); const step = msg.steps?.find(s => s.id === id) || msg.steps?.flatMap(s => s.parts || []).find(s => s.id === id);
+    if (step?.status === "approval") { step.status = v === "deny" ? "error" : "running"; renderLastMessage(); }
     await post("/api/agent/approve", { id, ok: v !== "deny", always: v === "always" });
-    const msg = S.chat.messages.at(-1); const step = msg.steps?.find(s => s.id === id);
-    if (step) { step.status = v === "deny" ? "error" : "running"; renderLastMessage(); }
     return;
   }
   const b = ev.target.closest("[data-act]"); if (!b || S.generating) return;
@@ -575,8 +584,8 @@ async function send() {
 
 function dispatch(mode, opts = {}) {
   if (mode === "codex") return runAgent(opts.workspace || S.workspace);
-  if (mode === "group") return runGroup(groupById(opts.group));
-  if (mode === "agents") { const s = currentAgentSel(); return s.group ? runGroup(s.group) : generate(false, s.agent); }
+  if (mode === "group") return runGroup(groupById(opts.group) || soloGroup(agentById(String(opts.group || "").replace(/^agent:/, ""))));
+  if (mode === "agents") { const s = currentAgentSel(); return s.group ? runGroup(s.group) : s.agent?.mcp?.length ? runGroup(soloGroup(s.agent)) : generate(false, s.agent); }
   if (opts.agent) return generate(false, agentById(opts.agent));
   if (mode === "image") return genImage(opts.prompt ?? S.chat.messages.at(-1)?.content ?? "", opts);
   return generate();
@@ -640,7 +649,8 @@ async function runAgent(workspace) {
   let base = 0, lastPred = 0;
   const lastStep = type => { let s = msg.steps.at(-1); if (!s || s.type !== type) { s = { type, text: "" }; msg.steps.push(s); } return s; };
   try {
-    await streamChat({ chat_id: S.chat.id, workspace, messages, ...sampling() }, S.abort.signal, j => {
+    const where = workspace === "__mcp" ? { mcp_only: true } : { workspace };
+    await streamChat({ chat_id: S.chat.id, ...where, messages, ...sampling() }, S.abort.signal, j => {
       if (j.timings) {
         const t = j.timings;
         if ((t.predicted_n || 0) < lastPred) base += lastPred;
@@ -650,6 +660,7 @@ async function runAgent(workspace) {
       const a = j.agent; if (!a) { if (j.timings) renderLastMessage(); return; }
       if (a.type === "text") { lastStep("text").text += a.delta; msg.content += a.delta; }
       else if (a.type === "reasoning") lastStep("reasoning").text += a.delta;
+      else if (a.type === "notice") msg.steps.push({ type: "notice", text: a.text, level: a.level });
       else if (a.type === "tool_start") { msg.steps.push({ type: "tool", id: a.id, name: a.name, args: a.args, status: "running" }); msg.content += msg.content && !msg.content.endsWith("\n") ? "\n" : ""; }
       else if (a.type === "approval") { const s = msg.steps.find(x => x.id === a.id); if (s) s.status = "approval"; }
       else if (a.type === "tool_end") { const s = msg.steps.find(x => x.id === a.id); if (s) Object.assign(s, { status: a.ok ? "ok" : "error", ok: a.ok, result: a.result, image: a.image }); }
@@ -971,7 +982,7 @@ function fillSettings(src = S.status.settings) {
   src = { ...src, language: src.language || LANG };
   const f = $("#settingsForm");
   for (const el of f.elements) if (el.name && src[el.name] !== undefined) { if (el.type === "checkbox") el.checked = !!src[el.name]; else el.value = src[el.name]; }
-  S.wsEdit = [...(S.status.settings.workspaces || [])]; renderWorkspaceList(); cpuLabel();
+  S.wsEdit = [...(S.status.settings.workspaces || [])]; renderWorkspaceList(); cpuLabel(); loadMcp();
   showProviderFields(); renderStatsSummary();
 }
 function renderWorkspaceList() {
@@ -1023,6 +1034,14 @@ async function initDesktopSettings() {
     const r = await desktop.setVoiceHotkey($("#voiceHotkeyInput").value);
     toast(r.ok ? t("Atalho salvo: {k}", { k: r.hotkey }) : t("Esse atalho já está em uso por outro programa. Tente outro."), 4000);
     if (!r.ok) $("#voiceHotkeyInput").value = r.hotkey;
+  };
+  // atalho da tela (pergunta rápida)
+  $("#screenHotkeyInput").value = cfg.screenHotkey || "";
+  $("#screenHotkeyInput").onkeydown = recordKeys;
+  $("#screenHotkeySave").onclick = async () => {
+    const r = await desktop.setScreenHotkey($("#screenHotkeyInput").value);
+    toast(r.ok ? t("Atalho salvo: {k}", { k: r.hotkey }) : t("Esse atalho já está em uso por outro programa. Tente outro."), 4000);
+    if (!r.ok) $("#screenHotkeyInput").value = r.hotkey;
   };
   // vozes do Windows para ler as respostas
   const fillVoices = () => {
@@ -1114,7 +1133,7 @@ window.addEventListener("hashchange", openChatFromHash);
   await refreshStatus();
   loadMedia();
   loadAgents().then(updateHint);
-  loadKbs();
+  loadKbs(); loadMcp();
   renderMessages();
   await openChatFromHash();
   initDesktopSettings();

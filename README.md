@@ -15,6 +15,7 @@ Um app seu para rodar modelos de IA no seu PC. Sem conta, sem plano pago, sem te
 - **`Ctrl+Shift+Espaço`**, de qualquer lugar do Windows, abre a **pergunta rápida**: uma janelinha flutuante para perguntar e receber a resposta na hora.
   - `Enter` envia · `Esc` para a resposta ou esconde a janela · `Ctrl+N` começa uma nova conversa · `Ctrl+Shift+C` copia a resposta · `Ctrl+O` continua a conversa no app completo
   - 📌 fixa a janela, para ela não sumir ao clicar fora
+  - **Tela e área de transferência:** 📋 anexa o que você copiou (texto ou imagem) e 🖥 anexa um print do monitor. O atalho global **`Ctrl+Alt+S`** tira o print e já abre a janela com ele; é só perguntar (ou apertar Enter para "o que é isto?"). Colar uma imagem com `Ctrl+V` também anexa. Para imagens, use um modelo com visão 👁
   - **Voz:** 🎤 (ou `Ctrl+M`) grava sua pergunta, o Whisper transcreve e envia. O atalho global **`Ctrl+Alt+Espaço`** abre a janela já gravando; aperte de novo para enviar. 🔊 lê as respostas em voz alta com as vozes do Windows (escolha a voz em Configurações → App desktop)
   - Dá para escolher um **modelo próprio** para ela (Configurações → App desktop → Modelo da pergunta rápida), por exemplo um modelo pequeno e rápido, e onde ele roda (GPU ou CPU). Ele é carregado junto com o principal, sem trocar o modelo do app
   - Sem modelo próprio, ela usa o principal (e carrega o último usado se estiver descarregado)
@@ -111,6 +112,14 @@ O modelo cria e edita projetos de software sozinho, **somente** dentro das pasta
 
 **Desfazer o que o Codex fez:** antes de alterar um arquivo, o Codex guarda a versão original. Na resposta aparecem **🔍 Ver alterações** (as diferenças, linha por linha) e **↩ Desfazer alterações** (tudo volta a ficar como antes do pedido; arquivos criados são removidos). Comandos executados não são desfeitos. Os pontos de restauração ficam 30 dias.
 
+### 🔌 Ferramentas MCP (Roblox Studio e outros programas)
+O Codex e os agentes podem controlar outros programas que falam **MCP** (Model Context Protocol). Configure em **Configurações → Ferramentas MCP**.
+- **Roblox Studio:** clique em **+ Roblox Studio** (aparece se o Studio estiver instalado). Com o Studio aberto num jogo, a IA consegue consultar e alterar o jogo com código Luau, criar e editar scripts, entrar e sair do modo Play, rodar testes e ler o console para corrigir erros.
+- **Outros servidores:** **+ Outro servidor** aceita um programa local (comando, ex.: `npx -y @modelcontextprotocol/server-filesystem "C:\Projetos"`) ou um servidor remoto (URL).
+- **No Codex:** os servidores com *Usar no Codex* ficam disponíveis junto com a pasta. No seletor de pasta, **🔌 Sem pasta: só ferramentas MCP** usa apenas os programas (bom para trabalhar só no Roblox Studio).
+- **Nos agentes:** marque os servidores no editor de cada agente (campo *Ferramentas MCP*). Um agente sozinho com ferramentas, ou dentro de um grupo, chama as ferramentas e mostra cada passo.
+- **Confirmação:** ações que alteram algo pedem **Permitir / Sempre nesta conversa / Negar**. Ferramentas só de leitura não pedem. Marque *Não pedir confirmação* se confiar no servidor.
+
 ### 🎨 Imagem
 Descreva a imagem (em português mesmo). O modelo de texto carregado melhora a descrição antes de gerar.
 - Instale em **Modelos → Mídia**: o motor (*stable-diffusion.cpp*; Vulkan é o recomendado) e um modelo: **Z-Image Turbo** (melhor qualidade, ~6 GB) ou **SDXL Turbo** (mais rápido).
@@ -178,6 +187,10 @@ Em **Configurações → Idioma** escolha a língua do app: **Português (Brasil
 - **Modelos com raciocínio** (Qwen3, DeepSeek-R1...): o "pensamento" aparece em um bloco recolhível.
 - **API compatível com OpenAI**: com um modelo carregado, outros programas podem usar `http://127.0.0.1:8766/v1` (ex.: extensões de VS Code, scripts).
 
+## Testes
+
+`python -m unittest discover -s tests` roda os testes: unidade dos módulos, cliente MCP (com um servidor MCP falso) e integração (o servidor de verdade com um llama-server falso, sem GPU). Eles também rodam no GitHub Actions a cada push.
+
 ## Requisitos
 
 - Windows 10/11 com Python 3.9+ instalado e no PATH (sem bibliotecas extras)
@@ -193,6 +206,7 @@ Em **Configurações → Idioma** escolha a língua do app: **Português (Brasil
 | `app/agent.py` | Codex: ferramentas, limite de pasta e confirmações |
 | `app/catalog.py` | Etiquetas dos modelos (capacidades, tamanho, qualidade dos arquivos) |
 | `app/agents.py` | Agentes personalizados, grupos e o validador com novas tentativas |
+| `app/mcp.py` | Cliente MCP: conecta o Codex e os agentes a programas como o Roblox Studio |
 | `app/kb.py` | Bases de conhecimento: índice, trechos e busca por embeddings |
 | `app/modelsettings.py` | Ajustes por modelo e amostragem recomendada por família |
 | `app/media.py` | Whisper, stable-diffusion.cpp, anexos e extração de texto de documentos |

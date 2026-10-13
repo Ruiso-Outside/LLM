@@ -30,6 +30,15 @@
   .mic-btn:hover { opacity: 1; }
   .mic-btn.rec { animation: pulse 1s infinite; opacity: 1; }
   @keyframes pulse { 50% { transform: scale(1.18); filter: drop-shadow(0 0 6px #f2686a); } }
+  .ctx-tray { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 14px 10px 46px; }
+  .ctx-tray:empty { display: none; }
+  .ctx-chip { display: flex; align-items: center; gap: 6px; background: #ffffff0f; border: 1px solid #ffffff1a; border-radius: 9px;
+    padding: 3px 4px 3px 4px; font-size: 12px; color: #c9cbd6; max-width: 260px; }
+  .ctx-chip img { height: 34px; max-width: 60px; object-fit: cover; border-radius: 6px; }
+  .ctx-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-left: 4px; }
+  .ctx-chip button { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 12px; padding: 2px 5px; border-radius: 6px; }
+  .ctx-chip button:hover { background: #ffffff14; color: var(--text); }
+  .msg.user .ctx-tags { font-size: 12px; color: var(--muted); margin-bottom: 2px; }
   kbd { font: 11px var(--mono); background: #ffffff14; border-radius: 4px; padding: 1px 4px; color: #aeb1c0; }
 </style>
 </head>
@@ -38,9 +47,12 @@
   <div class="ask">
     <span class="bolt">⚡</span>
     <textarea id="q" rows="1" placeholder="Pergunte qualquer coisa..." spellcheck="false"></textarea>
+    <button id="clipBtn" class="mic-btn" title="Perguntar sobre o que você copiou (texto ou imagem)">📋</button>
+    <button id="screenBtn" class="mic-btn" title="Perguntar sobre a tela (tira um print do monitor)">🖥</button>
     <button id="micBtn" class="mic-btn" title="Falar (Ctrl+M). Aperte de novo para enviar.">🎤</button>
     <button id="webBtn" class="web-toggle" title="Pesquisar na web antes de responder">🌐 Web</button>
   </div>
+  <div id="ctxTray" class="ctx-tray"></div>
   <div id="answer"></div>
   <div class="foot">
     <span id="st" class="st">—</span>
@@ -56,7 +68,7 @@
 <script src="attach.js"></script>
 <script>
 "use strict";
-const Q = { chat: null, generating: false, abort: null, status: null, pinned: false, rec: null, speak: ls2("speak") === "1",
+const Q = { chat: null, generating: false, abort: null, status: null, pinned: false, rec: null, speak: ls2("speak") === "1", ctx: [],
   web: (() => { try { return localStorage.getItem("web") === "1"; } catch { return false; } })() };
 
 function ls2(k) { try { return localStorage.getItem(k); } catch { return null; } }
@@ -109,7 +121,7 @@ function render() {
   if (!Q.chat) { box.innerHTML = ""; return; }
   const msgs = Q.chat.messages;
   box.innerHTML = msgs.map((m, i) => {
-    if (m.role === "user") return `<div class="msg user"><div class="bubble">${esc(m.content)}</div></div>`;
+    if (m.role === "user") return `<div class="msg user"><div class="bubble">${m.attachments?.length ? `<div class="ctx-tags">${m.attachments.map(a => a.kind === "image" ? "🖼 " + esc(a.name) : "📋 " + esc(a.name)).join(" · ")}</div>` : ""}${esc(m.content)}</div></div>`;
     const streaming = Q.generating && i === msgs.length - 1;
     const { content, reasoning, open } = splitThink(m);
     let h = `<div class="msg assistant">`;
@@ -124,15 +136,23 @@ function render() {
 }
 
 async function ask() {
-  const text = $("#q").value.trim(); if (!text || Q.generating) return;
+  let text = $("#q").value.trim(); if ((!text && !Q.ctx.length) || Q.generating) return;
   if (!(await ensureModel())) return;
+  let attachments = [];
+  if (Q.ctx.length) {
+    setStatus(t("Enviando o contexto..."), "warn");
+    try { attachments = await ctxAttachments(); } catch (e) { return setStatus(trText(e.message), "err"); }
+    if (!text) text = t("O que é isto? Explique de forma clara e objetiva.");
+    if (attachments.some(a => a.kind === "image") && !quickHasVision()) setStatus(t("⚠ Este modelo não tem visão: ele não vai ver a imagem. Escolha um modelo com 👁."), "warn");
+    Q.ctx = []; renderCtx();
+  }
   if (!Q.chat) Q.chat = { id: uid(), title: "⚡ " + text.slice(0, 56).replace(/\s+/g, " "), created: Date.now() / 1000, messages: [] };
-  Q.chat.messages.push({ role: "user", content: text });
+  Q.chat.messages.push({ role: "user", content: text, ...(attachments.length ? { attachments } : {}) });
   $("#q").value = ""; grow();
   const st = Q.status.settings;
   const messages = [];
   if (st.system_prompt?.trim()) messages.push({ role: "system", content: st.system_prompt });
-  for (const m of Q.chat.messages) messages.push({ role: m.role, content: m.role === "assistant" ? splitThink(m).content : m.content });
+  for (const m of Q.chat.messages) messages.push({ role: m.role, content: m.role === "assistant" ? splitThink(m).content : m.content, ...(m.attachments ? { attachments: m.attachments } : {}) });
   const msg = { role: "assistant", content: "", reasoning: "", model: quickName(Q.status) || modelName(Q.status) };
   if (Q.web) msg.web = { stage: "query" };
   Q.chat.messages.push(msg);
@@ -198,7 +218,45 @@ function setSpeak(on) {
   if (!on) stopSpeaking();
 }
 
-function newConversation() { if (Q.generating) Q.abort?.abort(); Q.chat = null; render(); $("#q").focus(); refresh(); }
+// ---- contexto: área de transferência e tela
+function quickHasVision() {
+  const st = Q.status; if (!st) return true;
+  const path = quickModel(st) || st.engine.model;
+  const m = st.models.find(x => x.path === path);
+  return !m || !!m.mmproj || (path === st.engine.model && !!st.engine.modalities?.vision);
+}
+function renderCtx() {
+  $("#ctxTray").innerHTML = Q.ctx.map((c, i) => `<div class="ctx-chip">${c.url ? `<img src="${c.url}">` : ""}<span>${esc(c.label)}</span><button data-ctx-del="${i}" title="Remover">✕</button></div>`).join("");
+}
+function addCtx(item) { Q.ctx.push(item); renderCtx(); $("#q").focus(); }
+function addImageCtx(bytes, label, type = "image/png") {
+  const blob = bytes instanceof Blob ? bytes : new Blob([bytes], { type });
+  addCtx({ kind: "image", blob, label, url: URL.createObjectURL(blob) });
+}
+async function ctxAttachments() {
+  const out = [];
+  for (const c of Q.ctx) {
+    if (c.kind === "image") {
+      const up = await uploadBlob(c.blob, c.blob.type === "image/jpeg" ? "tela.jpg" : "imagem.png");
+      out.push({ kind: "image", id: up.id, name: c.label });
+    } else out.push({ kind: "text", name: c.label, text: c.text });
+  }
+  return out;
+}
+async function attachClipboard() {
+  const r = await desktop.readClipboard();
+  if (r.image) addImageCtx(r.image, t("Imagem copiada"));
+  else if (r.text?.trim()) addCtx({ kind: "text", text: r.text.slice(0, 60000), label: t("Texto copiado ({n} caracteres)", { n: fmtNum(r.text.length) }) });
+  else setStatus(t("A área de transferência está vazia."), "warn");
+}
+async function attachScreen() {
+  setStatus(t("Capturando a tela..."), "warn");
+  const jpg = await desktop.captureScreen();
+  if (!jpg) return setStatus(t("Não foi possível capturar a tela."), "err");
+  addImageCtx(jpg, t("Print da tela"), "image/jpeg"); refresh();
+}
+
+function newConversation() { if (Q.generating) Q.abort?.abort(); Q.chat = null; Q.ctx = []; renderCtx(); render(); $("#q").focus(); refresh(); }
 function lastAnswer() { const a = Q.chat?.messages.filter(m => m.role === "assistant").at(-1); return a ? splitThink(a).content : ""; }
 async function copyLast() { const a = lastAnswer(); if (a) { await navigator.clipboard.writeText(a); setStatus(t("Resposta copiada"), "ok"); } }
 function openInApp() { if (Q.generating) return; desktop.openMain(Q.chat?.id || ""); }
@@ -210,6 +268,14 @@ $("#q").addEventListener("input", grow);
 $("#q").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); ask(); } });
 $("#webBtn").onclick = () => { setWeb(!Q.web); $("#q").focus(); };
 $("#micBtn").onclick = toggleVoice;
+$("#clipBtn").onclick = attachClipboard;
+$("#screenBtn").onclick = attachScreen;
+$("#ctxTray").onclick = e => { const i = e.target.dataset.ctxDel; if (i !== undefined) { const [c] = Q.ctx.splice(+i, 1); if (c?.url) URL.revokeObjectURL(c.url); renderCtx(); $("#q").focus(); } };
+// colar uma imagem (Ctrl+V) anexa como contexto
+$("#q").addEventListener("paste", e => {
+  const f = [...(e.clipboardData?.files || [])].find(x => x.type.startsWith("image/"));
+  if (f) { e.preventDefault(); addImageCtx(f, t("Imagem colada")); }
+});
 $("#speakBtn").onclick = () => { setSpeak(!Q.speak); $("#q").focus(); };
 $("#newBtn").onclick = newConversation;
 $("#copyBtn").onclick = copyLast;
@@ -235,7 +301,8 @@ desktop.onQuickShow(({ hiddenFor }) => {
 });
 
 setWeb(Q.web); setSpeak(Q.speak); refresh();
-desktop.onQuickVoice?.(() => toggleVoice()); setInterval(() => { if (document.hasFocus()) refresh(); }, 3000);
+desktop.onQuickVoice?.(() => toggleVoice());
+desktop.onQuickContext?.(d => { if (d.kind === "screen" && d.data) { addImageCtx(d.data, t("Print da tela"), "image/jpeg"); setStatus(t("🖥 Print anexado: faça sua pergunta (ou só Enter)"), "ok"); } }); setInterval(() => { if (document.hasFocus()) refresh(); }, 3000);
 $("#q").focus(); resize();
 </script>
 </body>
