@@ -20,7 +20,7 @@ Ao abrir (e a cada 6 horas), o app consulta os [Releases do GitHub](https://gith
 
 ### Publicar uma versão nova (para todos os PCs atualizarem)
 1. Aumente `"version"` em `desktop/package.json` (ex.: `1.2.0` → `1.3.0`).
-2. Faça commit e push.
+2. Faça commit e push, e crie a tag da versão: `git tag v1.3.0` e `git push origin v1.3.0`.
 3. Publique o Release (precisa de um token do GitHub com permissão de escrita no repositório, na variável `GH_TOKEN`):
 ```
 cd desktop
