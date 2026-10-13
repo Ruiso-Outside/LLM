@@ -6,7 +6,6 @@ const path = require("path");
 const fs = require("fs");
 const http = require("http");
 const { spawn, spawnSync } = require("child_process");
-const { autoUpdater } = require("electron-updater");
 
 const PORT = Number(process.env.LLM_PORT) || 8765; // LLM_PORT: porta alternativa (desenvolvimento)
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -212,6 +211,8 @@ async function updateTray() {
     { label: "Abrir pasta de dados", click: () => shell.openPath(config.homeDir) },
     updateState.status === "ready"
       ? { label: `Reiniciar e atualizar para ${updateState.version}`, click: installUpdate }
+      : updateState.status === "manual"
+        ? { label: `Baixar o instalador da versão ${updateState.version}`, click: installUpdate }
       : updateState.status === "downloading"
         ? { label: `Baixando atualização ${updateState.version} (${updateState.percent}%)`, enabled: false }
         : { label: `Verificar atualizações (versão ${app.getVersion()})`, click: checkForUpdates },
@@ -276,11 +277,18 @@ ipcMain.on("resize-quick", (_e, h) => {
 });
 
 // ------------------------------------------------------------------ atualizacao automatica (GitHub Releases)
-// Ao abrir (e a cada 6 h) confere o ultimo Release de github.com/Ruiso-Outside/LLM.
-// Se houver versao nova, baixa em segundo plano e pergunta se pode reiniciar;
-// se o usuario escolher "Depois", instala quando o app for fechado.
+// Ao abrir (e a cada 6 h) le o patch.json do ultimo Release de github.com/Ruiso-Outside/LLM.
+// Atualizacao normal: baixa app-patch-X.zip (so JavaScript, HTML e Python), confere o SHA-512
+// e troca resources/app e resources/server ao reiniciar. O .exe (Electron oficial, sem
+// modificacoes) nunca muda, entao o Controle Inteligente de Aplicativos do Windows nao bloqueia.
+// Se a versao do Electron mudar, e preciso o instalador completo: o app avisa e abre a pagina.
+const crypto = require("crypto");
+const RELEASES = "https://github.com/Ruiso-Outside/LLM/releases";
+const RES = process.resourcesPath;
 let updateState = { status: "idle", version: "", percent: 0, error: "" };
 let updatePromptShown = false;
+let patchReady = null; // { version, staging }
+let applyingPatch = false;
 
 function sendUpdateState(patch) {
   updateState = { ...updateState, ...patch };
@@ -288,53 +296,146 @@ function sendUpdateState(patch) {
   lastTrayState = ""; updateTray();
 }
 
+const cmpVer = (a, b) => {
+  const pa = String(a).split(".").map(Number), pb = String(b).split(".").map(Number);
+  for (let i = 0; i < 3; i++) if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0);
+  return 0;
+};
+const errText = err => String(err?.message || err).split("\n")[0];
+
+// LLM_UPDATE_URL: pasta local de testes com patch.json e o zip; sem ela, usa os Releases do GitHub
+const feedUrl = (file, version) => process.env.LLM_UPDATE_URL ? process.env.LLM_UPDATE_URL.replace(/\/?$/, "/") + file
+  : version ? `${RELEASES}/download/v${version}/${file}` : `${RELEASES}/latest/download/${file}`;
+
+function cleanupOldUpdates() {
+  if (!app.isPackaged) return;
+  try {
+    for (const n of fs.readdirSync(RES)) if (/^_(old|update)_/.test(n)) fs.rmSync(path.join(RES, n), { recursive: true, force: true });
+  } catch {}
+}
+
 function initUpdater() {
   if (!app.isPackaged) return; // em desenvolvimento nao atualiza
-  // LLM_UPDATE_URL: servidor local de testes (feed "generic"); sem ela, usa os Releases do GitHub
-  if (process.env.LLM_UPDATE_URL) autoUpdater.setFeedURL({ provider: "generic", url: process.env.LLM_UPDATE_URL });
-  autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
-  autoUpdater.on("checking-for-update", () => sendUpdateState({ status: "checking", error: "" }));
-  autoUpdater.on("update-not-available", () => sendUpdateState({ status: "latest" }));
-  autoUpdater.on("update-available", info => {
-    sendUpdateState({ status: "downloading", version: info.version, percent: 0 });
-    if (Notification.isSupported())
-      new Notification({ title: "Atualização do LLM Local", icon: ICON, body: `Baixando a versão ${info.version} em segundo plano...` }).show();
-  });
-  autoUpdater.on("download-progress", p => sendUpdateState({ status: "downloading", percent: Math.round(p.percent) }));
-  autoUpdater.on("update-downloaded", async info => {
-    sendUpdateState({ status: "ready", version: info.version, percent: 100 });
-    if (updatePromptShown) return;
-    updatePromptShown = true;
-    const r = await dialog.showMessageBox({
-      type: "info", title: "LLM Local", icon: nativeImage.createFromPath(ICON),
-      message: `A versão ${info.version} do LLM Local está pronta.`,
-      detail: "Reinicie para atualizar agora. Se preferir, a atualização será instalada quando você fechar o app.",
-      buttons: ["Reiniciar e atualizar", "Depois"], defaultId: 0, cancelId: 1, noLink: true,
-    });
-    if (r.response === 0) installUpdate();
-  });
-  autoUpdater.on("error", err => sendUpdateState({ status: "error", error: String(err?.message || err).split("\n")[0] }));
+  cleanupOldUpdates();
   setTimeout(checkForUpdates, 8000);
   setInterval(checkForUpdates, 6 * 60 * 60 * 1000);
 }
 
-function checkForUpdates() {
+async function checkForUpdates() {
   if (!app.isPackaged) return sendUpdateState({ status: "dev" });
-  if (["downloading", "ready"].includes(updateState.status)) return;
-  autoUpdater.checkForUpdates().catch(err => sendUpdateState({ status: "error", error: String(err?.message || err).split("\n")[0] }));
+  if (["checking", "downloading", "ready"].includes(updateState.status)) return;
+  sendUpdateState({ status: "checking", error: "" });
+  try {
+    const r = await fetch(feedUrl("patch.json") + "?t=" + Date.now(), { redirect: "follow", cache: "no-store" });
+    if (r.status === 404) return sendUpdateState({ status: "latest" }); // Release sem patch (versao antiga)
+    if (!r.ok) throw new Error(`GitHub respondeu HTTP ${r.status}`);
+    const m = await r.json();
+    if (cmpVer(m.version, app.getVersion()) <= 0) return sendUpdateState({ status: "latest" });
+    if (m.electron !== process.versions.electron) {
+      // a versao nova troca o Electron: precisa do instalador completo
+      sendUpdateState({ status: "manual", version: m.version });
+      if (Notification.isSupported())
+        new Notification({ title: "Atualização do LLM Local", icon: ICON, body: `A versão ${m.version} precisa do instalador completo. Abra Configurações → App desktop.` }).show();
+      return;
+    }
+    await downloadPatch(m);
+  } catch (err) {
+    sendUpdateState({ status: "error", error: errText(err) });
+  }
+}
+
+async function downloadPatch(m) {
+  sendUpdateState({ status: "downloading", version: m.version, percent: 0 });
+  if (Notification.isSupported())
+    new Notification({ title: "Atualização do LLM Local", icon: ICON, body: `Baixando a versão ${m.version} em segundo plano...` }).show();
+  const staging = path.join(RES, `_update_${m.version}`);
+  fs.rmSync(staging, { recursive: true, force: true });
+  fs.mkdirSync(staging, { recursive: true }); // falha aqui se a pasta do app nao permitir escrita
+  const zip = path.join(staging, m.file);
+  const r = await fetch(feedUrl(m.file, m.version), { redirect: "follow" });
+  if (!r.ok) throw new Error(`não foi possível baixar ${m.file} (HTTP ${r.status})`);
+  const total = Number(r.headers.get("content-length")) || m.size || 0;
+  const hash = crypto.createHash("sha512");
+  const out = fs.createWriteStream(zip);
+  let got = 0, lastPct = -1;
+  for await (const chunk of r.body) {
+    hash.update(chunk); got += chunk.length;
+    if (!out.write(chunk)) await new Promise(res => out.once("drain", res));
+    const pct = total ? Math.floor(got / total * 100) : 0;
+    if (pct !== lastPct) { lastPct = pct; sendUpdateState({ percent: pct }); }
+  }
+  await new Promise((res, rej) => out.end(err => err ? rej(err) : res()));
+  if (hash.digest("base64") !== m.sha512) throw new Error("o arquivo baixado está corrompido (SHA-512 diferente). Tente de novo.");
+  // tar.exe vem com o Windows 10/11 e extrai .zip
+  const x = spawnSync("tar", ["-xf", zip, "-C", staging], { windowsHide: true, encoding: "utf8" });
+  if (x.status !== 0) throw new Error("falha ao extrair a atualização: " + (x.stderr || "").trim().split("\n")[0]);
+  fs.rmSync(zip, { force: true });
+  const pkg = JSON.parse(fs.readFileSync(path.join(staging, "app", "package.json"), "utf8"));
+  if (pkg.version !== m.version || !fs.existsSync(path.join(staging, "app", "main.js")) || !fs.existsSync(path.join(staging, "server", "server.py")))
+    throw new Error("o pacote da atualização está incompleto.");
+  patchReady = { version: m.version, staging };
+  sendUpdateState({ status: "ready", version: m.version, percent: 100 });
+  if (updatePromptShown) return;
+  updatePromptShown = true;
+  const res = await dialog.showMessageBox({
+    type: "info", title: "LLM Local", icon: nativeImage.createFromPath(ICON),
+    message: `A versão ${m.version} do LLM Local está pronta.`,
+    detail: "Reinicie para atualizar agora. Se preferir, a atualização será aplicada quando você fechar o app.",
+    buttons: ["Reiniciar e atualizar", "Depois"], defaultId: 0, cancelId: 1, noLink: true,
+  });
+  if (res.response === 0) installUpdate();
+}
+
+// troca as pastas do app pela versao nova; se algo falhar, volta a versao anterior
+function applyPatch() {
+  if (!patchReady || applyingPatch) return false;
+  applyingPatch = true;
+  stopServer();
+  const done = [];
+  try {
+    for (const d of ["app", "server"]) {
+      const cur = path.join(RES, d), old = path.join(RES, `_old_${d}`), next = path.join(patchReady.staging, d);
+      fs.rmSync(old, { recursive: true, force: true });
+      renameRetry(cur, old); done.push([d, "old"]);
+      renameRetry(next, cur); done.push([d, "new"]);
+    }
+    return true;
+  } catch (err) {
+    for (const [d, step] of done.reverse()) {
+      try {
+        if (step === "new") fs.renameSync(path.join(RES, d), path.join(patchReady.staging, d));
+        else fs.renameSync(path.join(RES, `_old_${d}`), path.join(RES, d));
+      } catch {}
+    }
+    dialog.showErrorBox("LLM Local", "Não foi possível aplicar a atualização; o app continua na versão atual.\n\n" + errText(err));
+    return false;
+  } finally {
+    patchReady = null;
+  }
+}
+
+function renameRetry(from, to) {
+  // o Windows pode segurar a pasta por alguns instantes depois que o servidor fecha
+  for (let i = 0; ; i++) {
+    try { return fs.renameSync(from, to); } catch (err) {
+      if (i >= 20 || !["EPERM", "EBUSY", "EACCES"].includes(err.code)) throw err;
+      spawnSync("cmd", ["/c", "ping -n 2 127.0.0.1 >nul"], { windowsHide: true }); // espera ~1 s
+    }
+  }
 }
 
 function installUpdate() {
+  if (updateState.status === "manual") return shell.openExternal(`${RELEASES}/latest`);
+  if (!patchReady) return;
   quitting = true;
   globalShortcut.unregisterAll();
-  stopServer();
-  setImmediate(() => autoUpdater.quitAndInstall(true, true)); // silencioso e reabre o app depois
+  if (applyPatch()) { app.relaunch(); app.exit(0); }
+  else quitting = false;
 }
 
 ipcMain.handle("update-info", () => ({ ...updateState, current: app.getVersion() }));
 ipcMain.handle("update-check", () => { checkForUpdates(); return { ...updateState, current: app.getVersion() }; });
-ipcMain.handle("update-install", () => { if (updateState.status === "ready") installUpdate(); });
+ipcMain.handle("update-install", () => { if (["ready", "manual"].includes(updateState.status)) installUpdate(); });
 
 // ------------------------------------------------------------------ inicio
 app.whenReady().then(async () => {
@@ -366,4 +467,8 @@ app.whenReady().then(async () => {
 
 app.on("window-all-closed", e => e.preventDefault?.()); // continua na bandeja
 app.on("before-quit", () => { quitting = true; });
-app.on("will-quit", () => { globalShortcut.unregisterAll(); stopServer(); });
+app.on("will-quit", () => {
+  globalShortcut.unregisterAll();
+  if (patchReady) applyPatch(); // "Depois": aplica a atualizacao ao fechar
+  stopServer();
+});

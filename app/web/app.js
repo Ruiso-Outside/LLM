@@ -969,16 +969,17 @@ async function initDesktopSettings() {
     current = s.current || current;
     const txt = { idle: "", checking: "Verificando atualizações...", latest: "Você está na versão mais recente.",
       downloading: `Baixando a versão ${s.version}... ${s.percent || 0}%`, ready: `Versão ${s.version} pronta para instalar.`,
+      manual: `A versão ${s.version} troca o Electron e precisa do instalador completo.`,
       error: `Não foi possível verificar: ${s.error}`, dev: "Atualização automática só funciona no app instalado." }[s.status] || "";
     $("#updateText").textContent = `Versão ${current}${txt ? " · " + txt : ""}`;
-    $("#updateBtn").textContent = s.status === "ready" ? "Reiniciar e atualizar" : "Verificar atualizações";
+    $("#updateBtn").textContent = s.status === "ready" ? "Reiniciar e atualizar" : s.status === "manual" ? "Baixar instalador" : "Verificar atualizações";
     $("#updateBtn").disabled = ["checking", "downloading"].includes(s.status);
   };
   desktop.onUpdateState(showUpdate);
   showUpdate(await desktop.updateInfo());
   $("#updateBtn").onclick = async () => {
     const s = await desktop.updateInfo();
-    if (s.status === "ready") desktop.installUpdate(); else showUpdate(await desktop.checkUpdates());
+    if (["ready", "manual"].includes(s.status)) desktop.installUpdate(); else showUpdate(await desktop.checkUpdates());
   };
 }
 $("#resetSettings").onclick = () => fillSettings(DEFAULTS);

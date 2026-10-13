@@ -1,6 +1,6 @@
 // Prepara e confere o Release do GitHub usado pela atualização automática.
 //   node scripts/release-check.js            -> cria o Release da versão atual (antes do electron-builder)
-//   node scripts/release-check.js --verify   -> confere que existe UM Release com os 3 arquivos baixáveis
+//   node scripts/release-check.js --verify   -> confere que existe UM Release com os arquivos baixáveis
 // Motivo: quando o electron-builder cria o Release sozinho, às vezes cria dois com a mesma
 // tag (os envios rodam em paralelo) e os arquivos ficam divididos, quebrando o latest.yml.
 const { version } = require("../package.json");
@@ -35,7 +35,7 @@ async function verify() {
   const rels = await releasesForTag();
   if (rels.length !== 1) fail(`esperado 1 Release com a tag ${tag}, encontrados ${rels.length}.`);
   const names = rels[0].assets.map(a => a.name);
-  const needed = ["latest.yml", `LLM-Local-Setup-${version}.exe`, `LLM-Local-Setup-${version}.exe.blockmap`];
+  const needed = ["patch.json", `app-patch-${version}.zip`, `LLM-Local-Setup-${version}.exe`, "latest.yml"];
   const missing = needed.filter(n => !names.includes(n));
   if (missing.length) fail(`faltam arquivos no Release: ${missing.join(", ")}`);
   for (const n of needed) {
