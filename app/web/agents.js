@@ -9,7 +9,7 @@ const agentById = id => AG.doc.agents.find(a => a.id === id);
 const groupById = id => AG.doc.groups.find(g => g.id === id);
 const clone = o => JSON.parse(JSON.stringify(o));
 const modelNameOf = path => (S.status?.models.find(m => m.path === path) || {}).name || (path ? path.split("/").pop().replace(/\.gguf$/i, "") : "");
-const agentModelName = a => a.model ? (modelNameOf(a.model) + (S.status?.models.some(m => m.path === a.model) ? "" : " (não encontrado)")) : "modelo principal";
+const agentModelName = a => a.model ? (modelNameOf(a.model) + (S.status?.models.some(m => m.path === a.model) ? "" : " (não encontrado)") + (a.device === "cpu" ? " · CPU" : a.device === "gpu" ? " · GPU" : "")) : "modelo principal";
 function modelOptions(sel) {
   const models = S.status?.models || [];
   return '<option value="">Modelo principal (o carregado no topo)</option>' + models.map(m =>
@@ -80,9 +80,13 @@ function renderAgentEditor() {
         <label>Ícone <div class="icon-pick">${AGENT_ICONS.map(i => `<button type="button" class="${i === d.icon ? "on" : ""}" data-icon="${i}">${i}</button>`).join("")}
           <input class="input icon-input" id="agIcon" value="${esc(d.icon)}" maxlength="8" title="Ou digite/cole outro emoji"></div></label>
         <label>Cor <div class="color-pick">${AGENT_COLORS.map(c => `<button type="button" class="${c === d.color ? "on" : ""}" data-color="${c}" style="--c:${c}"></button>`).join("")}</div></label>
-        <label>Modelo
-          <select class="input" id="agModel">${modelOptions(d.model)}</select>
-          <small class="muted">Cada agente pode usar um modelo diferente (ex.: um leve e rápido para criar, um mais forte para validar). Modelos diferentes do principal são carregados juntos, se couberem na GPU.</small></label>
+        <div class="grid">
+          <label>Modelo
+            <select class="input" id="agModel">${modelOptions(d.model)}</select></label>
+          <label>Onde rodar
+            <select class="input" id="agDevice" ${d.model ? "" : "disabled"}><option value="auto" ${d.device === "auto" || !d.device ? "selected" : ""}>Automático (GPU se couber, senão CPU)</option><option value="gpu" ${d.device === "gpu" ? "selected" : ""}>GPU (VRAM): mais rápido</option><option value="cpu" ${d.device === "cpu" ? "selected" : ""}>CPU (RAM): não ocupa a GPU</option></select></label>
+          <small class="muted full">Cada agente pode usar um modelo diferente. Os diferentes do principal são carregados juntos: na GPU se couberem, ou na CPU usando a RAM (bom para modelos leves, sem disputar a GPU). ${d.model ? "" : "Com o modelo principal, ele roda onde o principal estiver."}</small>
+        </div>
         <label>Função do agente (instruções)
           <textarea class="input" id="agInstr" rows="9" placeholder="Descreva o que este agente faz, como deve responder e o que NÃO deve fazer.&#10;Ex.: Você resolve o problema do agente anterior mostrando o passo a passo e destaca a resposta final.">${esc(d.instructions)}</textarea></label>
         <div class="grid">
@@ -127,7 +131,7 @@ function syncDraft() {
   const d = AG.draft; if (!d) return;
   if (AG.edit.type === "agent") {
     d.name = $("#agName").value.trim(); d.icon = $("#agIcon").value.trim() || "🤖"; d.instructions = $("#agInstr").value;
-    d.temperature = $("#agTempOn").checked ? +$("#agTemp").value : null; d.web = $("#agWeb").checked; d.model = $("#agModel").value;
+    d.temperature = $("#agTempOn").checked ? +$("#agTemp").value : null; d.web = $("#agWeb").checked; d.model = $("#agModel").value; d.device = $("#agDevice").value;
   } else {
     d.name = $("#grName").value.trim(); d.icon = $("#grIcon").value.trim() || "👥"; d.description = $("#grDesc").value.trim();
     d.max_retries = Math.max(0, Math.min(5, +$("#grRetries").value || 0));
@@ -139,7 +143,7 @@ function editItem(type, id) {
   const src = type === "agent" ? agentById(id) : groupById(id);
   AG.edit = { type, id, isNew: !src };
   AG.draft = src ? clone(src) : type === "agent"
-    ? { id: uid(), name: "", icon: "🤖", color: AGENT_COLORS[AG.doc.agents.length % AGENT_COLORS.length], instructions: "", temperature: null, web: false, model: "" }
+    ? { id: uid(), name: "", icon: "🤖", color: AGENT_COLORS[AG.doc.agents.length % AGENT_COLORS.length], instructions: "", temperature: null, web: false, model: "", device: "auto" }
     : { id: uid(), name: "", icon: "👥", description: "", steps: [], max_retries: 2 };
   renderAgentsModal();
   (type === "agent" ? $("#agName") : $("#grName"))?.focus();
@@ -161,6 +165,7 @@ $("#agentEditor").addEventListener("input", e => {
 });
 $("#agentEditor").addEventListener("change", e => {
   if (e.target.id === "agTempOn") $("#agTemp").disabled = !e.target.checked;
+  if (e.target.id === "agModel") $("#agDevice").disabled = !e.target.value;
 });
 $("#agentEditor").addEventListener("click", async e => {
   const d = AG.draft; if (!d) return;
@@ -218,7 +223,7 @@ async function runGroup(group) {
       if (j.llmlocal && cur) cur.web = { ...cur.web, ...j.llmlocal };
       const g = j.group;
       if (g?.type === "loading") msg.loadingModel = { index: g.index, model: g.model };
-      if (g?.type === "step_start") { msg.loadingModel = null; base += lastPred; lastPred = 0; cur = { index: g.index, agent: g.agent, role: g.role, attempt: g.attempt, model: g.model, text: "", reasoning: "", status: "running" }; msg.steps.push(cur); }
+      if (g?.type === "step_start") { msg.loadingModel = null; base += lastPred; lastPred = 0; cur = { index: g.index, agent: g.agent, role: g.role, attempt: g.attempt, model: g.model, device: g.device, text: "", reasoning: "", status: "running" }; msg.steps.push(cur); }
       else if (g?.type === "delta" && cur) cur.text += g.delta;
       else if (g?.type === "reasoning" && cur) cur.reasoning += g.delta;
       else if (g?.type === "step_end" && cur) { cur.status = "done"; cur.verdict = g.verdict; }
@@ -243,7 +248,7 @@ function groupMsgHTML(msg, idx, isLast, streaming) {
     const verdict = s.verdict === "APROVADO" ? '<span class="verdict ok">✅ Aprovado</span>' : s.verdict === "REPROVADO" ? '<span class="verdict bad">❌ Reprovado</span>' : "";
     const tag = s.role === "validator" ? "validador" : `etapa ${s.index + 1}`;
     h += `<div class="g-step" style="--c:${esc(s.agent.color)}"><div class="g-head"><span class="ag-dot" style="--c:${esc(s.agent.color)}">${esc(s.agent.icon)}</span>
-      <b>${esc(s.agent.name)}</b><small class="muted">${tag}${s.attempt > 1 ? ` · tentativa ${s.attempt}` : ""}${s.model ? ` · ${esc(s.model)}` : ""}</small><span class="spacer"></span>${s.status === "running" ? '<span class="spin"></span>' : verdict}</div>`;
+      <b>${esc(s.agent.name)}</b><small class="muted">${tag}${s.attempt > 1 ? ` · tentativa ${s.attempt}` : ""}${s.model ? ` · ${esc(s.model)}` : ""}${s.device ? ` <span class="dev-tag dev-${esc(s.device)}">${esc(s.device.toUpperCase())}</span>` : ""}</small><span class="spacer"></span>${s.status === "running" ? '<span class="spin"></span>' : verdict}</div>`;
     if (s.web) h += webBoxHTML(s.web, s.status === "running");
     if (s.reasoning) h += `<details class="think"><summary>Raciocínio</summary><div class="think-body">${esc(s.reasoning)}</div></details>`;
     const shown = s.role === "validator" ? s.text.replace(/\n?\**\s*VEREDITO\s*[:\-–][^\n]*/gi, "").trim() : s.text;

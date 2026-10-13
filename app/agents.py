@@ -48,6 +48,7 @@ def save(doc):
             "temperature": None if temp in (None, "") else max(0.0, min(float(temp), 2.0)),
             "web": bool(a.get("web")),
             "model": _s(a.get("model"), 400),  # "" = modelo principal
+            "device": a.get("device") if a.get("device") in ("gpu", "cpu") else "auto",
         })
         ids.add(aid)
     groups = []
@@ -99,7 +100,8 @@ def run_group(h, group_id, task_msg, history, sampling):
         st, ag = steps[i], agents[steps[i]["agent"]]
         is_val = st["role"] == "validator"
         with h.engine_for(ag.get("model", ""), h.loading_notifier(
-                lambda name, idx=i: {"group": {"type": "loading", "index": idx, "model": name}})) as eng:
+                lambda name, idx=i: {"group": {"type": "loading", "index": idx, "model": name}}),
+                ag.get("device", "auto") if ag.get("model") else "auto") as eng:
             h.engine_port = eng.port
             text, timings = _run_step(h, emit, group, agents, steps, i, ag, is_val, eng, task_msg, history,
                                       outputs, feedback, retries, sampling)
@@ -145,7 +147,8 @@ def _run_step(h, emit, group, agents, steps, i, ag, is_val, eng, task_msg, histo
     messages = [{"role": "system", "content": system}] + history + [{"role": "user", "content": content}]
     model_name = Path(eng.model).stem if eng.model else ""
     if not emit({"group": {"type": "step_start", "index": i, "agent": {k: ag[k] for k in ("id", "name", "icon", "color")},
-                           "role": steps[i]["role"], "attempt": retries.get(i, 0) + 1, "model": model_name}}):
+                           "role": steps[i]["role"], "attempt": retries.get(i, 0) + 1, "model": model_name,
+                           "device": eng.device}}):
         return None, None
     if ag["web"]:
         messages = h.web_augment(messages)

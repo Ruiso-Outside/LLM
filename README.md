@@ -4,14 +4,14 @@ Um app seu para rodar modelos de IA no seu PC. Sem conta, sem plano pago, sem te
 
 ## Instalação
 
-Rode **`desktop\dist\LLM Local Setup 1.6.0.exe`**. Ele cria atalhos no Menu Iniciar e na Área de Trabalho. Como o instalador não é assinado digitalmente, o Windows pode mostrar a tela "O Windows protegeu o computador". Clique em *Mais informações → Executar assim mesmo*. O executável do app é o do Electron oficial, sem modificações, para que o **Controle Inteligente de Aplicativos** do Windows não o bloqueie. Por isso o arquivo .exe mostra o ícone do Electron, mas os atalhos e a janela usam o ícone do LLM Local.
+Rode **`desktop\dist\LLM Local Setup 1.7.0.exe`**. Ele cria atalhos no Menu Iniciar e na Área de Trabalho. Como o instalador não é assinado digitalmente, o Windows pode mostrar a tela "O Windows protegeu o computador". Clique em *Mais informações → Executar assim mesmo*. O executável do app é o do Electron oficial, sem modificações, para que o **Controle Inteligente de Aplicativos** do Windows não o bloqueie. Por isso o arquivo .exe mostra o ícone do Electron, mas os atalhos e a janela usam o ícone do LLM Local.
 
 ### Segundo plano e pergunta rápida
 - Fechar a janela **não encerra** o app: ele continua no ícone perto do relógio. Para sair de verdade, clique com o botão direito no ícone e escolha **Sair**.
 - **`Ctrl+Shift+Espaço`**, de qualquer lugar do Windows, abre a **pergunta rápida**: uma janelinha flutuante para perguntar e receber a resposta na hora.
   - `Enter` envia · `Esc` para a resposta ou esconde a janela · `Ctrl+N` começa uma nova conversa · `Ctrl+Shift+C` copia a resposta · `Ctrl+O` continua a conversa no app completo
   - 📌 fixa a janela, para ela não sumir ao clicar fora
-  - Dá para escolher um **modelo próprio** para ela (Configurações → App desktop → Modelo da pergunta rápida), por exemplo um modelo pequeno e rápido. Ele é carregado junto com o principal, sem trocar o modelo do app
+  - Dá para escolher um **modelo próprio** para ela (Configurações → App desktop → Modelo da pergunta rápida), por exemplo um modelo pequeno e rápido, e onde ele roda (GPU ou CPU). Ele é carregado junto com o principal, sem trocar o modelo do app
   - Sem modelo próprio, ela usa o principal (e carrega o último usado se estiver descarregado)
 - Em **Configurações → App desktop** você troca o atalho, liga ou desliga "Iniciar com o Windows" e muda a pasta de dados.
 - Pelo menu do ícone perto do relógio dá para **descarregar o modelo** e liberar a GPU (para jogar, por exemplo) sem fechar o app.
@@ -117,7 +117,7 @@ Crie agentes com uma **função** própria e junte vários num **grupo** que tra
 - **Grupo:** uma lista de etapas. Cada agente recebe o seu pedido **e o trabalho dos agentes anteriores**.
 - **✅ Validador:** marque uma etapa como validador. Ele termina com *VEREDITO: APROVADO* ou *REPROVADO*. Se reprovar, o agente anterior refaz com o feedback e o validador confere de novo (até o número de tentativas extras do grupo).
 - **Modelos prontos:** 🧮 Matemática (cria o cálculo → resolve → valida), 📝 Redação (pesquisa na web → escreve → revisa) e 💻 Programação (planeja → programa → revisa).
-- **Um modelo por agente:** cada agente pode usar um modelo diferente (ex.: um leve e rápido para criar, um mais forte para validar). Os modelos diferentes do principal são carregados **ao mesmo tempo**, cada um no seu motor, enquanto couberem na VRAM; quando falta memória, os extras usados há mais tempo são descarregados. Extras parados também são descarregados depois de alguns minutos (Configurações → Carregamento do modelo).
+- **Um modelo por agente:** cada agente pode usar um modelo diferente (ex.: um leve e rápido para criar, um mais forte para validar). Os modelos diferentes do principal são carregados **ao mesmo tempo**, cada um no seu motor. Em **Onde rodar** você escolhe **GPU** (mais rápido), **CPU** (usa a RAM e não disputa a GPU, ótimo para modelos leves) ou **Automático** (GPU se couber, senão CPU). Se faltar memória, os extras usados há mais tempo são descarregados. Em Modelos → Meus modelos aparece quanto de VRAM e de RAM os modelos estão usando. Extras parados também são descarregados depois de alguns minutos (Configurações → Carregamento do modelo).
 - Para usar, escolha o modo **👥 Agentes** e selecione um grupo ou um agente sozinho. Agentes e grupos entram no backup.
 
 ## Pesquisa na web 🌐

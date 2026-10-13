@@ -74,6 +74,7 @@ DEFAULT_SETTINGS = {
     "last_model": "",
     "auto_load": True,  # carrega o ultimo modelo ao iniciar
     "quick_model": "",  # modelo da pergunta rapida ("" = o principal)
+    "quick_device": "auto",  # onde roda o modelo da pergunta rapida: auto | gpu | cpu
     "extra_idle_minutes": 10,  # modelos extras (agentes/pergunta rapida) sao descarregados apos X min parados
     "search_provider": "duckduckgo",  # duckduckgo | google | searxng
     "search_region": "br-pt",
@@ -279,6 +280,24 @@ def detect_gpu():
 GPU = detect_gpu()
 
 
+def ram_info():
+    """Memoria RAM total e disponivel (MB), pelo Windows."""
+    if os.name != "nt":
+        return 0, 0
+    import ctypes
+
+    class MEMSTAT(ctypes.Structure):
+        _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong), ("ullTotalPhys", ctypes.c_ulonglong),
+                    ("ullAvailPhys", ctypes.c_ulonglong), ("ullTotalPageFile", ctypes.c_ulonglong),
+                    ("ullAvailPageFile", ctypes.c_ulonglong), ("ullTotalVirtual", ctypes.c_ulonglong),
+                    ("ullAvailVirtual", ctypes.c_ulonglong), ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
+    st = MEMSTAT()
+    st.dwLength = ctypes.sizeof(MEMSTAT)
+    if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(st)):
+        return 0, 0
+    return st.ullTotalPhys // 2 ** 20, st.ullAvailPhys // 2 ** 20
+
+
 def installed_backends():
     found = {}
     for b in BACKENDS:
@@ -381,6 +400,7 @@ def _job_object():
 class EngineProcess:
     def __init__(self, port=ENGINE_PORT):
         self.port = port
+        self.device = "gpu"  # gpu | cpu
         self.busy = 0
         self.last_used = time.time()
         self.proc = None
@@ -405,7 +425,7 @@ class EngineProcess:
             except subprocess.TimeoutExpired:
                 p.kill()
 
-    def start(self, model_rel, s):
+    def start(self, model_rel, s, device=None):
         model_path = (MODELS / model_rel).resolve()
         if MODELS.resolve() not in model_path.parents or not model_path.is_file():
             raise ValueError("Modelo nao encontrado.")
@@ -418,8 +438,11 @@ class EngineProcess:
         self.stop()
         if self is ENGINE_PROC:
             POOL.stop(model_rel)  # se ja estava carregado como extra, libera antes
+        on_cpu = device == "cpu"
         cmd = [backs[backend]["exe"], "-m", str(model_path), "--host", "127.0.0.1", "--port", str(self.port),
-               "-c", str(int(s["ctx_size"])), "-ngl", str(int(s["gpu_layers"])), "--jinja"]
+               "-c", str(int(s["ctx_size"])), "-ngl", "0" if on_cpu else str(int(s["gpu_layers"])), "--jinja"]
+        if on_cpu:
+            cmd += ["--device", "none"]  # CPU e RAM apenas, sem tocar na GPU
         mm = mmproj_for(model_rel)
         if mm:
             cmd += ["--mmproj", str(mm)]
@@ -440,6 +463,7 @@ class EngineProcess:
                 pass
         with self.lock:
             self.proc, self.model, self.backend, self.state, self.error = proc, model_rel, backend, "loading", ""
+            self.device = "cpu" if on_cpu or backend == "cpu" or int(s["gpu_layers"]) == 0 else "gpu"
         threading.Thread(target=self._read_output, args=(proc,), daemon=True).start()
         threading.Thread(target=self._wait_ready, args=(proc,), daemon=True).start()
 
@@ -522,28 +546,55 @@ class EnginePool:
                     continue
         raise RuntimeError("Sem portas livres para outro modelo.")
 
-    def _make_room(self, need):
-        """Descarrega extras (do menos usado para o mais usado) ate o novo modelo caber na VRAM."""
-        vram = GPU.get("vram_mb", 0) * 1024 * 1024
-        if not vram:
-            return
-        overhead = 1.3 * 1024 ** 3  # contexto + buffers por modelo (aproximado)
-        def used():
-            total = model_bytes(ENGINE_PROC.model) + overhead if ENGINE_PROC.state in ("ready", "loading") else 0
-            return total + sum(model_bytes(m) + overhead for m, e in self.extra.items() if e.state in ("ready", "loading"))
-        for m, e in sorted(self.extra.items(), key=lambda kv: kv[1].last_used):
-            if used() + need + overhead <= vram * 0.95:
+    OVERHEAD = 1.3 * 1024 ** 3  # contexto + buffers por modelo (aproximado)
+
+    def _used(self, device):
+        """Memoria ocupada pelos modelos carregados no dispositivo (bytes)."""
+        alive = ("ready", "loading")
+        total = model_bytes(ENGINE_PROC.model) + self.OVERHEAD if ENGINE_PROC.state in alive and ENGINE_PROC.device == device else 0
+        return total + sum(model_bytes(e.model) + self.OVERHEAD for e in self.extra.values() if e.state in alive and e.device == device)
+
+    @staticmethod
+    def _capacity(device):
+        if device == "gpu":
+            return GPU.get("vram_mb", 0) * 2 ** 20 * 0.95
+        total, _ = ram_info()
+        return total * 2 ** 20 * 0.70  # deixa RAM para o Windows e outros programas
+
+    def _fits(self, device, need):
+        return self._used(device) + need + self.OVERHEAD <= self._capacity(device)
+
+    def _make_room(self, device, need):
+        """Descarrega extras do dispositivo (do menos usado para o mais usado) ate o novo modelo caber."""
+        for key, e in sorted(self.extra.items(), key=lambda kv: kv[1].last_used):
+            if self._fits(device, need):
                 break
-            if e.busy == 0:
+            if e.busy == 0 and e.device == device:
                 e.stop()
-                self.extra.pop(m, None)
+                self.extra.pop(key, None)
 
-    def use(self, model_rel, s, on_wait=None):
-        return _PoolLease(self, model_rel, s, on_wait)
+    def _resolve(self, device, need):
+        """Escolhe onde rodar: 'auto' = GPU se couber, senao CPU (RAM), senao libera espaco na GPU."""
+        if not GPU.get("vram_mb"):
+            return "cpu"
+        if device in ("gpu", "cpu"):
+            self._make_room(device, need)
+            return device
+        if self._fits("gpu", need):
+            return "gpu"
+        if self._fits("cpu", need):
+            return "cpu"
+        self._make_room("gpu", need)
+        return "gpu"
 
-    def acquire(self, model_rel, s, on_wait=None):
-        """Garante o modelo pronto e devolve o motor (o principal se model_rel for vazio ou igual a ele)."""
-        if not model_rel or model_rel == ENGINE_PROC.model:
+    def use(self, model_rel, s, on_wait=None, device="auto"):
+        return _PoolLease(self, model_rel, s, on_wait, device)
+
+    def acquire(self, model_rel, s, on_wait=None, device="auto"):
+        """Garante o modelo pronto e devolve o motor (o principal se model_rel for vazio ou igual a ele).
+        device: 'auto' (GPU se couber, senao CPU), 'gpu' ou 'cpu'."""
+        device = device if device in ("gpu", "cpu") else "auto"
+        if not model_rel or (model_rel == ENGINE_PROC.model and device in ("auto", ENGINE_PROC.device)):
             eng = ENGINE_PROC
             if not model_rel and eng.state != "ready":
                 raise RuntimeError("Nenhum modelo carregado. Carregue um modelo no topo do app.")
@@ -551,12 +602,18 @@ class EnginePool:
             if not (MODELS / model_rel).is_file():
                 raise RuntimeError(f"O modelo \"{model_display(model_rel)}\" não foi encontrado. Escolha outro.")
             with self.lock:
-                eng = self.extra.get(model_rel)
-                if not eng or eng.state in ("stopped", "error") or (eng.proc and eng.proc.poll() is not None):
-                    self._make_room(model_bytes(model_rel))
+                def alive(e):
+                    return e.state in ("ready", "loading") and not (e.proc and e.proc.poll() is not None)
+                cands = [e for (m, d), e in self.extra.items() if m == model_rel and alive(e) and device in ("auto", d)]
+                eng = sorted(cands, key=lambda e: e.state != "ready")[0] if cands else None
+                if not eng:
+                    where = self._resolve(device, model_bytes(model_rel))
+                    old = self.extra.pop((model_rel, where), None)
+                    if old:
+                        old.stop()
                     eng = EngineProcess(self._free_port())
-                    eng.start(model_rel, s)
-                    self.extra[model_rel] = eng
+                    eng.start(model_rel, s, device=where)
+                    self.extra[(model_rel, where)] = eng
         eng.busy += 1
         eng.last_used = time.time()
         announced = False
@@ -583,14 +640,19 @@ class EnginePool:
 
     def stop(self, model_rel=None):
         with self.lock:
-            for m in [model_rel] if model_rel else list(self.extra):
-                e = self.extra.pop(m, None)
+            for key in [k for k in list(self.extra) if not model_rel or k[0] == model_rel]:
+                e = self.extra.pop(key, None)
                 if e:
                     e.stop()
 
     def status(self):
-        return [{"model": m, "name": model_display(m), "state": e.status()["state"], "port": e.port,
-                 "busy": e.busy, "idle": round(time.time() - e.last_used)} for m, e in self.extra.items()]
+        return [{"model": m, "name": model_display(m), "device": d, "state": e.status()["state"], "port": e.port,
+                 "busy": e.busy, "idle": round(time.time() - e.last_used)} for (m, d), e in self.extra.items()]
+
+    def memory(self):
+        total, avail = ram_info()
+        return {"vram_used": round(self._used("gpu") / 2 ** 20), "vram_total": GPU.get("vram_mb", 0),
+                "ram_used": round(self._used("cpu") / 2 ** 20), "ram_total": total, "ram_avail": avail}
 
     def _reaper(self):
         while True:
@@ -599,18 +661,18 @@ class EnginePool:
             if limit <= 0:
                 continue
             with self.lock:
-                for m, e in list(self.extra.items()):
+                for key, e in list(self.extra.items()):
                     if e.busy == 0 and time.time() - e.last_used > limit:
                         e.stop()
-                        self.extra.pop(m, None)
+                        self.extra.pop(key, None)
 
 
 class _PoolLease:
-    def __init__(self, pool, model_rel, s, on_wait):
-        self.pool, self.model_rel, self.s, self.on_wait, self.eng = pool, model_rel, s, on_wait, None
+    def __init__(self, pool, model_rel, s, on_wait, device="auto"):
+        self.pool, self.model_rel, self.s, self.on_wait, self.device, self.eng = pool, model_rel, s, on_wait, device, None
 
     def __enter__(self):
-        self.eng = self.pool.acquire(self.model_rel, self.s, self.on_wait)
+        self.eng = self.pool.acquire(self.model_rel, self.s, self.on_wait, self.device)
         return self.eng
 
     def __exit__(self, *exc):
@@ -1017,7 +1079,8 @@ class Handler(BaseHTTPRequestHandler):
         p, q = url.path, urllib.parse.parse_qs(url.query)
         try:
             if p == "/api/status":
-                return self.send_json({"engine": ENGINE_PROC.status(), "extras": POOL.status(), "backends": installed_backends(),
+                return self.send_json({"engine": ENGINE_PROC.status() | {"device": ENGINE_PROC.device}, "extras": POOL.status(),
+                                       "memory": POOL.memory(), "backends": installed_backends(),
                                        "gpu": GPU | {"cpu_count": CPU_COUNT},
                                        "models": list_models(), "tasks": public_tasks(),
                                        "settings": masked(load_settings()), "chats": list_chats(),
@@ -1531,9 +1594,9 @@ class Handler(BaseHTTPRequestHandler):
         except (RuntimeError, agent.ToolError) as e:
             run.send({"error": {"message": str(e)}})
 
-    def engine_for(self, model_rel, on_wait=None):
-        """Motor para esta requisicao: o principal ou um modelo extra (carregado sob demanda)."""
-        return POOL.use(model_rel or "", load_settings(), on_wait)
+    def engine_for(self, model_rel, on_wait=None, device="auto"):
+        """Motor para esta requisicao: o principal ou um modelo extra (carregado sob demanda, na GPU ou CPU)."""
+        return POOL.use(model_rel or "", load_settings(), on_wait, device)
 
     def loading_notifier(self, make_event):
         """on_wait do POOL: avisa a interface uma vez e depois so manda pings (detecta desconexao)."""
@@ -1542,6 +1605,7 @@ class Handler(BaseHTTPRequestHandler):
     def proxy_chat(self, b):
         ag = agents.get_agent(b["agent_id"]) if b.get("agent_id") else None
         model = (ag or {}).get("model") or b.get("model") or ""
+        device = (ag or {}).get("device") if (ag or {}).get("model") else b.get("device", "auto")
         if not model and ENGINE_PROC.state != "ready":
             return self.send_json({"error": "Nenhum modelo carregado."}, 503)
         self.send_response(200)
@@ -1550,11 +1614,11 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         upstream = lease = None
         try:
-            lease = self.engine_for(model, self.loading_notifier(lambda n: {"engine": {"stage": "loading", "model": n}}))
+            lease = self.engine_for(model, self.loading_notifier(lambda n: {"engine": {"stage": "loading", "model": n}}), device or "auto")
             eng = lease.__enter__()
             self.engine_port = eng.port
             if model:
-                self.sse({"engine": {"stage": "ready", "model": model_display(eng.model)}})
+                self.sse({"engine": {"stage": "ready", "model": model_display(eng.model), "device": eng.device}})
             msgs = b.get("messages", [])
             if ag:
                 msgs = [{"role": "system", "content": (ag["instructions"] or "Você é um assistente útil.")

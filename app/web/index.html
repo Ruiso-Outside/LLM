@@ -91,6 +91,7 @@
     <div id="tasks"></div>
     <div class="modal-body">
       <div class="tab-pane active" id="tabLocal">
+        <div id="memBar" class="mem-bar"></div>
         <div class="row between">
           <p class="muted">Arquivos <code>.gguf</code> na pasta <code>models/</code>. Você também pode colocar modelos lá manualmente.</p>
           <button class="btn" data-folder="models">Abrir pasta</button>
@@ -139,7 +140,11 @@
             </label>
             <label>Modelo da pergunta rápida
               <select name="quick_model" id="quickModelSelect" class="input"></select>
-              <small class="muted">Um modelo leve deixa a pergunta rápida bem mais ágil. Ele é carregado junto com o principal, se couber na GPU.</small>
+              <small class="muted">Um modelo leve deixa a pergunta rápida bem mais ágil. Ele é carregado junto com o principal.</small>
+            </label>
+            <label>Onde rodar o modelo da pergunta rápida
+              <select name="quick_device" class="input"><option value="auto">Automático (GPU se couber, senão CPU)</option><option value="gpu">GPU (VRAM): mais rápido</option><option value="cpu">CPU (RAM): não ocupa a GPU</option></select>
+              <small class="muted">Na CPU, o modelo leve usa a RAM e deixa a GPU livre para o principal.</small>
             </label>
             <div class="checks">
               <label class="check"><input type="checkbox" id="autoStart"> Iniciar junto com o Windows</label>
