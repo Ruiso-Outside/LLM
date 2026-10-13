@@ -36,7 +36,7 @@ cd desktop
 set GH_TOKEN=seu_token
 npm run release
 ```
-O comando confere a tag, cria **um único** Release, gera o `.zip` portátil e o pacote de atualização (`app-patch-X.zip` + `patch.json`), envia tudo e no fim verifica se tudo baixa. Ele cria o Release `v1.3.0` com os arquivos que o app usa para se atualizar (`latest.yml`, instalador e `.blockmap`).
+O comando confere a tag, cria **um único** Release, gera o `.zip` portátil e o pacote de atualização (`app-patch-X.zip` + `patch.json`), e espera o **GitHub Actions** (workflow *Instalador Windows*, disparado pela tag) anexar o instalador `LLM-Local-Setup-X.exe` + `latest.yml`, que as versões antigas (até a 1.3.0) usam para se atualizar. O instalador é gerado na nuvem porque o Controle Inteligente de Aplicativos bloqueia o build dele no PC. Ele gera o pacote (`app-patch-X.zip` + `patch.json`), envia tudo e no fim verifica se tudo baixa. Ele cria o Release `v1.3.0` com os arquivos que o app usa para se atualizar (`latest.yml`, instalador e `.blockmap`).
 
 ### Gerar a versão portátil de novo, sem publicar
 ```

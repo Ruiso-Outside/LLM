@@ -1,0 +1,31 @@
+{
+  "appId": "studio.piphin.llmlocal",
+  "productName": "LLM Local",
+  "copyright": "Piphin Studio",
+  "files": ["main.js", "preload.js", "icon.png", "icon-tray.png", "icon.ico"],
+  "extraResources": [
+    { "from": "../app", "to": "server", "filter": ["**/*", "!__pycache__/**", "!**/*.pyc"] }
+  ],
+  "asar": false,
+  "directories": { "output": "dist-nsis" },
+  "win": {
+    "target": "nsis",
+    "icon": "icon.ico",
+    "signAndEditExecutable": false,
+    "artifactName": "LLM-Local-Setup-${version}.${ext}"
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "LLM Local",
+    "runAfterFinish": true,
+    "deleteAppDataOnUninstall": false,
+    "include": "installer.nsh",
+    "installerIcon": "icon.ico",
+    "uninstallerIcon": "icon.ico"
+  },
+  "publish": [{ "provider": "github", "owner": "Ruiso-Outside", "repo": "LLM", "releaseType": "release" }]
+}

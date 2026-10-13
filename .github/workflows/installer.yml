@@ -1,0 +1,61 @@
+# Gera o instalador NSIS (LLM-Local-Setup-X.exe + latest.yml + .blockmap) e anexa ao Release.
+# Por que na nuvem: no PC de desenvolvimento o Controle Inteligente de Aplicativos do Windows
+# bloqueia o build do instalador (o electron-builder executa o instalador gerado durante o build).
+# Versões antigas do app (até a 1.3.0) se atualizam pelo latest.yml + instalador; sem eles, ficam presas.
+name: Instalador Windows
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag do Release (ex.: v1.8.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  nsis:
+    runs-on: windows-latest
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      # a configuracao do instalador vem sempre da main (tags antigas nao a tem)
+      - name: Configuração do instalador (da main)
+        shell: bash
+        run: git checkout origin/main -- desktop/electron-builder-nsis.json desktop/installer.nsh
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Dependências
+        working-directory: desktop
+        run: |
+          npm ci --no-audit --no-fund
+          node node_modules/electron/install.js
+
+      - name: Build do instalador
+        working-directory: desktop
+        shell: bash
+        run: |
+          node gen-icon.js
+          npx electron-builder --win --config electron-builder-nsis.json --publish never
+          ls -la dist-nsis
+
+      - name: Anexar ao Release
+        working-directory: desktop
+        shell: bash
+        run: |
+          # o Release é criado pelo "npm run release" local; espera até 15 min por ele
+          for i in $(seq 1 90); do gh release view "$TAG" >/dev/null 2>&1 && break; sleep 10; done
+          gh release upload "$TAG" dist-nsis/*.exe dist-nsis/*.blockmap dist-nsis/latest.yml --clobber
+          gh release view "$TAG" --json assets --jq '.assets[].name'

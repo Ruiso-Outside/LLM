@@ -1,6 +1,8 @@
 // Prepara e confere o Release do GitHub usado pela atualização automática.
 //   node scripts/release-check.js            -> cria o Release da versão atual (antes do electron-builder)
 //   node scripts/release-check.js --verify   -> confere que existe UM Release com os arquivos baixáveis
+//   ... --verify --wait-installer            -> também espera (até 25 min) o GitHub Actions anexar o instalador
+//                                               NSIS + latest.yml, usados pelas versões antigas (até a 1.3.0)
 // Motivo: quando o electron-builder cria o Release sozinho, às vezes cria dois com a mesma
 // tag (os envios rodam em paralelo) e os arquivos ficam divididos, quebrando o latest.yml.
 const { version } = require("../package.json");
@@ -31,11 +33,25 @@ async function prepare() {
   console.log(`✓ Release ${tag} criado.`);
 }
 
+const INSTALLER = ["latest.yml", `LLM-Local-Setup-${version}.exe`, `LLM-Local-Setup-${version}.exe.blockmap`];
+
+async function waitInstaller() {
+  console.log("… esperando o GitHub Actions gerar e anexar o instalador (workflow \"Instalador Windows\")");
+  for (let i = 0; i < 150; i++) {
+    const rels = await releasesForTag();
+    const names = (rels[0]?.assets || []).map(a => a.name);
+    if (INSTALLER.every(n => names.includes(n))) return console.log("✓ instalador anexado pelo GitHub Actions");
+    await new Promise(r => setTimeout(r, 10000));
+  }
+  fail("o instalador não apareceu em 25 min. Veja https://github.com/" + owner + "/" + repo + "/actions");
+}
+
 async function verify() {
+  if (process.argv.includes("--wait-installer")) await waitInstaller();
   const rels = await releasesForTag();
   if (rels.length !== 1) fail(`esperado 1 Release com a tag ${tag}, encontrados ${rels.length}.`);
   const names = rels[0].assets.map(a => a.name);
-  const needed = ["patch.json", `app-patch-${version}.zip`, `LLM-Local-${version}-win-x64.zip`];
+  const needed = ["patch.json", `app-patch-${version}.zip`, `LLM-Local-${version}-win-x64.zip`, ...INSTALLER];
   const missing = needed.filter(n => !names.includes(n));
   if (missing.length) fail(`faltam arquivos no Release: ${missing.join(", ")}`);
   for (const n of needed) {

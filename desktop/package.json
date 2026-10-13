@@ -10,7 +10,8 @@
     "start": "electron .",
     "icon": "node gen-icon.js",
     "dist": "node gen-icon.js && electron-builder --win --publish never && node scripts/make-patch.js",
-    "release": "node gen-icon.js && node scripts/release-check.js && electron-builder --win --publish always && node scripts/make-patch.js --upload && node scripts/release-check.js --verify"
+    "release": "node gen-icon.js && node scripts/release-check.js && electron-builder --win --publish always && node scripts/make-patch.js --upload && node scripts/release-check.js --verify --wait-installer",
+    "verify-release": "node scripts/release-check.js --verify --wait-installer"
   },
   "build": {
     "appId": "studio.piphin.llmlocal",
