@@ -209,6 +209,7 @@ async function updateTray() {
     { type: "separator" },
     { label: "Iniciar com o Windows", type: "checkbox", checked: config.autoStart, click: i => setOption("autoStart", i.checked) },
     { label: "Abrir pasta de dados", click: () => shell.openPath(config.homeDir) },
+    { label: "Criar atalhos (Menu Iniciar e Área de Trabalho)", visible: app.isPackaged, click: () => { if (createShortcuts()) new Notification({ title: "LLM Local", body: "Atalhos criados.", icon: ICON }).show(); } },
     updateState.status === "ready"
       ? { label: `Reiniciar e atualizar para ${updateState.version}`, click: installUpdate }
       : updateState.status === "manual"
@@ -438,6 +439,32 @@ ipcMain.handle("update-info", () => ({ ...updateState, current: app.getVersion()
 ipcMain.handle("update-check", () => { checkForUpdates(); return { ...updateState, current: app.getVersion() }; });
 ipcMain.handle("update-install", () => { if (["ready", "manual"].includes(updateState.status)) installUpdate(); });
 
+// ------------------------------------------------------------------ atalhos (versao portatil)
+// O app e distribuido como .zip (o instalador NSIS e bloqueado pelo Controle Inteligente de
+// Aplicativos). Na primeira execucao, oferece criar os atalhos que um instalador criaria.
+const START_MENU_LNK = () => path.join(app.getPath("appData"), "Microsoft", "Windows", "Start Menu", "Programs", "LLM Local.lnk");
+const DESKTOP_LNK = () => path.join(app.getPath("desktop"), "LLM Local.lnk");
+
+function createShortcuts() {
+  const opts = { target: process.execPath, icon: path.join(__dirname, "icon.ico"), iconIndex: 0, description: "LLM Local", appUserModelId: "studio.piphin.llmlocal" };
+  let ok = true;
+  for (const lnk of [START_MENU_LNK(), DESKTOP_LNK()]) ok = shell.writeShortcutLink(lnk, fs.existsSync(lnk) ? "replace" : "create", opts) && ok;
+  return ok;
+}
+
+async function offerShortcuts() {
+  if (!app.isPackaged || config.shortcutsOffered) return;
+  config.shortcutsOffered = true; saveConfig();
+  if (fs.existsSync(START_MENU_LNK()) || fs.existsSync(DESKTOP_LNK())) return; // ja tem atalhos (instalacao antiga)
+  const r = await dialog.showMessageBox({
+    type: "question", title: "LLM Local", icon: nativeImage.createFromPath(ICON),
+    message: "Criar atalhos do LLM Local?",
+    detail: `No Menu Iniciar e na Área de Trabalho, apontando para:\n${process.execPath}\n\nDeixe a pasta do app onde ela está (se mover, crie os atalhos de novo pelo menu do ícone perto do relógio).`,
+    buttons: ["Criar atalhos", "Agora não"], defaultId: 0, cancelId: 1, noLink: true,
+  });
+  if (r.response === 0 && !createShortcuts()) dialog.showErrorBox("LLM Local", "Não foi possível criar os atalhos.");
+}
+
 // ------------------------------------------------------------------ inicio
 app.whenReady().then(async () => {
   if (!gotLock) return;
@@ -461,6 +488,7 @@ app.whenReady().then(async () => {
   }
   createQuick();
   initUpdater();
+  setTimeout(offerShortcuts, 2500);
   const hidden = process.argv.includes("--hidden");
   createMain(!hidden);
   if (process.argv.includes("--quick")) showQuick();

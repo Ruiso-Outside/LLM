@@ -9,8 +9,8 @@
   "scripts": {
     "start": "electron .",
     "icon": "node gen-icon.js",
-    "dist": "node gen-icon.js && electron-builder --win nsis --publish never && node scripts/make-patch.js",
-    "release": "node gen-icon.js && node scripts/release-check.js && electron-builder --win nsis --publish always && node scripts/make-patch.js --upload && node scripts/release-check.js --verify"
+    "dist": "node gen-icon.js && electron-builder --win --publish never && node scripts/make-patch.js",
+    "release": "node gen-icon.js && node scripts/release-check.js && electron-builder --win --publish always && node scripts/make-patch.js --upload && node scripts/release-check.js --verify"
   },
   "build": {
     "appId": "studio.piphin.llmlocal",
@@ -38,22 +38,17 @@
       "output": "dist"
     },
     "win": {
-      "target": "nsis",
+      "target": [
+        {
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
       "icon": "icon.ico",
-      "signAndEditExecutable": false
-    },
-    "nsis": {
-      "oneClick": false,
-      "perMachine": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "LLM Local",
-      "runAfterFinish": true,
-      "deleteAppDataOnUninstall": false,
-      "include": "installer.nsh",
-      "installerIcon": "icon.ico",
-      "uninstallerIcon": "icon.ico"
+      "signAndEditExecutable": false,
+      "artifactName": "LLM-Local-${version}-win-x64.${ext}"
     },
     "publish": [
       {

@@ -4,7 +4,11 @@ Um app seu para rodar modelos de IA no seu PC. Sem conta, sem plano pago, sem te
 
 ## Instalação
 
-Rode **`desktop\dist\LLM Local Setup 1.7.0.exe`**. Ele cria atalhos no Menu Iniciar e na Área de Trabalho. Como o instalador não é assinado digitalmente, o Windows pode mostrar a tela "O Windows protegeu o computador". Clique em *Mais informações → Executar assim mesmo*. O executável do app é o do Electron oficial, sem modificações, para que o **Controle Inteligente de Aplicativos** do Windows não o bloqueie. Por isso o arquivo .exe mostra o ícone do Electron, mas os atalhos e a janela usam o ícone do LLM Local.
+1. Baixe **`LLM-Local-X.Y.Z-win-x64.zip`** na página de [Releases](https://github.com/Ruiso-Outside/LLM/releases/latest).
+2. Extraia numa pasta fixa (ex.: `C:\Programas\LLM Local` ou `G:\LLM\LLM Local`).
+3. Abra o **`LLM Local.exe`**. Na primeira vez, o app oferece criar os atalhos no Menu Iniciar e na Área de Trabalho (dá para recriar depois pelo menu do ícone perto do relógio).
+
+**Por que um .zip e não um instalador?** O **Controle Inteligente de Aplicativos** do Windows bloqueia programas sem assinatura digital, inclusive instaladores. O `LLM Local.exe` é o executável do Electron oficial, sem modificações, que o Windows já reconhece, por isso ele abre normalmente (o arquivo `.exe` mostra o ícone do Electron; os atalhos e a janela usam o do LLM Local). As atualizações também não executam instalador nenhum. Para desinstalar, apague a pasta do app (seus modelos e conversas ficam na pasta de dados escolhida na primeira execução).
 
 ### Segundo plano e pergunta rápida
 - Fechar a janela **não encerra** o app: ele continua no ícone perto do relógio. Para sair de verdade, clique com o botão direito no ícone e escolha **Sair**.
@@ -32,9 +36,9 @@ cd desktop
 set GH_TOKEN=seu_token
 npm run release
 ```
-O comando confere a tag, cria **um único** Release, gera o instalador e o pacote de atualização (`app-patch-X.zip` + `patch.json`), envia tudo e no fim verifica se tudo baixa. Ele cria o Release `v1.3.0` com os arquivos que o app usa para se atualizar (`latest.yml`, instalador e `.blockmap`).
+O comando confere a tag, cria **um único** Release, gera o `.zip` portátil e o pacote de atualização (`app-patch-X.zip` + `patch.json`), envia tudo e no fim verifica se tudo baixa. Ele cria o Release `v1.3.0` com os arquivos que o app usa para se atualizar (`latest.yml`, instalador e `.blockmap`).
 
-### Gerar o instalador de novo, sem publicar
+### Gerar a versão portátil de novo, sem publicar
 ```
 cd desktop
 npm install
@@ -160,7 +164,7 @@ Enquanto o modelo escreve, a velocidade aparece ao vivo (⚡ tok/s) no topo da r
 
 | Caminho | O que é |
 |---|---|
-| `desktop/` | App Electron: janelas, bandeja, atalho global e instalador |
+| `desktop/` | App Electron: janelas, bandeja, atalho global, atualização e empacotamento (.zip portátil) |
 | `app/server.py` | Servidor interno (iniciado escondido pelo app): motor, modelos, chat e downloads |
 | `app/websearch.py` | Pesquisa na web e leitura das páginas |
 | `app/agent.py` | Codex: ferramentas, limite de pasta e confirmações |

@@ -35,7 +35,7 @@ async function verify() {
   const rels = await releasesForTag();
   if (rels.length !== 1) fail(`esperado 1 Release com a tag ${tag}, encontrados ${rels.length}.`);
   const names = rels[0].assets.map(a => a.name);
-  const needed = ["patch.json", `app-patch-${version}.zip`, `LLM-Local-Setup-${version}.exe`, "latest.yml"];
+  const needed = ["patch.json", `app-patch-${version}.zip`, `LLM-Local-${version}-win-x64.zip`];
   const missing = needed.filter(n => !names.includes(n));
   if (missing.length) fail(`faltam arquivos no Release: ${missing.join(", ")}`);
   for (const n of needed) {
