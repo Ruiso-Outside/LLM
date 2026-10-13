@@ -13,6 +13,8 @@ port = int(args[args.index("--port") + 1])
 model = Path(args[args.index("-m") + 1]).stem
 CTX = int(args[args.index("-c") + 1]) if "-c" in args else 4096
 READY_AT = time.time() + 0.5
+if "-md" in args and "quebrado" in args[args.index("-md") + 1]:
+    sys.exit("erro: acelerador MTP incompativel")  # simula o llama.cpp recusando o arquivo
 
 
 def embed(text, dim=512):
@@ -82,7 +84,7 @@ class H(BaseHTTPRequestHandler):
                         "timings": t})
         else:
             tools_out = " | ".join(m["content"] for m in msgs if m["role"] == "tool")
-            info = f"[{model}] temp={req.get('temperature')} tools={len(req.get('tools') or [])} resultados=<{tools_out}>"
+            info = f"[{model}] mtp={'sim' if '-md' in args else 'nao'} temp={req.get('temperature')} tools={len(req.get('tools') or [])} resultados=<{tools_out}>"
             for w in info.split(" "):
                 self.chunk({"choices": [{"delta": {"content": w + " "}}], "timings": t})
         self.wfile.write(b"data: [DONE]\n\n")

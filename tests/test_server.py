@@ -213,6 +213,42 @@ class ServerTest(unittest.TestCase):
                                                                    {"kind": "text", "name": "Texto copiado", "text": "erro 42"}]}]})
         self.assertIn("[Qwen3-8B-Q4_K_M]", self.text_of(ev))
 
+    def test_13_mtp_accelerator(self):
+        models = self.home / "models"
+        (models / "mtp").mkdir(exist_ok=True)
+        for rel in ("mtp-gemma-4-12b-it-Q8_0.gguf", "mtp/gemma__mtp-gemma-Q8_0.gguf", "mtp/gemma__quebrado-mtp.gguf",
+                    "imatrix_unsloth.gguf"):
+            (models / rel).write_bytes(b"GGUF")
+        st = self.call("/api/status")
+        self.assertEqual({m["path"] for m in st["models"]}, {"Qwen3-8B-Q4_K_M.gguf", "gemma-3-4b-it-Q4_K_M.gguf"})
+        self.assertEqual(self.call("/api/media")["mtp"],
+                         ["mtp-gemma-4-12b-it-Q8_0.gguf", "mtp/gemma__mtp-gemma-Q8_0.gguf", "mtp/gemma__quebrado-mtp.gguf"])
+        with self.assertRaises(urllib.error.HTTPError):
+            self.call("/api/models/mtp", {"model": "gemma-3-4b-it-Q4_K_M.gguf", "mtp": "../fora.gguf"})
+
+        def load_and_wait():
+            self.call("/api/load", {"model": "gemma-3-4b-it-Q4_K_M.gguf"})
+            for _ in range(100):
+                e = self.call("/api/status")["engine"]
+                if e["state"] in ("ready", "error"):
+                    return e
+                time.sleep(0.2)
+        try:
+            self.call("/api/models/mtp", {"model": "gemma-3-4b-it-Q4_K_M.gguf", "mtp": "mtp/gemma__mtp-gemma-Q8_0.gguf"})
+            self.assertEqual(next(m for m in self.call("/api/status")["models"] if m["path"].startswith("gemma"))["mtp"],
+                             "mtp/gemma__mtp-gemma-Q8_0.gguf")
+            e = load_and_wait()
+            self.assertEqual((e["state"], e["mtp"], e["mtp_error"]), ("ready", True, False))
+            self.assertIn("mtp=sim", self.text_of(self.sse("/api/chat", {"messages": [{"role": "user", "content": "oi"}]})))
+            # acelerador recusado pelo motor: carrega de novo sem ele
+            self.call("/api/models/mtp", {"model": "gemma-3-4b-it-Q4_K_M.gguf", "mtp": "mtp/gemma__quebrado-mtp.gguf"})
+            e = load_and_wait()
+            self.assertEqual((e["state"], e["mtp"], e["mtp_error"]), ("ready", False, True))
+        finally:
+            self.call("/api/models/mtp", {"model": "gemma-3-4b-it-Q4_K_M.gguf", "mtp": ""})
+            self.call("/api/load", {"model": "Qwen3-8B-Q4_K_M.gguf"})
+            load_and_wait()
+
     def test_12_summarize_and_backup(self):
         r = self.call("/api/summarize", {"messages": [{"role": "user", "content": "a"}, {"role": "assistant", "content": "b"}]})
         self.assertIn("Resumo", r["summary"])

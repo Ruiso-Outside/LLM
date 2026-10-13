@@ -136,6 +136,44 @@ class Catalog(unittest.TestCase):
         self.assertIsInstance(caps, dict)
 
 
+class ModelFiles(unittest.TestCase):
+    """Arquivos .gguf que nao sao modelos de conversa (MTP, visao, imatrix) e a escolha do acelerador."""
+
+    @classmethod
+    def setUpClass(cls):
+        import os
+        cls._tmp = tempfile.TemporaryDirectory()
+        os.environ["LLM_HOME"] = cls._tmp.name
+        import server
+        cls.server = server
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._tmp.cleanup()
+
+    def test_detects_mtp(self):
+        s = self.server
+        for name in ("MTP/mtp-gemma-4-12b-it-Q8_0.gguf", "mtp-gemma-4-12b-it.gguf",
+                     "Qwen3.8-27B-Uncensored-HauhauCS-Aggressive-FastMTP-32K.gguf", "modelo_mtp.gguf"):
+            self.assertTrue(s.is_mtp(name), name)
+        for name in ("gemma-4-12b-it-Q8_0.gguf", "Qwen3.8-27B-Uncensored-HauhauCS-Aggressive-IQ3_XS.gguf", "smtpbot-7b.gguf"):
+            self.assertFalse(s.is_mtp(name), name)
+        self.assertTrue(s.is_aux_file("imatrix_unsloth.gguf"))
+        self.assertTrue(s.is_aux_file("mmproj-BF16.gguf"))
+
+    def test_hf_files_hides_aux(self):
+        tree = [{"path": p, "size": n} for p, n in [("MTP/mtp-g-Q8_0.gguf", 444), ("g-Q8_0.gguf", 12000), ("mmproj-BF16.gguf", 167),
+                                                    ("imatrix_unsloth.gguf", 13), ("g-Q4_K_M.gguf", 6800)]]
+        self.assertEqual([f["path"] for f in self.server.hf_files("x/y", tree)], ["g-Q4_K_M.gguf", "g-Q8_0.gguf"])
+
+    def test_pick_mtp(self):
+        tree = [{"path": p, "size": n} for p, n in [("MTP/mtp-g-BF16.gguf", 822), ("MTP/mtp-g-F16.gguf", 822),
+                                                    ("MTP/mtp-g-Q8_0.gguf", 444), ("mtp-g.gguf", 444), ("MTP/mtp-g-Q4_0.gguf", 300)]]
+        self.assertEqual(self.server.pick_mtp(tree)["path"], "MTP/mtp-g-Q8_0.gguf")
+        self.assertEqual(self.server.pick_mtp(tree, "g-Q4_0.gguf")["path"], "MTP/mtp-g-Q4_0.gguf")
+        self.assertIsNone(self.server.pick_mtp([{"path": "g.gguf", "size": 1}]))
+
+
 class McpHelpers(TempDirCase):
     def test_split_command(self):
         self.assertEqual(mcp.split_command('npx -y pkg "C:\\minha pasta"'), ("npx", ["-y", "pkg", "C:\\minha pasta"]))

@@ -78,7 +78,7 @@ function renderTopbar() {
   const name = modelName() || e.model;
   const caps = (e.vision ? " · " + t("👁 visão") : "") + (e.audio ? " · 🎧 " + t("Áudio").toLowerCase() : "");
   const map = { stopped: [t("Nenhum modelo carregado"), ""], loading: [t("Carregando {name}...", { name }), "loading"],
-                ready: ["● " + name + (e.backend ? ` · ${e.backend.toUpperCase()}` : "") + caps, "ready"], error: [t("Erro no motor (clique)"), "error"] };
+                ready: [(e.mtp_error ? "⚠ " : "") + "● " + name + (e.backend ? ` · ${e.backend.toUpperCase()}` : "") + (e.mtp ? " · ⚡ MTP" : "") + caps, "ready"], error: [t("Erro no motor (clique)"), "error"] };
   const extras = (st.extras || []).filter(x => x.state === "ready" || x.state === "loading");
   pill.textContent = map[e.state][0] + (extras.length ? ` · +${extras.length} extra${extras.length > 1 ? "s" : ""}` : "");
   if (e.state === "stopped" && extras.length) { pill.textContent = t("● {n} modelo(s) extra(s)", { n: extras.length }); pill.className = "pill ready"; }
@@ -771,17 +771,19 @@ function renderMemBar() {
 }
 function renderLocalModels() {
   renderMemBar();
-  const st = S.status; const mms = S.media?.mmproj || [];
+  const st = S.status; const mms = S.media?.mmproj || []; const mtps = S.media?.mtp || [];
   const html = st.models.length ? st.models.map(m => {
     const on = st.engine.model === m.path && st.engine.state === "ready";
     const extra = (st.extras || []).find(x => x.model === m.path && (x.state === "ready" || x.state === "loading"));
     const vis = mms.length ? `<select class="input small-input" data-mm="${esc(m.path)}" title="Arquivo de visão (mmproj): permite o modelo ver imagens">
         <option value="">Sem visão</option>${mms.map(x => `<option value="${esc(x)}" ${x === m.mmproj ? "selected" : ""}>👁 ${esc(baseName(x))}</option>`).join("")}</select>` : "";
+    const acc = mtps.length ? `<select class="input small-input" data-mtp="${esc(m.path)}" title="${esc(t("Acelerador MTP: o modelo gera vários tokens de uma vez (mais rápido). Use o MTP do mesmo modelo."))}">
+        <option value="">${esc(t("Sem acelerador"))}</option>${mtps.map(x => `<option value="${esc(x)}" ${x === m.mtp ? "selected" : ""}>⚡ ${esc(baseName(x))}</option>`).join("")}</select>` : "";
     const visionNoFile = (m.info?.caps || []).some(c => c.key === "vision") && !m.mmproj;
     return `<div class="item model-item"><div class="name-col"><span class="name" title="${esc(m.path)}">${esc(m.name)}</span>
       <div class="sub">${capsHTML(m.info, true)}${m.info?.params ? `<span class="meta-pill">🧩 ${esc(m.info.params)}</span>` : ""}${m.quant?.quant ? `<span class="meta-pill" title="${esc(m.quant.tip)}">${esc(m.quant.quant)} ${starsHTML(m.quant)}</span>` : ""}
       ${visionNoFile ? '<span class="warn-pill" title="Este modelo tem visão, mas o arquivo mmproj não foi baixado. Baixe de novo com Incluir visão ou escolha o arquivo ao lado.">👁 sem arquivo de visão</span>' : ""}</div></div>
-      ${on ? '<span class="tag on">carregado</span>' : ""}${extra ? `<span class="tag on" title="Carregado como modelo extra (agentes/pergunta rápida)">extra · ${(extra.device || "gpu").toUpperCase()}${extra.state === "loading" ? "…" : ""}</span><button class="btn small" data-unload-extra="${esc(m.path)}">Descarregar</button>` : ""}${m.mmproj ? '<span class="tag vis">👁 visão</span>' : ""}${fitTag(m.size)}<span class="meta">${fmtSize(m.size)}</span>${vis}
+      ${on ? '<span class="tag on">carregado</span>' : ""}${extra ? `<span class="tag on" title="Carregado como modelo extra (agentes/pergunta rápida)">extra · ${(extra.device || "gpu").toUpperCase()}${extra.state === "loading" ? "…" : ""}</span><button class="btn small" data-unload-extra="${esc(m.path)}">Descarregar</button>` : ""}${m.mmproj ? '<span class="tag vis">👁 visão</span>' : ""}${m.mtp ? `<span class="tag vis" title="${esc(t("Acelerador MTP ativo"))}">⚡ MTP</span>` : ""}${fitTag(m.size)}<span class="meta">${fmtSize(m.size)}</span>${vis}${acc}
       ${m.custom ? '<span class="tag on" title="Este modelo tem ajustes próprios">⚙ ajustes próprios</span>' : ""}<button class="btn small" data-msettings="${esc(m.path)}" title="Ajustes deste modelo (contexto, temperatura...)">⚙️</button>
       <button class="btn small" data-load="${esc(m.path)}">${on ? "Recarregar" : "Carregar"}</button>
       <button class="btn small danger" data-del="${esc(m.path)}">Excluir</button></div>`;
@@ -799,6 +801,12 @@ $("#localModels").addEventListener("click", async e => {
   refreshStatus();
 });
 $("#localModels").addEventListener("change", async e => {
+  const mt = e.target.dataset.mtp;
+  if (mt !== undefined) {
+    await post("/api/models/mtp", { model: mt, mtp: e.target.value });
+    toast(S.status.engine.model === mt ? "Recarregue o modelo para aplicar." : t("Acelerador configurado."));
+    return refreshStatus();
+  }
   const model = e.target.dataset.mm; if (model === undefined) return;
   await post("/api/models/mmproj", { model, mmproj: e.target.value });
   toast(S.status.engine.model === model ? "Recarregue o modelo para aplicar." : "Visão configurada.");
@@ -851,7 +859,7 @@ $("#hfResults").addEventListener("click", async e => {
   S.selectedRepo = it.dataset.repo;
   const box = $("#hfFiles"); box.innerHTML = '<p class="muted">Carregando arquivos...</p>';
   try {
-    const { files, mmproj, info } = await api("/api/hf/files?repo=" + encodeURIComponent(S.selectedRepo));
+    const { files, mmproj, info, mtp, mtp_size } = await api("/api/hf/files?repo=" + encodeURIComponent(S.selectedRepo));
     // melhor arquivo para este PC: o de maior qualidade que cabe inteiro na VRAM
     const fitting = files.filter(f => fitsGpu(f.size) && f.stars);
     const best = fitting.sort((a, b) => b.stars - a.stars || a.size - b.size)[0]?.path; // entre os melhores, o menor (sobra VRAM para o contexto)
@@ -859,7 +867,8 @@ $("#hfResults").addEventListener("click", async e => {
       ${info ? capsHTML(info) : ""}
       ${info && !info.chat ? `<div class="warn-box">${(info.caps || []).some(c => c.key === "imagegen") ? "🎨 Este é um modelo de <b>gerar imagens</b>, não de conversa. Use os modelos de imagem em Modelos → Mídia." : "🔎 Este modelo não serve para conversar."}</div>` : ""}
       <p class="muted small-note">Passe o mouse nos ícones para ver o que significam. ⭐ = melhor qualidade que cabe na sua placa.</p></div>
-      ${mmproj ? `<label class="check vis-check"><input type="checkbox" id="withMmproj" checked> 👁 Incluir visão (o modelo poderá ver imagens) <small class="muted">${esc(baseName(mmproj))}</small></label>` : ""}` +
+      ${mmproj ? `<label class="check vis-check"><input type="checkbox" id="withMmproj" checked> 👁 Incluir visão (o modelo poderá ver imagens) <small class="muted">${esc(baseName(mmproj))}</small></label>` : ""}
+      ${mtp ? `<label class="check vis-check" title="${esc(t("Os arquivos MTP não são modelos sozinhos: são um acelerador que funciona junto com o modelo grande e ocupa um pouco mais de VRAM."))}"><input type="checkbox" id="withMtp" checked> ⚡ ${t("Incluir acelerador MTP (respostas mais rápidas, +{size})", { size: fmtSize(mtp_size) })} <small class="muted">${esc(baseName(mtp))}</small></label>` : ""}` +
       (files.length ? files.map(f => `<div class="item file-item ${f.path === best ? "best" : ""}"><div class="name-col"><span class="name" title="${esc(f.path)}">${f.path === best ? "⭐ " : ""}${esc(f.path.split("/").pop())}${f.parts > 1 ? ` <small class="muted">${t("({n} partes)", { n: f.parts })}</small>` : ""}</span>
         <div class="sub">${f.quant ? `<span class="meta-pill">${esc(f.quant)}</span>` : ""}${starsHTML(f)}<small class="muted">${esc(f.quality || "")}</small></div></div>
         ${fitTag(f.size)}<span class="meta">${fmtSize(f.size)}</span><button class="btn small ${f.path === best ? "primary" : ""}" data-dl="${esc(f.path)}">Baixar</button></div>`).join("")
@@ -868,7 +877,7 @@ $("#hfResults").addEventListener("click", async e => {
 });
 $("#hfFiles").addEventListener("click", async e => {
   const p = e.target.dataset.dl; if (!p) return;
-  try { await post("/api/models/download", { repo: S.selectedRepo, path: p, mmproj: !!$("#withMmproj")?.checked }); toast("Download iniciado"); e.target.disabled = true; }
+  try { await post("/api/models/download", { repo: S.selectedRepo, path: p, mmproj: !!$("#withMmproj")?.checked, mtp: !!$("#withMtp")?.checked }); toast("Download iniciado"); e.target.disabled = true; }
   catch (err) { toast(err.message, 5000); }
   refreshStatus();
 });

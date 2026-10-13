@@ -47,6 +47,7 @@ CHATS = DATA / "chats"
 SETTINGS_FILE = DATA / "settings.json"
 STATS_FILE = DATA / "stats.json"
 MMPROJ_FILE = DATA / "mmproj.json"
+MTP_FILE = DATA / "mtp.json"
 MODEL_INFO_FILE = DATA / "model_info.json"
 CPU_COUNT = os.cpu_count() or 4
 
@@ -440,6 +441,7 @@ class EngineProcess:
         self.error = ""
         self.n_ctx = 0
         self.modalities = {}
+        self.mtp = self.mtp_error = False  # acelerador MTP em uso / recusado pelo motor
         self.log = deque(maxlen=400)
         self.lock = threading.Lock()
         self.job = _job_object()
@@ -455,7 +457,10 @@ class EngineProcess:
             except subprocess.TimeoutExpired:
                 p.kill()
 
-    def start(self, model_rel, s, device=None, embed=False):
+    def start(self, model_rel, s, device=None, embed=False, no_mtp=False):
+        self._args = (model_rel, dict(s), device, embed)
+        if not no_mtp:
+            self.mtp_error = False
         model_path = (MODELS / model_rel).resolve()
         if not embed:
             s = model_effective(model_rel, s)  # ajustes proprios do modelo (contexto, GPU)
@@ -483,6 +488,9 @@ class EngineProcess:
         mm = mmproj_for(model_rel)
         if mm:
             cmd += ["--mmproj", str(mm)]
+        mt = None if (embed or on_cpu or no_mtp) else mtp_for(model_rel)
+        if mt:  # decodificacao especulativa: a cabeca MTP adivinha os proximos tokens e o modelo confere
+            cmd += ["--spec-type", "draft-mtp", "-md", str(mt), "-ngld", "all"]
         threads = cpu_threads(s)
         if threads:
             cmd += ["-t", str(threads), "-tb", str(threads)]
@@ -500,6 +508,7 @@ class EngineProcess:
                 pass
         with self.lock:
             self.proc, self.model, self.backend, self.state, self.error = proc, model_rel, backend, "loading", ""
+            self.mtp = bool(mt)
             self.device = "cpu" if on_cpu or backend == "cpu" or int(s["gpu_layers"]) == 0 else "gpu"
         threading.Thread(target=self._read_output, args=(proc,), daemon=True).start()
         threading.Thread(target=self._wait_ready, args=(proc,), daemon=True).start()
@@ -519,6 +528,17 @@ class EngineProcess:
             except (urllib.error.URLError, OSError):
                 pass
             time.sleep(0.5)
+        if proc is self.proc and getattr(self, "mtp", False):
+            # o motor nao aceitou o acelerador MTP (versao antiga ou arquivo incompativel): tenta sem ele
+            model_rel, s, device, embed = self._args
+            note = "[LLM Local] O motor falhou com o acelerador MTP; carregando sem ele."
+            try:
+                self.start(model_rel, s, device, embed, no_mtp=True)
+                self.log.append(note)
+                self.mtp_error = True
+                return
+            except (ValueError, OSError):
+                pass
         if proc is self.proc:
             tail = [l for l in list(self.log)[-15:] if l]
             self.state = "error"
@@ -537,7 +557,7 @@ class EngineProcess:
         if self.state == "ready" and self.proc and self.proc.poll() is not None:
             self.state, self.error = "error", "O motor fechou inesperadamente (veja o log)."
         return {"state": self.state, "model": self.model, "backend": self.backend, "error": self.error,
-                "port": self.port, "n_ctx": self.n_ctx,
+                "port": self.port, "n_ctx": self.n_ctx, "mtp": self.mtp, "mtp_error": self.mtp_error,
                 "vision": self.state == "ready" and self.modalities.get("vision", False),
                 "audio": self.state == "ready" and self.modalities.get("audio", False)}
 
@@ -556,8 +576,8 @@ def model_bytes(rel):
         return 0
     m = SPLIT_RE.match(p.name)
     size = sum(q.stat().st_size for q in p.parent.glob(f"{m.group(1)}-*-of-{m.group(3)}.gguf")) if m else p.stat().st_size
-    mm = mmproj_for(rel)
-    return size + (mm.stat().st_size if mm else 0)
+    mm, mt = mmproj_for(rel), mtp_for(rel)
+    return size + (mm.stat().st_size if mm else 0) + (mt.stat().st_size if mt else 0)
 
 
 class EnginePool:
@@ -728,7 +748,7 @@ atexit.register(mcp.MANAGER.stop)
 SPLIT_RE = re.compile(r"^(.*)-(\d{5})-of-(\d{5})\.gguf$", re.I)
 
 
-MEDIA_DIRS = ("image", "whisper", "mmproj", "embed")
+MEDIA_DIRS = ("image", "whisper", "mmproj", "embed", "mtp")
 
 
 def model_recommended(rel):
@@ -812,10 +832,11 @@ def hf_model_info(repo):
 def list_models():
     out = []
     mm = load_mmproj_map()
+    mtps = load_mtp_map()
     infos = load_model_info()
     for p in sorted(MODELS.rglob("*.gguf"), key=lambda x: x.name.lower()):
         rel_parts = p.relative_to(MODELS).parts
-        if "mmproj" in p.name.lower() or (len(rel_parts) > 1 and rel_parts[0] in MEDIA_DIRS):
+        if is_aux_file(p.relative_to(MODELS).as_posix()) or (len(rel_parts) > 1 and rel_parts[0] in MEDIA_DIRS):
             continue
         m = SPLIT_RE.match(p.name)
         size = p.stat().st_size
@@ -827,6 +848,7 @@ def list_models():
         info = infos.get(rel) or {"repo": "", **catalog.model_caps({"id": p.name})}
         out.append({"name": p.stem if not m else m.group(1), "path": rel, "size": size,
                     "mmproj": mm.get(rel, "") if (MODELS / mm.get(rel, "_")).is_file() else "",
+                    "mtp": mtps.get(rel, "") if (MODELS / mtps.get(rel, "_")).is_file() else "",
                     "custom": bool(modelsettings.get(rel)),
                     "info": info, "quant": catalog.quant_info(p.name)})
     return out
@@ -858,6 +880,61 @@ def list_mmproj():
     return sorted(p.relative_to(MODELS).as_posix() for p in MODELS.rglob("*.gguf") if "mmproj" in p.name.lower())
 
 
+MTP_RE = re.compile(r"(^|[-_.])(fast)?mtp([-_.]|$)", re.I)
+
+
+def is_mtp(path):
+    """Cabeca MTP (Multi-Token Prediction): acelerador do modelo grande, nao funciona sozinho."""
+    p = path.replace("\\", "/").lower()
+    return p.startswith("mtp/") or "/mtp/" in p or bool(MTP_RE.search(p.rsplit("/", 1)[-1][:-5]))
+
+
+def is_aux_file(path):
+    """Arquivos .gguf que nao sao modelos de conversa (visao, MTP, matriz de importancia)."""
+    name = path.rsplit("/", 1)[-1].lower()
+    return "mmproj" in name or "imatrix" in name or is_mtp(path)
+
+
+def pick_mtp(files, model_path=""):
+    """Melhor arquivo MTP do repositorio: mesma quantizacao do modelo, senao Q8_0, Q4_0 e o menor."""
+    mtp = [f for f in files if is_mtp(f["path"])]
+    if not mtp:
+        return None
+    q = (catalog.quant_info(model_path.rsplit("/", 1)[-1]) or {}).get("quant", "").lower() if model_path else ""
+
+    def score(f):
+        n = f["path"].lower()
+        return (0 if q and q in n else 1, 0 if "q8_0" in n else 1 if "q4_0" in n else 3 if re.search(r"bf16|f16|f32", n) else 2,
+                f["size"])
+    return min(mtp, key=score)
+
+
+def load_mtp_map():
+    try:
+        return json.loads(MTP_FILE.read_text("utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def set_mtp(model_rel, mtp_rel):
+    m = load_mtp_map()
+    if mtp_rel:
+        m[model_rel] = mtp_rel
+    else:
+        m.pop(model_rel, None)
+    MTP_FILE.write_text(json.dumps(m, indent=1), "utf-8")
+
+
+def mtp_for(model_rel):
+    rel = load_mtp_map().get(model_rel)
+    p = (MODELS / rel).resolve() if rel else None
+    return p if p and p.is_file() and MODELS.resolve() in p.parents else None
+
+
+def list_mtp():
+    return sorted(p.relative_to(MODELS).as_posix() for p in MODELS.rglob("*.gguf") if is_mtp(p.relative_to(MODELS).as_posix()))
+
+
 def hf_tree(repo):
     items = get_json(f"https://huggingface.co/api/models/{urllib.parse.quote(repo, safe='/')}/tree/main?recursive=true")
     return [{"path": it["path"], "size": (it.get("lfs") or {}).get("size") or it.get("size", 0)}
@@ -865,7 +942,7 @@ def hf_tree(repo):
 
 
 def hf_files(repo, tree=None):
-    files = [f for f in (tree if tree is not None else hf_tree(repo)) if "mmproj" not in f["path"].lower()]
+    files = [f for f in (tree if tree is not None else hf_tree(repo)) if not is_aux_file(f["path"])]
     # agrupa arquivos divididos
     groups = {}
     for f in files:
@@ -888,7 +965,7 @@ def pick_mmproj(files):
     return None
 
 
-def download_model(task, repo, path, with_mmproj=False):
+def download_model(task, repo, path, with_mmproj=False, with_mtp=False):
     files = hf_tree(repo)
     try:
         info = hf_model_info(repo)
@@ -925,6 +1002,15 @@ def download_model(task, repo, path, with_mmproj=False):
             download(f"https://huggingface.co/{repo}/resolve/main/{urllib.parse.quote(mm['path'])}", mm_dest, task, done)
         set_mmproj((folder / Path(parts[0][0]).name).relative_to(MODELS).as_posix(),
                    mm_dest.relative_to(MODELS).as_posix())
+    mt = pick_mtp(files, path) if with_mtp else None
+    if mt:
+        mt_dest = MODELS / "mtp" / f"{repo.split('/')[-1]}__{Path(mt['path']).name}"
+        mt_dest.parent.mkdir(parents=True, exist_ok=True)
+        task["detail"] = "acelerador MTP"
+        task["total"] += mt["size"]
+        if not mt_dest.exists():
+            download(f"https://huggingface.co/{repo}/resolve/main/{urllib.parse.quote(mt['path'])}", mt_dest, task, done)
+        set_mtp((folder / Path(parts[0][0]).name).relative_to(MODELS).as_posix(), mt_dest.relative_to(MODELS).as_posix())
 
 
 # ---------------------------------------------------------------- conversas
@@ -1209,7 +1295,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_backup(q.get("attachments", ["1"])[0] == "1")
             if p == "/api/media":
                 return self.send_json({"whisper": media.whisper_status(), "image": media.image_status(),
-                                       "mmproj": list_mmproj()})
+                                       "mmproj": list_mmproj(), "mtp": list_mtp()})
             if p.startswith("/api/uploads/"):
                 try:
                     return self.send_file(media.upload_path(p.rsplit("/", 1)[-1]))
@@ -1235,11 +1321,13 @@ class Handler(BaseHTTPRequestHandler):
                 tree = hf_tree(repo)
                 mm = pick_mmproj(tree)
                 files = [f | catalog.quant_info(f["path"].rsplit("/", 1)[-1]) for f in hf_files(repo, tree)]
+                mt = pick_mtp(tree)
                 try:
                     info = hf_model_info(repo)
                 except (urllib.error.URLError, OSError, ValueError):
                     info = None
-                return self.send_json({"files": files, "mmproj": mm["path"] if mm else "", "info": info})
+                return self.send_json({"files": files, "mmproj": mm["path"] if mm else "", "info": info,
+                                       "mtp": mt["path"] if mt else "", "mtp_size": mt["size"] if mt else 0})
             return self.static(p)
         except urllib.error.HTTPError as e:
             self.send_json({"error": f"HTTP {e.code}: {e.reason}"}, 502)
@@ -1366,6 +1454,12 @@ class Handler(BaseHTTPRequestHandler):
                 t = new_task("engine" if what in ("whisper", "sd") else "model", f"{jobs[what][1]} ({value})")
                 run_task(t, lambda task: jobs[what][2](task, value))
                 return self.send_json({"id": t["id"]})
+            if p == "/api/models/mtp":
+                mt = b.get("mtp") or ""
+                if mt and mt not in list_mtp():
+                    return self.send_json({"error": "acelerador MTP inválido"}, 400)
+                set_mtp(b.get("model", ""), mt)
+                return self.send_json({"ok": True})
             if p == "/api/models/mmproj":
                 mm = b.get("mmproj") or ""
                 if mm and mm not in list_mmproj():
@@ -1398,8 +1492,8 @@ class Handler(BaseHTTPRequestHandler):
                 if not re.match(r"^[\w.-]+/[\w.-]+$", repo) or ".." in path:
                     return self.send_json({"error": "repositorio invalido"}, 400)
                 t = new_task("model", f"{repo} / {Path(path).name}")
-                with_mm = bool(b.get("mmproj"))
-                run_task(t, lambda task: download_model(task, repo, path, with_mm))
+                with_mm, with_mtp = bool(b.get("mmproj")), bool(b.get("mtp"))
+                run_task(t, lambda task: download_model(task, repo, path, with_mm, with_mtp))
                 return self.send_json({"id": t["id"]})
             if p == "/api/models/delete":
                 f = (MODELS / b.get("path", "")).resolve()

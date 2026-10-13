@@ -148,6 +148,10 @@ A IA responde com base nos **seus documentos**, sem mandar nada para fora do PC.
 
 Quando o contexto passa de ~80%, o app **resume a parte antiga da conversa** e continua dali, sem estourar o limite (Configurações → *Resumir a conversa antiga...*). O resumo aparece num divisor recolhível na conversa.
 
+## Acelerador MTP ⚡
+
+Alguns repositórios trazem arquivos `mtp-…gguf` (ou `…-FastMTP…`) de algumas centenas de MB. **Eles não são modelos sozinhos**: são um acelerador (Multi-Token Prediction) que adivinha os próximos tokens para o modelo grande conferir, deixando as respostas mais rápidas. Por isso eles não aparecem como modelos para baixar: ao baixar o modelo, marque **⚡ Incluir acelerador MTP**. Em **Meus modelos** dá para escolher ou tirar o acelerador de cada modelo. Se o motor não aceitar o arquivo, o modelo é carregado sem ele (aparece ⚠ no topo).
+
 ## Ajustes por modelo ⚙️
 
 Em **Modelos → Meus modelos → ⚙️**, cada modelo pode ter contexto, camadas na GPU, temperatura, top P/K, min P e penalidade próprios. Sem ajustes, o app usa a **amostragem recomendada da família** (Qwen3, Gemma, Llama, Mistral, DeepSeek R1...) e o resto vem das configurações globais.

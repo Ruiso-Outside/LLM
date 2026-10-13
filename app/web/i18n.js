@@ -636,6 +636,12 @@ const DICT = {
   "Print da tela": ["Screenshot", "Captura de pantalla"],
   "Imagem colada": ["Pasted image", "Imagen pegada"],
   "🖥 Print anexado: faça sua pergunta (ou só Enter)": ["🖥 Screenshot attached: ask your question (or just press Enter)", "🖥 Captura adjunta: haz tu pregunta (o solo Enter)"],
+  "Acelerador MTP: o modelo gera vários tokens de uma vez (mais rápido). Use o MTP do mesmo modelo.": ["MTP accelerator: the model generates several tokens at once (faster). Use the MTP from the same model.", "Acelerador MTP: el modelo genera varios tokens a la vez (más rápido). Usa el MTP del mismo modelo."],
+  "Sem acelerador": ["No accelerator", "Sin acelerador"],
+  "Acelerador MTP ativo": ["MTP accelerator on", "Acelerador MTP activo"],
+  "Acelerador configurado.": ["Accelerator set.", "Acelerador configurado."],
+  "Os arquivos MTP não são modelos sozinhos: são um acelerador que funciona junto com o modelo grande e ocupa um pouco mais de VRAM.": ["MTP files are not standalone models: they are an accelerator that works together with the big model and uses a bit more VRAM.", "Los archivos MTP no son modelos por sí solos: son un acelerador que funciona junto con el modelo grande y ocupa un poco más de VRAM."],
+  "Incluir acelerador MTP (respostas mais rápidas, +{size})": ["Include MTP accelerator (faster answers, +{size})", "Incluir acelerador MTP (respuestas más rápidas, +{size})"],
 };
 
 function _pick(key) {
