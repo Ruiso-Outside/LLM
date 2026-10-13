@@ -10,7 +10,7 @@
     "start": "electron .",
     "icon": "node gen-icon.js",
     "dist": "node gen-icon.js && electron-builder --win nsis --publish never",
-    "release": "node gen-icon.js && electron-builder --win nsis --publish always"
+    "release": "node gen-icon.js && node scripts/release-check.js && electron-builder --win nsis --publish always && node scripts/release-check.js --verify"
   },
   "build": {
     "appId": "studio.piphin.llmlocal",

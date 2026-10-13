@@ -27,7 +27,7 @@ cd desktop
 set GH_TOKEN=seu_token
 npm run release
 ```
-O comando gera o instalador e cria o Release `v1.3.0` com os arquivos que o app usa para se atualizar (`latest.yml`, instalador e `.blockmap`).
+O comando confere a tag, cria **um único** Release, gera o instalador, envia os arquivos e no fim verifica se tudo baixa. Ele cria o Release `v1.3.0` com os arquivos que o app usa para se atualizar (`latest.yml`, instalador e `.blockmap`).
 
 ### Gerar o instalador de novo, sem publicar
 ```
