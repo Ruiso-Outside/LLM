@@ -137,5 +137,5 @@ async function streamChat(body, signal, onEvent) {
   }
 }
 
-// Ponte com o app desktop (Electron). null quando aberto no navegador.
-const desktop = window.llmDesktop || null;
+// Ponte com o processo principal do Electron (desktop/preload.js).
+const desktop = window.llmDesktop;

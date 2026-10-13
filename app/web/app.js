@@ -292,34 +292,20 @@ async function generate(isContinue = false) {
   renderMessages();
   const t0 = performance.now(); let tokens = 0;
   try {
-    const r = await fetch("/api/chat", {
-      method: "POST", headers: { "Content-Type": "application/json" }, signal: S.abort.signal,
-      body: JSON.stringify({ messages, web: S.web && !isContinue, temperature: +st.temperature, top_p: +st.top_p, top_k: +st.top_k,
-        min_p: +st.min_p, repeat_penalty: +st.repeat_penalty, max_tokens: +st.max_tokens }),
-    });
-    if (!r.ok) { let e; try { e = (await r.json()).error; } catch { e = "Erro " + r.status; } throw new Error(e); }
-    const reader = r.body.getReader(); const dec = new TextDecoder(); let buf = "";
-    while (true) {
-      const { done, value } = await reader.read(); if (done) break;
-      buf += dec.decode(value, { stream: true }); let nl;
-      while ((nl = buf.indexOf("\n")) >= 0) {
-        const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
-        if (!line.startsWith("data:")) continue;
-        const data = line.slice(5).trim(); if (data === "[DONE]") continue;
-        let j; try { j = JSON.parse(data); } catch { continue; }
-        if (j.error) throw new Error(j.error.message || JSON.stringify(j.error));
-        if (j.llmlocal) { msg.web = { ...msg.web, ...j.llmlocal }; renderLastMessage(); continue; }
-        const d = j.choices?.[0]?.delta || {};
-        if (d.content) { msg.content += d.content; tokens++; }
-        if (d.reasoning_content) { msg.reasoning = (msg.reasoning || "") + d.reasoning_content; tokens++; }
-        if (j.timings) {
-          const t = j.timings; const prev = isContinue && msg._base ? msg._base : null;
-          msg.stats = { tps: t.predicted_per_second || 0, tokens: (t.predicted_n || tokens) + (prev?.tokens || 0),
-                        prompt: t.prompt_n || 0, cached: t.cache_n || 0 };
-        }
-        renderLastMessage();
+    const body = { messages, web: S.web && !isContinue, temperature: +st.temperature, top_p: +st.top_p, top_k: +st.top_k,
+      min_p: +st.min_p, repeat_penalty: +st.repeat_penalty, max_tokens: +st.max_tokens };
+    await streamChat(body, S.abort.signal, j => {
+      if (j.llmlocal) { msg.web = { ...msg.web, ...j.llmlocal }; renderLastMessage(); return; }
+      const d = j.choices?.[0]?.delta || {};
+      if (d.content) { msg.content += d.content; tokens++; }
+      if (d.reasoning_content) { msg.reasoning = (msg.reasoning || "") + d.reasoning_content; tokens++; }
+      if (j.timings) {
+        const t = j.timings; const prev = isContinue && msg._base ? msg._base : null;
+        msg.stats = { tps: t.predicted_per_second || 0, tokens: (t.predicted_n || tokens) + (prev?.tokens || 0),
+                      prompt: t.prompt_n || 0, cached: t.cache_n || 0 };
       }
-    }
+      renderLastMessage();
+    });
   } catch (e) {
     if (e.name !== "AbortError") msg.error = e.message;
   } finally {
@@ -515,7 +501,6 @@ $("#resetStats").onclick = async () => {
   S.status.stats = await post("/api/stats/reset"); renderStatsSummary(); renderStatsBar();
 };
 async function initDesktopSettings() {
-  $("#desktopSettings").hidden = false;
   const cfg = await desktop.getConfig();
   $("#hotkeyInput").value = cfg.hotkey; $("#autoStart").checked = cfg.autoStart;
   $("#hideOnBlur").checked = cfg.quickHideOnBlur; $("#dataDir").textContent = cfg.homeDir;
@@ -566,7 +551,7 @@ window.addEventListener("hashchange", openChatFromHash);
   await refreshStatus();
   renderMessages();
   await openChatFromHash();
-  if (desktop) initDesktopSettings();
+  initDesktopSettings();
   setInterval(() => {
     if (!S.generating) refreshStatus();
     if ($("#modelsModal").classList.contains("open") && $("#tabEngine").classList.contains("active")) loadLog();

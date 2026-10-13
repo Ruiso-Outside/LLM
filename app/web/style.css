@@ -210,9 +210,3 @@ label.full { grid-column: 1 / -1; }
   border: 1px solid #3a3d4a; padding: 10px 16px; border-radius: 10px; opacity: 0; pointer-events: none; transition: all .2s; z-index: 20; max-width: 90vw; }
 #toast.show { opacity: 1; transform: translateX(-50%); }
 
-@media (max-width: 760px) {
-  #sidebar { position: fixed; z-index: 5; height: 100%; }
-  .grid, .hf-cols, .engine-card { grid-template-columns: 1fr; }
-  #modelSelect { min-width: 0; flex: 1; }
-  .pill { display: none; }
-}

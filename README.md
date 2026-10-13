@@ -25,14 +25,16 @@ npm run dist
 
 ## Como usar
 
-1. Abra o **LLM Local**. Também dá para usar sem instalar: dê dois cliques em `Iniciar LLM Local.bat` e ele abre no navegador.
+1. Abra o **LLM Local**.
 2. **Modelos → Motor**: clique em *Instalar* no **CUDA** (para placa NVIDIA). Isso baixa o `llama.cpp` direto do GitHub oficial.
 3. **Modelos → Baixar modelos**: busque um modelo (ex.: `Qwen`, `gemma`) e baixe um arquivo **Q4_K_M**. A etiqueta verde "cabe na GPU" mostra o que roda rápido na sua placa.
 4. Escolha o modelo no topo, clique em **Carregar** e converse.
 
-Para fechar, feche a janela preta do terminal. O modelo é descarregado junto.
+Para encerrar de vez, clique com o botão direito no ícone perto do relógio e escolha **Sair**. O modelo é descarregado junto.
 
 ## Pastas
+
+Ficam dentro da pasta de dados escolhida na primeira execução (dá para mudar em Configurações → App desktop).
 
 | Pasta | Conteúdo |
 |---|---|
@@ -69,9 +71,17 @@ Enquanto o modelo escreve, a velocidade aparece ao vivo (⚡ tok/s) no topo da r
 - **Recusas**: o app não filtra nada. Se um modelo recusar pedidos, isso vem do treino do próprio modelo. Versões *abliterated* ou *uncensored* do Hugging Face são ajustadas para recusar menos.
 - **Modelos com raciocínio** (Qwen3, DeepSeek-R1...): o "pensamento" aparece em um bloco recolhível.
 - **API compatível com OpenAI**: com um modelo carregado, outros programas podem usar `http://127.0.0.1:8766/v1` (ex.: extensões de VS Code, scripts).
-- Porta diferente: `set LLM_PORT=9000` antes de iniciar.
 
 ## Requisitos
 
-- Windows 10/11 com Python 3.9+ (sem bibliotecas extras)
+- Windows 10/11 com Python 3.9+ instalado e no PATH (sem bibliotecas extras)
 - Placa NVIDIA (CUDA), AMD/Intel (Vulkan), ou só CPU
+
+## Estrutura do código
+
+| Caminho | O que é |
+|---|---|
+| `desktop/` | App Electron: janelas, bandeja, atalho global e instalador |
+| `app/server.py` | Servidor interno (iniciado escondido pelo app): motor, modelos, chat e downloads |
+| `app/websearch.py` | Pesquisa na web e leitura das páginas |
+| `app/web/` | Interface: `index.html` (janela principal), `quick.html` (pergunta rápida), `common.js` (código compartilhado) |

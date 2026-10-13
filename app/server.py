@@ -1,8 +1,9 @@
-"""LLM Local - servidor do app.
+"""LLM Local - servidor interno do app desktop.
 
+Iniciado escondido pelo Electron (desktop/main.js); nao e usado sozinho.
 Sem dependencias externas (so biblioteca padrao do Python).
 Roda apenas em 127.0.0.1: nada sai do seu computador, exceto quando VOCE
-pede para baixar o motor (GitHub oficial do llama.cpp) ou um modelo (Hugging Face).
+pede para baixar o motor, um modelo ou faz uma pesquisa na web.
 """
 import atexit
 import json
@@ -18,7 +19,6 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
-import webbrowser
 import zipfile
 from collections import deque
 from datetime import datetime
@@ -323,7 +323,6 @@ def _job_object():
         return None
     try:
         import ctypes
-        from ctypes import wintypes  # noqa: F401
         k32 = ctypes.WinDLL("kernel32", use_last_error=True)
         k32.CreateJobObjectW.restype = ctypes.c_void_p
         k32.SetInformationJobObject.argtypes = (ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32)
@@ -855,20 +854,11 @@ def main():
     try:
         httpd = ThreadingHTTPServer((HOST, PORT), Handler)
     except OSError:
-        print(f"O app ja parece estar aberto. Abrindo {url}")
-        webbrowser.open(url)
-        return
+        sys.exit(f"A porta {PORT} ja esta em uso (o LLM Local ja esta aberto?).")
     httpd.daemon_threads = True
     watch_parent()
     threading.Thread(target=auto_load, daemon=True).start()
-    print("=" * 56)
-    print("  LLM Local rodando em", url)
-    print("  API compativel com OpenAI (quando um modelo estiver")
-    print(f"  carregado): http://127.0.0.1:{ENGINE_PORT}/v1")
-    print("  Feche esta janela (ou Ctrl+C) para encerrar.")
-    print("=" * 56)
-    if "--no-browser" not in sys.argv:
-        threading.Timer(0.8, lambda: webbrowser.open(url)).start()
+    print(f"Servidor em {url} | API OpenAI do motor: http://127.0.0.1:{ENGINE_PORT}/v1", flush=True)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

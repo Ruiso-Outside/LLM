@@ -84,7 +84,7 @@ async function startServer() {
   }
   fs.mkdirSync(config.homeDir, { recursive: true });
   const log = fs.createWriteStream(LOG_FILE, { flags: "w" });
-  server = spawn(py[0], [...py[1], path.join(PY_APP, "server.py"), "--no-browser"], {
+  server = spawn(py[0], [...py[1], path.join(PY_APP, "server.py")], {
     cwd: PY_APP, windowsHide: true, stdio: ["ignore", "pipe", "pipe"],
     env: { ...process.env, LLM_HOME: config.homeDir, LLM_PORT: String(PORT), LLM_PARENT_PID: String(process.pid),
            PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8", PYTHONDONTWRITEBYTECODE: "1" },

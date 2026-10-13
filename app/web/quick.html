@@ -51,7 +51,7 @@
 const Q = { chat: null, generating: false, abort: null, status: null, pinned: false,
   web: (() => { try { return localStorage.getItem("web") === "1"; } catch { return false; } })() };
 
-const resize = () => desktop?.resizeQuick(Math.ceil($("#card").getBoundingClientRect().height) + 20);
+const resize = () => desktop.resizeQuick(Math.ceil($("#card").getBoundingClientRect().height) + 20);
 new ResizeObserver(resize).observe($("#card"));
 
 function setStatus(text, cls = "") { const s = $("#st"); s.textContent = text; s.className = "st " + cls; }
@@ -151,7 +151,7 @@ async function ask() {
 function newConversation() { if (Q.generating) Q.abort?.abort(); Q.chat = null; render(); $("#q").focus(); refresh(); }
 function lastAnswer() { const a = Q.chat?.messages.filter(m => m.role === "assistant").at(-1); return a ? splitThink(a).content : ""; }
 async function copyLast() { const t = lastAnswer(); if (t) { await navigator.clipboard.writeText(t); setStatus("Resposta copiada", "ok"); } }
-function openInApp() { if (Q.generating) return; desktop?.openMain(Q.chat?.id || ""); }
+function openInApp() { if (Q.generating) return; desktop.openMain(Q.chat?.id || ""); }
 
 function grow() { const t = $("#q"); t.style.height = "auto"; t.style.height = Math.min(t.scrollHeight, 150) + "px"; }
 function setWeb(on) { Q.web = on; $("#webBtn").classList.toggle("on", on); try { localStorage.setItem("web", on ? "1" : "0"); } catch {} }
@@ -162,20 +162,20 @@ $("#webBtn").onclick = () => { setWeb(!Q.web); $("#q").focus(); };
 $("#newBtn").onclick = newConversation;
 $("#copyBtn").onclick = copyLast;
 $("#openBtn").onclick = openInApp;
-$("#pinBtn").onclick = () => { Q.pinned = !Q.pinned; $("#pinBtn").classList.toggle("on", Q.pinned); desktop?.setQuickPinned(Q.pinned); $("#q").focus(); };
+$("#pinBtn").onclick = () => { Q.pinned = !Q.pinned; $("#pinBtn").classList.toggle("on", Q.pinned); desktop.setQuickPinned(Q.pinned); $("#q").focus(); };
 $("#answer").addEventListener("click", async e => {
   const cb = e.target.closest(".copy-code");
   if (cb) { await navigator.clipboard.writeText(cb.closest(".code").querySelector("code").textContent); cb.textContent = "Copiado!"; }
 });
 document.addEventListener("keydown", e => {
-  if (e.key === "Escape") { e.preventDefault(); if (Q.generating) Q.abort?.abort(); else desktop?.hideQuick(); }
+  if (e.key === "Escape") { e.preventDefault(); if (Q.generating) Q.abort?.abort(); else desktop.hideQuick(); }
   else if (e.ctrlKey && e.key.toLowerCase() === "n") { e.preventDefault(); newConversation(); }
   else if (e.ctrlKey && e.key.toLowerCase() === "o") { e.preventDefault(); openInApp(); }
   else if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "c") { e.preventDefault(); copyLast(); }
 });
 
 // chamado pelo app sempre que a janela aparece
-desktop?.onQuickShow(({ hiddenFor }) => {
+desktop.onQuickShow(({ hiddenFor }) => {
   if (hiddenFor > 10 * 60 * 1000 && !Q.generating) { Q.chat = null; render(); }
   setWeb((() => { try { return localStorage.getItem("web") === "1"; } catch { return Q.web; } })());
   refresh(); $("#q").focus(); $("#q").select();
