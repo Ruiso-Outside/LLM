@@ -203,6 +203,23 @@ class McpHelpers(TempDirCase):
         self.assertEqual(mcp.result_text({"structuredContent": {"a": 1}})[0], '{"a": 1}')
         self.assertIn("+", mcp.result_text({"content": [{"type": "text", "text": "z" * 50}]}, limit=10)[0])
 
+    def test_compacts_huge_json_results(self):
+        big = {"evidence_id": "ev_1", "normalized_result": {"summary": {"browser_windows": 2, "ipc": {"operations": 48}},
+                                                          "graph": {"nodes": [{"id": i, "pad": "x" * 200} for i in range(5000)]}}}
+        import json
+        text, _ = mcp.result_text({"content": [{"type": "text", "text": json.dumps(big)}]}, limit=5000)
+        self.assertLess(len(text), 6000)
+        self.assertIn('"browser_windows": 2', text)
+        self.assertIn("itens omitidos", text)
+        self.assertTrue(text.startswith("[resultado com"))
+
+    def test_rea_profiles_and_node(self):
+        self.assertTrue(set(mcp.REA_ESSENTIALS) <= set(mcp.REA_WINDOWS))
+        self.assertLessEqual(len(mcp.REA_ESSENTIALS), 10)
+        for v, ok in [((22, 19), True), ((22, 18), False), ((24, 11), True), ((24, 10), False), ((26, 0), True), ((20, 5), False), (None, False)]:
+            self.assertEqual(mcp.rea_node_ok(v), ok, v)
+        self.assertIn("--token-limit", mcp.REA_CLI_PROMPT)
+
     def test_approval_rules(self):
         srv = mcp.Server({"id": "s", "name": "S", "auto_approve": False})
         self.assertTrue(mcp.needs_approval(srv, {"name": "w"}))

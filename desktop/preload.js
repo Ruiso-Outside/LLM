@@ -6,6 +6,8 @@ contextBridge.exposeInMainWorld("llmDesktop", {
   setHotkey: k => ipcRenderer.invoke("set-hotkey", k),
   setVoiceHotkey: k => ipcRenderer.invoke("set-voice-hotkey", k),
   onQuickVoice: cb => ipcRenderer.on("quick-voice", () => cb()),
+  diag: msg => ipcRenderer.send("diag", msg),
+  openDiag: () => ipcRenderer.invoke("open-diag"),
   setScreenHotkey: k => ipcRenderer.invoke("set-screen-hotkey", k),
   captureScreen: () => ipcRenderer.invoke("capture-screen"),
   readClipboard: () => ipcRenderer.invoke("read-clipboard"),

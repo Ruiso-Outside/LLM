@@ -45,7 +45,58 @@ def roblox_bat():
     return p if p.is_file() else None
 
 
+# REA (Reverse Engineer Anything): 207 ferramentas (~240 mil tokens de descricoes) nao cabem no contexto de
+# um modelo local. O perfil "essenciais" usa so as que funcionam no Windows sem Ghidra/IDA/Hopper.
+# perfil enxuto (~4,4 mil tokens): apps Electron/JS, executaveis PE/.NET/Go/Rust e pacotes, sem Ghidra/IDA/Hopper
+REA_ESSENTIALS = [
+    "analyze_javascript_application", "inspect_artifact", "extract_artifact", "inspect_pe_resources",
+    "inspect_managed_artifact", "inspect_electron_fuses", "inspect_go_binary", "inspect_rust_binary",
+]
+REA_WINDOWS = REA_ESSENTIALS + [
+    "recover_javascript_sources", "inspect_managed_members", "inspect_managed_native_boundaries",
+    "inspect_sqlite_database", "inspect_wasm_artifact", "inspect_web_page", "analyze_web_bundle",
+    "inspect_web_network_capture", "list_unknowns", "record_unknown",
+]
+PROFILES = {"rea": {"essentials": REA_ESSENTIALS, "windows": REA_WINDOWS}}
+
+# Modo terminal do REA: o Codex chama o CLI pelo PowerShell (run_command) e nao carrega nenhuma ferramenta MCP.
+REA_CLI_PROMPT = """REA (engenharia reversa) esta disponivel pelo terminal. Use para entender programas sem o codigo-fonte
+(apps Electron/JavaScript, executaveis .exe/.dll, .NET, Go, Rust, pacotes, bancos SQLite, sites).
+- Comando: npx -y rea-agents@latest <comando> "<caminho absoluto>" --format md --token-limit 3000
+- SEMPRE use --token-limit (sem ele a saida pode ter milhoes de tokens). Para ver mais, repita com --token-offset.
+- App Electron/JS (pasta ou .asar): analyze-javascript-application "<alvo>" --filter-output normalized_result.summary,normalized_result.statistics,normalized_result.limitations
+- Visao geral de qualquer arquivo: inspect-artifact "<arquivo>"  |  extrair pacote: extract-artifact
+- .NET: inspect-managed-artifact e inspect-managed-members  |  Go/Rust: inspect-go-binary, inspect-rust-binary
+- Recursos de .exe/.dll: inspect-pe-resources  |  SQLite: inspect-sqlite-database
+- Ajuda de um comando: npx -y rea-agents@latest <comando> --help
+- Use o REA so em software que o usuario tem ou esta autorizado a analisar. Cite as evidencias e os limites que o REA informar."""
+
+
+def node_version():
+    """Versao do Node.js instalado (tupla) ou None."""
+    try:
+        out = subprocess.run(["node", "--version"], capture_output=True, text=True, timeout=10, creationflags=NO_WINDOW).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    m = re.match(r"v(\d+)\.(\d+)", out.strip())
+    return (int(m.group(1)), int(m.group(2))) if m else None
+
+
+def rea_node_ok(v):
+    """O REA pede Node 22.19+, 24.11+ ou 26+."""
+    return bool(v) and (v[0] >= 26 or (v[0] == 24 and v[1] >= 11) or (v[0] == 22 and v[1] >= 19) or v[0] == 25)
+
+
 def preset(kind):
+    if kind == "rea":
+        v = node_version()
+        if not v:
+            raise MCPError("O REA precisa do Node.js (22.19 ou mais novo). Instale em nodejs.org e tente de novo.")
+        if not rea_node_ok(v):
+            raise MCPError(f"O REA precisa do Node.js 22.19, 24.11 ou mais novo (você tem {v[0]}.{v[1]}).")
+        return {"id": "rea", "name": "REA (engenharia reversa)", "type": "stdio", "command": "cmd.exe",
+                "args": ["/c", "npx", "-y", "rea-agents@latest", "mcp"], "env": {}, "url": "", "enabled": True,
+                "auto_approve": False, "tools": list(REA_ESSENTIALS), "cli_mode": True}
     if kind == "roblox":
         bat = roblox_bat()
         if not bat:
@@ -72,11 +123,23 @@ def split_command(line):
     return parts[0], parts[1:]
 
 
+def _allowed(s):
+    """Lista de ferramentas ligadas vinda da interface ("allowed") ou do arquivo ("tools" com nomes)."""
+    v = s["allowed"] if "allowed" in s else s.get("tools")
+    if not isinstance(v, list) or any(not isinstance(t, str) for t in v):
+        return None
+    return [t[:120] for t in v][:400]
+
+
 def _clean(s, taken):
     typ = "http" if s.get("type") == "http" else "stdio"
     sid = s.get("id") if ID_RE.match(str(s.get("id") or "")) and s.get("id") not in taken else slug(s.get("name"), taken)
     out = {"id": sid, "name": str(s.get("name") or sid)[:60], "type": typ, "enabled": bool(s.get("enabled", True)),
-           "auto_approve": bool(s.get("auto_approve")), "command": "", "args": [], "env": {}, "url": ""}
+           "auto_approve": bool(s.get("auto_approve")), "command": "", "args": [], "env": {}, "url": "",
+           # ferramentas ligadas (None = todas); servidores com muitas ferramentas estouram o contexto do modelo
+           "tools": _allowed(s),
+           # so para o REA: o Codex usa o CLI pelo terminal em vez das ferramentas MCP (nao gasta contexto)
+           "cli_mode": bool(s.get("cli_mode")) if s.get("id") == "rea" or sid == "rea" else False}
     if typ == "http":
         url = str(s.get("url") or "").strip()
         if not re.match(r"^https?://", url):
@@ -378,10 +441,18 @@ class Server:
 
     def public(self):
         err = self.error or (self.empty_hint() if self.state == "pronto" and not self.tools else "")
-        return {**self.cfg, "command_line": command_line(self.cfg), "state": self.state, "error": err,
+        return {**self.cfg, "allowed": self.cfg.get("tools"), "command_line": command_line(self.cfg), "state": self.state, "error": err,
                 "server_info": self.info,
                 "tools": [{"name": t["name"], "description": (t.get("description") or "")[:300],
-                           "read_only": bool((t.get("annotations") or {}).get("readOnlyHint"))} for t in self.tools]}
+                           "read_only": bool((t.get("annotations") or {}).get("readOnlyHint")),
+                           "tokens": tool_tokens(t),
+                           "enabled": self.cfg.get("tools") is None or t["name"] in self.cfg["tools"]} for t in self.tools],
+                "profiles": PROFILES.get(self.cfg["id"], {})}
+
+
+def tool_tokens(t):
+    """Estimativa de quantos tokens a definicao da ferramenta ocupa no contexto (~3,5 caracteres por token)."""
+    return int(len(json.dumps({"n": t.get("name"), "d": t.get("description"), "p": t.get("inputSchema")}, ensure_ascii=False)) / 3.5)
 
 
 def tool_name(sid, tool):
@@ -430,7 +501,7 @@ class Manager:
         tools, mapping = [], {}
         for sid in ids:
             srv = self.get(sid)
-            if not srv:
+            if not srv or srv.cfg.get("cli_mode"):
                 continue
             try:
                 fresh = srv.state != "pronto"
@@ -443,7 +514,10 @@ class Manager:
                 continue
             if not srv.tools and on_error:
                 on_error(srv.cfg["name"], srv.empty_hint())
+            allowed = srv.cfg.get("tools")
             for t in srv.tools:
+                if allowed is not None and t["name"] not in allowed:
+                    continue
                 name = tool_name(sid, t["name"])
                 if name in mapping:
                     continue
@@ -466,6 +540,27 @@ MANAGER = Manager()
 def needs_approval(srv, tool):
     """Ferramentas so de leitura (readOnlyHint) e servidores marcados como confiaveis nao pedem confirmacao."""
     return not srv.cfg.get("auto_approve") and not (tool.get("annotations") or {}).get("readOnlyHint")
+
+
+def compact_json(o, budget=12_000, depth=0):
+    """Resume um JSON enorme: mantem valores pequenos e troca listas/objetos grandes por um aviso com o tamanho."""
+    if isinstance(o, dict):
+        out = {}
+        for k, v in o.items():
+            s = len(json.dumps(v, ensure_ascii=False))
+            if s <= 600 or k in ("summary", "statistics", "limitations", "warnings", "errors", "unknowns_summary"):
+                out[k] = v if s <= 4000 else compact_json(v, budget // 4, depth + 1)
+            elif depth < 4:
+                out[k] = compact_json(v, budget // 3, depth + 1)
+            else:
+                out[k] = f"[{type(v).__name__} com {s} caracteres omitido]"
+        return out
+    if isinstance(o, list):
+        if len(json.dumps(o, ensure_ascii=False)) <= 600:
+            return o
+        return [compact_json(x, budget // 6, depth + 1) for x in o[:3]] + [f"... (+{len(o) - 3} itens omitidos)"] if len(o) > 3 else \
+            [compact_json(x, budget // 3, depth + 1) for x in o]
+    return o
 
 
 def result_text(res, save_image=None, limit=20_000):
@@ -494,6 +589,12 @@ def result_text(res, save_image=None, limit=20_000):
     if not texts and res.get("structuredContent") is not None:
         texts.append(json.dumps(res["structuredContent"], ensure_ascii=False))
     text = "\n".join(t for t in texts if t) or "(sem saída)"
+    if len(text) > limit and text.lstrip()[:1] in "{[":
+        try:
+            small = json.dumps(compact_json(json.loads(text)), ensure_ascii=False)
+            text = f"[resultado com {len(text)} caracteres resumido: listas grandes omitidas]\n" + small
+        except ValueError:
+            pass
     if len(text) > limit:
         text = text[:limit] + f"\n... (+{len(text) - limit} caracteres)"
     if res.get("isError"):

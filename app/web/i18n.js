@@ -668,6 +668,16 @@ const DICT = {
   "Pastas liberadas": ["Allowed folders", "Carpetas autorizadas"],
   "Hugging Face": ["Hugging Face", "Hugging Face"],
   "Também dá para carregar e descarregar o modelo da pergunta rápida em Modelos → Meus modelos.": ["You can also load and unload the quick question model in Models → My models.", "También puedes cargar y descargar el modelo de la pregunta rápida en Modelos → Mis modelos."],
+  "Ferramentas: {on} de {n} ligadas": ["Tools: {on} of {n} on", "Herramientas: {on} de {n} activas"],
+  "Ferramentas demais: elas ocupam ~{n} tokens do contexto em cada pedido. Deixe ligadas só as que vai usar.": ["Too many tools: they take ~{n} tokens of context on every request. Keep only the ones you need.", "Demasiadas herramientas: ocupan ~{n} tokens del contexto en cada pedido. Deja activas solo las que uses."],
+  "Essenciais": ["Essentials", "Esenciales"],
+  "Todas": ["All", "Todas"],
+  "REA adicionado com as ferramentas essenciais. Clique em Testar para baixar e conectar (a primeira vez demora).": ["REA added with the essential tools. Click Test to download and connect (the first time takes a while).", "REA agregado con las herramientas esenciales. Haz clic en Probar para descargar y conectar (la primera vez tarda)."],
+  "+ REA (engenharia reversa)": ["+ REA (reverse engineering)", "+ REA (ingeniería inversa)"],
+  "Windows completo": ["Full Windows", "Windows completo"],
+  "Modo leve (terminal)": ["Light mode (terminal)", "Modo ligero (terminal)"],
+  "O Codex chama o REA pelo terminal (PowerShell) com a saída limitada, sem carregar as ferramentas MCP no contexto. Recomendado para modelos locais. Precisa de uma pasta de projeto no Codex.": ["Codex calls REA from the terminal (PowerShell) with limited output, without loading the MCP tools into the context. Recommended for local models. Needs a project folder in Codex.", "El Codex llama al REA desde la terminal (PowerShell) con la salida limitada, sin cargar las herramientas MCP en el contexto. Recomendado para modelos locales. Necesita una carpeta de proyecto en el Codex."],
+  "REA adicionado no modo leve: o Codex usa o REA pelo terminal. Para usar as ferramentas MCP, desmarque \"Modo leve\" e clique em Testar.": ["REA added in light mode: Codex uses REA from the terminal. To use the MCP tools, uncheck \"Light mode\" and click Test.", "REA agregado en modo ligero: el Codex usa el REA desde la terminal. Para usar las herramientas MCP, desmarca \"Modo ligero\" y haz clic en Probar."],
 };
 
 function _pick(key) {

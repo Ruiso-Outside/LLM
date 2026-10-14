@@ -21,6 +21,12 @@ let mainWin = null, quickWin = null, tray = null, server = null;
 // ------------------------------------------------------------------ idioma (bandeja, avisos e janelas do sistema)
 // O idioma vem das Configurações do app (settings.language); antes do servidor subir, usa o do Windows.
 const MAIN_I18N = {
+  "A janela do LLM Local parou de responder.": ["The LLM Local window stopped responding.", "La ventana de LLM Local dejó de responder."],
+  "Isso costuma acontecer quando a memória da placa de vídeo enche ou uma resposta muito longa está sendo desenhada. O ocorrido foi salvo no relatório de diagnóstico.": ["This usually happens when the graphics card memory is full or a very long answer is being drawn. It was saved in the diagnostic report.", "Esto suele pasar cuando la memoria de la tarjeta gráfica se llena o se está dibujando una respuesta muy larga. Se guardó en el informe de diagnóstico."],
+  "Recarregar a janela": ["Reload the window", "Recargar la ventana"],
+  "Esperar": ["Wait", "Esperar"],
+  "Fechar o LLM Local": ["Close LLM Local", "Cerrar LLM Local"],
+  "Abrir relatório de diagnóstico": ["Open diagnostic report", "Abrir informe de diagnóstico"],
   "Abrir LLM Local": ["Open LLM Local", "Abrir LLM Local"],
   "Pergunta rápida": ["Quick ask", "Pregunta rápida"],
   "Descarregar modelos (liberar GPU)": ["Unload models (free the GPU)", "Descargar modelos (liberar la GPU)"],
@@ -180,12 +186,67 @@ function guardLinks(win) {
   });
 }
 
+// ------------------------------------------------------------------ diagnóstico e "salva-vidas"
+// Registra travamentos da janela, quedas de processos e eventos do servidor em diagnostico.log
+// (pasta %APPDATA%\LLM Local). Se a janela parar de responder, oferece recarregar ou fechar.
+const DIAG_FILE = () => path.join(app.getPath("userData"), "diagnostico.log");
+function diag(msg) {
+  try {
+    const f = DIAG_FILE();
+    if (fs.existsSync(f) && fs.statSync(f).size > 1024 * 1024) fs.renameSync(f, f + ".old"); // guarda só ~1 MB recente
+    fs.appendFile(f, `${new Date().toISOString()} ${msg}\n`, () => {});
+  } catch {}
+}
+async function serverSnapshot() {
+  try {
+    const st = await new Promise((res, rej) => {
+      const r = http.get(BASE + "/api/diag", { timeout: 3000 }, x => { let d = ""; x.on("data", c => d += c); x.on("end", () => res(d)); });
+      r.on("timeout", () => r.destroy(new Error("timeout"))); r.on("error", rej);
+    });
+    return st.slice(0, 2000);
+  } catch (e) { return `servidor sem resposta (${e.message})`; }
+}
+function watchWindow(win, name) {
+  let timer = null, asked = false;
+  win.webContents.on("unresponsive", async () => {
+    diag(`[${name}] janela parou de responder | ${await serverSnapshot()}`);
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      if (asked || win.isDestroyed()) return;
+      asked = true;
+      const { response } = await dialog.showMessageBox({ type: "warning", title: "LLM Local", noLink: true, defaultId: 0, cancelId: 1,
+        message: tm("A janela do LLM Local parou de responder."),
+        detail: tm("Isso costuma acontecer quando a memória da placa de vídeo enche ou uma resposta muito longa está sendo desenhada. O ocorrido foi salvo no relatório de diagnóstico."),
+        buttons: [tm("Recarregar a janela"), tm("Esperar"), tm("Fechar o LLM Local")] });
+      asked = false;
+      if (win.isDestroyed()) return;
+      if (response === 0) { diag(`[${name}] recarregada pelo usuário`); win.webContents.forcefullyCrashRenderer(); win.webContents.reload(); }
+      if (response === 2) { diag(`[${name}] app fechado pelo usuário após travar`); forceQuit(); }
+    }, 7000);
+  });
+  win.webContents.on("responsive", () => { clearTimeout(timer); diag(`[${name}] voltou a responder`); });
+  win.webContents.on("render-process-gone", (_e, d) => {
+    diag(`[${name}] processo da janela caiu: ${d.reason} (código ${d.exitCode})`);
+    if (!win.isDestroyed() && d.reason !== "clean-exit") setTimeout(() => !win.isDestroyed() && win.webContents.reload(), 1000);
+  });
+}
+app.on("child-process-gone", (_e, d) => diag(`processo ${d.type} caiu: ${d.reason} (código ${d.exitCode})${d.type === "GPU" ? " | possível falta de memória de vídeo" : ""}`));
+// sair de qualquer jeito: encerra o servidor e os motores e fecha o app sem esperar as janelas
+function forceQuit() {
+  quitting = true;
+  try { if (server?.pid) spawnSync("taskkill", ["/pid", String(server.pid), "/T", "/F"], { windowsHide: true }); } catch {}
+  app.exit(0);
+}
+ipcMain.on("diag", (_e, msg) => diag(`[janela] ${String(msg).slice(0, 500)}`));
+ipcMain.handle("open-diag", () => { const f = DIAG_FILE(); if (!fs.existsSync(f)) fs.writeFileSync(f, ""); shell.showItemInFolder(f); });
+
 function createMain(show) {
   mainWin = new BrowserWindow({ width: 1240, height: 820, minWidth: 720, minHeight: 500, show: false, title: "LLM Local",
     icon: ICON, backgroundColor: "#0f1014", autoHideMenuBar: true, webPreferences: prefs });
   mainWin.removeMenu();
   guardLinks(mainWin);
   mainWin.loadURL(BASE + "/");
+  watchWindow(mainWin, "principal");
   if (show) mainWin.once("ready-to-show", () => { mainWin.show(); if (mainWin.isMinimized()) mainWin.restore(); mainWin.focus(); });
   mainWin.on("close", e => {
     if (quitting) return;
@@ -212,6 +273,7 @@ function createQuick() {
   quickWin.setAlwaysOnTop(true, "floating");
   guardLinks(quickWin);
   quickWin.loadURL(BASE + "/quick.html");
+  watchWindow(quickWin, "pergunta rápida");
   quickWin.on("blur", () => { if (config.quickHideOnBlur && !quickPinned) hideQuick(); });
 }
 
@@ -320,7 +382,9 @@ async function updateTray() {
         ? { label: tm("Baixando atualização {v} ({p}%)", { v: updateState.version, p: updateState.percent }), enabled: false }
         : { label: tm("Verificar atualizações (versão {v})", { v: app.getVersion() }), click: checkForUpdates },
     { type: "separator" },
-    { label: tm("Sair"), click: () => { quitting = true; app.quit(); } },
+    { label: tm("Recarregar a janela"), click: () => { if (mainWin && !mainWin.isDestroyed()) { mainWin.webContents.forcefullyCrashRenderer(); mainWin.webContents.reload(); showMain(); } } },
+    { label: tm("Abrir relatório de diagnóstico"), click: () => { const f = DIAG_FILE(); if (!fs.existsSync(f)) fs.writeFileSync(f, ""); shell.showItemInFolder(f); } },
+    { label: tm("Sair"), click: () => { quitting = true; app.quit(); setTimeout(forceQuit, 5000); } },
   ]));
 }
 
@@ -600,6 +664,7 @@ app.whenReady().then(async () => {
   }
   registerHotkey(config.voiceHotkey, voiceShortcut);
   registerHotkey(config.screenHotkey, screenShortcut);
+  diag(`app iniciado (versão ${app.getVersion()})`);
   createQuick();
   initUpdater();
   setTimeout(offerShortcuts, 2500);

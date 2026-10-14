@@ -331,7 +331,7 @@ function msgHTML(msg, idx, isLast) {
   let html = `<div class="msg assistant ${isLast ? "last" : ""}" data-i="${idx}"><div class="role">${who}${live ? `<span class="live">${live}</span>` : ""}</div>`;
   if (msg.kb) html += kbBoxHTML(msg.kb, streaming);
   if (msg.web) html += webBoxHTML(msg.web, streaming);
-  if (reasoning) html += `<details class="think" ${thinking ? "open" : ""}><summary>${thinking ? "Pensando..." : "Raciocínio"}</summary><div class="think-body">${esc(reasoning)}</div></details>`;
+  if (reasoning) html += `<details class="think" ${thinking ? "open" : ""}><summary>${thinking ? "Pensando..." : "Raciocínio"}</summary><div class="think-body">${esc(thinking && reasoning.length > 6000 ? "…" + reasoning.slice(-6000) : reasoning)}</div></details>`;
   html += `<div class="content ${streaming ? "cursor" : ""}">${linkDocCitations(linkCitations(md(content), msg.web?.sources), msg.kb?.sources)}</div>`;
   if (msg.error) html += `<div class="err">${esc(msg.error)}</div>`;
   if (!streaming) html += `<div class="actions"><button data-act="copy">Copiar</button><button data-act="speak" title="Ler em voz alta">🔊</button>${isLast ? '<button data-act="regen">Regenerar</button><button data-act="continue">Continuar</button>' : ""}<button data-act="del">Excluir</button>${statsHTML(msg.stats)}</div>`;
@@ -464,11 +464,20 @@ function renderStatsBar() {
   if (bar.dataset.sig !== html) { bar.innerHTML = html; bar.dataset.sig = html; }
 }
 
-let rafPending = false;
+// redesenho adaptativo: respostas longas custam mais para redesenhar, então o intervalo cresce junto
+// (sem isso a janela pode passar 100% do tempo redesenhando e parar de responder)
+let rafPending = false, renderCost = 0, lastRender = 0;
 function renderLastMessage() {
   if (rafPending) return; rafPending = true;
-  requestAnimationFrame(() => {
+  const wait = Math.max(0, Math.min(1500, renderCost * 4) - (performance.now() - lastRender));
+  setTimeout(() => requestAnimationFrame(() => {
     rafPending = false;
+    const t0 = performance.now();
+    try { drawLastMessage(); } finally { lastRender = performance.now(); renderCost = lastRender - t0; }
+  }), wait);
+}
+function drawLastMessage() {
+  {
     const box = $("#messages"); const n = S.chat.messages.length;
     const stick = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
     const el = box.querySelector(`.msg[data-i="${n - 1}"]`);
@@ -481,7 +490,7 @@ function renderLastMessage() {
     if (el) el.replaceWith(fresh); else box.appendChild(fresh);
     if (stick) box.scrollTop = box.scrollHeight;
     renderStatsBar();
-  });
+  }
 }
 
 // ---- ações das mensagens

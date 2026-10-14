@@ -51,6 +51,28 @@ class McpClient(unittest.TestCase):
         self.assertTrue(errors and "Quebrado" in errors[0])
         self.assertEqual(mcp.MANAGER.get("quebrado").public()["state"], "erro")
 
+    def test_tool_filter(self):
+        mcp.save([{"id": "fake", "name": "Fake", "command": FAKE[0], "args": FAKE[1:], "tools": ["echo", "snapshot"]}])
+        tools, mapping = mcp.MANAGER.toolset(["fake"])
+        self.assertEqual(sorted(mapping), ["mcp__fake__echo", "mcp__fake__snapshot"])
+        pub = mcp.MANAGER.get("fake").public()
+        self.assertEqual(pub["allowed"], ["echo", "snapshot"])
+        self.assertEqual({t["name"]: t["enabled"] for t in pub["tools"]}, {"echo": True, "set_value": False, "snapshot": True})
+        self.assertTrue(all(t["tokens"] > 0 for t in pub["tools"]))
+        # a interface devolve o objeto publico inteiro: vale o "allowed", nao a lista de detalhes em "tools"
+        mcp.save([dict(pub, allowed=None)])
+        self.assertIsNone(mcp.MANAGER.get("fake").cfg["tools"])
+        mcp.save([dict(pub, allowed=[])])
+        self.assertEqual(mcp.MANAGER.toolset(["fake"])[0], [])
+
+    def test_cli_mode_only_for_rea_and_loads_no_tools(self):
+        mcp.save([{"id": "fake", "name": "Fake", "command": FAKE[0], "args": FAKE[1:], "cli_mode": True},
+                  {"id": "rea", "name": "REA", "command": FAKE[0], "args": FAKE[1:], "cli_mode": True}])
+        self.assertFalse(mcp.MANAGER.get("fake").cfg["cli_mode"])
+        self.assertTrue(mcp.MANAGER.get("rea").cfg["cli_mode"])
+        tools, mapping = mcp.MANAGER.toolset(["rea", "fake"])
+        self.assertTrue(mapping and all(k.startswith("mcp__fake__") for k in mapping))
+
     def test_config_change_restarts_server(self):
         srv = mcp.MANAGER.get("fake")
         srv.connect()

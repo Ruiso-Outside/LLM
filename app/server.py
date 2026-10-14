@@ -312,6 +312,63 @@ def detect_gpu():
 GPU = detect_gpu()
 
 
+# ---------------------------------------------------------------- diagnostico
+# Amostra a VRAM real (nvidia-smi) e a RAM a cada 20 s. Quando a VRAM enche, o Windows passa a usar a RAM
+# como memoria de video ("sysmem fallback") e o PC inteiro pode travar: isso fica registrado e a interface avisa.
+DIAG_FILE = DATA / "diagnostico.log"
+DIAG = {"vram_used": 0, "vram_total": 0, "gpu_util": 0, "at": 0, "samples": deque(maxlen=90), "full_since": 0}
+
+
+def diag_log(msg):
+    try:
+        if DIAG_FILE.exists() and DIAG_FILE.stat().st_size > 1024 * 1024:
+            DIAG_FILE.replace(DIAG_FILE.with_suffix(".old.log"))
+        with open(DIAG_FILE, "a", encoding="utf-8") as f:
+            f.write(f"{datetime.now():%Y-%m-%d %H:%M:%S} {msg}\n")
+    except OSError:
+        pass
+
+
+def gpu_sample():
+    """Uso real da placa NVIDIA: (MB usados, MB total, % de uso) ou None."""
+    if GPU.get("vendor") != "nvidia":
+        return None
+    try:
+        out = subprocess.run(["nvidia-smi", "--query-gpu=memory.used,memory.total,utilization.gpu", "--format=csv,noheader,nounits"],
+                             capture_output=True, text=True, timeout=8, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout
+        used, total, util = (int(float(x)) for x in out.strip().splitlines()[0].split(","))
+        return used, total, util
+    except (OSError, ValueError, IndexError, subprocess.TimeoutExpired):
+        return None
+
+
+def diag_snapshot():
+    total, avail = ram_info()
+    return {"vram_used": DIAG["vram_used"], "vram_total": DIAG["vram_total"], "gpu_util": DIAG["gpu_util"],
+            "vram_full": bool(DIAG["full_since"]), "ram_total": total, "ram_avail": avail,
+            "engine": {"state": ENGINE_PROC.state, "model": ENGINE_PROC.model, "device": ENGINE_PROC.device},
+            "extras": [{"model": m, "device": d, "state": e.state} for (m, d), e in list(POOL.extra.items())],
+            "threads": threading.active_count()}
+
+
+def diag_sampler():
+    diag_log(f"servidor iniciado | GPU: {GPU.get('name', '-')} {GPU.get('vram_mb', 0)} MB")
+    while True:
+        g = gpu_sample()
+        if g:
+            used, total, util = g
+            DIAG.update(vram_used=used, vram_total=total, gpu_util=util, at=time.time())
+            DIAG["samples"].append((round(time.time()), used, util))
+            full = total and used >= total * 0.97
+            if full and not DIAG["full_since"]:
+                DIAG["full_since"] = time.time()
+                diag_log(f"VRAM CHEIA: {used}/{total} MB (o Windows pode começar a usar a RAM e travar) | {json.dumps(diag_snapshot(), ensure_ascii=False)}")
+            elif not full and DIAG["full_since"]:
+                diag_log(f"VRAM voltou ao normal: {used}/{total} MB (ficou cheia por {time.time() - DIAG['full_since']:.0f}s)")
+                DIAG["full_since"] = 0
+        time.sleep(20)
+
+
 def ram_info():
     """Memoria RAM total e disponivel (MB), pelo Windows."""
     if os.name != "nt":
@@ -547,6 +604,7 @@ class EngineProcess:
                 pass
         if proc is self.proc:
             tail = [l for l in list(self.log)[-15:] if l]
+            diag_log(f"motor fechou ao carregar {self.model}: " + " | ".join(tail[-4:]))
             self.state = "error"
             self.error = "O motor fechou. Ultimas linhas do log:\n" + "\n".join(tail)
 
@@ -1331,10 +1389,13 @@ class Handler(BaseHTTPRequestHandler):
             if p == "/api/status":
                 return self.send_json({"engine": ENGINE_PROC.status() | {"device": ENGINE_PROC.device}, "extras": POOL.status(),
                                        "memory": POOL.memory(), "backends": installed_backends(), "quick": POOL.quick_status(),
+                                       "gpu_live": {k: DIAG[k] for k in ("vram_used", "vram_total", "gpu_util")} | {"full": bool(DIAG["full_since"])},
                                        "gpu": GPU | {"cpu_count": CPU_COUNT},
                                        "models": list_models(), "tasks": public_tasks(),
                                        "settings": masked(load_settings()), "chats": list_chats(),
                                        "stats": load_stats()})
+            if p == "/api/diag":
+                return self.send_json(diag_snapshot())
             if p == "/api/log":
                 return self.send_json({"log": list(ENGINE_PROC.log)})
             if p == "/api/agents":
@@ -1488,7 +1549,7 @@ class Handler(BaseHTTPRequestHandler):
                 except mcp.MCPError as e:
                     return self.send_json({"error": str(e)}, 400)
                 servers = mcp.load()
-                if any(s.get("command") == cfg["command"] and s.get("args") == cfg["args"] for s in servers):
+                if any(s.get("id") == cfg["id"] or (s.get("command") == cfg["command"] and s.get("args") == cfg["args"]) for s in servers):
                     return self.send_json({"error": "Esse servidor já foi adicionado."}, 400)
                 mcp.save(servers + [cfg])
                 return self.send_json(self.mcp_status())
@@ -2189,6 +2250,7 @@ def main():
     watch_parent()
     threading.Thread(target=auto_load, daemon=True).start()
     threading.Thread(target=cleanup_checkpoints, daemon=True).start()
+    threading.Thread(target=diag_sampler, daemon=True).start()
     print(f"Servidor em {url} | API OpenAI do motor: http://127.0.0.1:{ENGINE_PORT}/v1", flush=True)
     try:
         httpd.serve_forever()
