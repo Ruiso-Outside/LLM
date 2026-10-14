@@ -651,6 +651,23 @@ const DICT = {
   "Carregando o modelo da pergunta rápida...": ["Loading the quick question model...", "Cargando el modelo de la pregunta rápida..."],
   "Modelo da pergunta rápida descarregado": ["Quick question model unloaded", "Modelo de la pregunta rápida descargado"],
   "Manter o modelo da pergunta rápida carregado": ["Keep the quick question model loaded", "Mantener cargado el modelo de la pregunta rápida"],
+  "Geral": ["General", "General"],
+  "Modelo e motor": ["Model and engine", "Modelo y motor"],
+  "Codex": ["Codex", "Codex"],
+  "Idioma, inicialização, atualizações e onde ficam os seus dados.": ["Language, startup, updates and where your data lives.", "Idioma, inicio, actualizaciones y dónde están tus datos."],
+  "A janelinha que abre por atalho em qualquer lugar do Windows.": ["The small window that opens with a shortcut anywhere in Windows.", "La ventanita que se abre con un atajo en cualquier parte de Windows."],
+  "Como o modelo responde em todas as conversas.": ["How the model answers in every chat.", "Cómo responde el modelo en todas las conversaciones."],
+  "Aplicado ao carregar um modelo.": ["Applied when a model is loaded.", "Se aplica al cargar un modelo."],
+  "O agente de programação que trabalha nas pastas que você liberar.": ["The coding agent that works in the folders you allow.", "El agente de programación que trabaja en las carpetas que autorices."],
+  "Transcrição (Whisper) e geração de imagens.": ["Transcription (Whisper) and image generation.", "Transcripción (Whisper) y generación de imágenes."],
+  "Usada pelo botão 🌐 Web e pelos agentes que podem pesquisar.": ["Used by the 🌐 Web button and by agents allowed to search.", "La usan el botón 🌐 Web y los agentes que pueden buscar."],
+  "Atalhos": ["Shortcuts", "Atajos"],
+  "Voz": ["Voice", "Voz"],
+  "Instruções": ["Instructions", "Instrucciones"],
+  "Carregamento": ["Loading", "Carga"],
+  "Pastas liberadas": ["Allowed folders", "Carpetas autorizadas"],
+  "Hugging Face": ["Hugging Face", "Hugging Face"],
+  "Também dá para carregar e descarregar o modelo da pergunta rápida em Modelos → Meus modelos.": ["You can also load and unload the quick question model in Models → My models.", "También puedes cargar y descargar el modelo de la pregunta rápida en Modelos → Mis modelos."],
 };
 
 function _pick(key) {

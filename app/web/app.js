@@ -1117,8 +1117,17 @@ async function initDesktopSettings() {
 }
 $("#resetSettings").onclick = () => fillSettings(DEFAULTS);
 // se algum campo estiver fora do permitido, mostra qual (o navegador sozinho só destaca o campo, que pode estar fora da tela)
+// abas das Configurações
+function showSettingsTab(key) {
+  $$(".set-tab").forEach(b => b.classList.toggle("active", b.dataset.setTab === key));
+  $$(".set-pane").forEach(s => s.classList.toggle("active", s.dataset.setPane === key));
+  $(".set-body").scrollTop = 0; lsSet("setTab", key);
+}
+$(".set-nav").addEventListener("click", e => { const b = e.target.closest("[data-set-tab]"); if (b) showSettingsTab(b.dataset.setTab); });
+showSettingsTab(ls("setTab", "general"));
 $("#settingsForm").addEventListener("invalid", e => {
-  const el = e.target; const label = el.closest("label")?.firstChild?.textContent?.trim() || el.name;
+  const el = e.target;
+  const pane = el.closest("[data-set-pane]"); if (pane && !pane.classList.contains("active")) showSettingsTab(pane.dataset.setPane); const label = el.closest("label")?.firstChild?.textContent?.trim() || el.name;
   toast(`${t("Valor inválido em")} "${label}": ${el.validationMessage}`, 6000);
   el.scrollIntoView({ block: "center" });
 }, true);

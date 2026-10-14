@@ -131,12 +131,24 @@
 
 <!-- Configurações -->
 <div class="modal" id="settingsModal">
-  <div class="modal-card">
+  <div class="modal-card large settings-card">
     <div class="modal-head"><h3>Configurações</h3><button class="icon-btn" data-close>✕</button></div>
-    <div class="modal-body">
-      <form id="settingsForm">
-        <h4 style="margin-top:0">Idioma</h4>
-        <div class="grid">
+    <form id="settingsForm" class="settings-layout">
+      <nav class="set-nav">
+        <button type="button" class="set-tab active" data-set-tab="general"><span>🖥️</span> Geral</button>
+        <button type="button" class="set-tab" data-set-tab="quick"><span>⚡</span> Pergunta rápida</button>
+        <button type="button" class="set-tab" data-set-tab="chat"><span>💬</span> Conversa</button>
+        <button type="button" class="set-tab" data-set-tab="engine"><span>🧠</span> Modelo e motor</button>
+        <button type="button" class="set-tab" data-set-tab="codex"><span>🛠️</span> Codex</button>
+        <button type="button" class="set-tab" data-set-tab="mcp"><span>🔌</span> Ferramentas MCP</button>
+        <button type="button" class="set-tab" data-set-tab="media"><span>🎨</span> Áudio e imagem</button>
+        <button type="button" class="set-tab" data-set-tab="web"><span>🌐</span> Pesquisa na web</button>
+      </nav>
+      <div class="set-body">
+        <section class="set-pane active" data-set-pane="general">
+          <div class="set-title"><h3>Geral</h3><p class="muted">Idioma, inicialização, atualizações e onde ficam os seus dados.</p></div>
+          <div class="set-group"><h4>Idioma</h4>
+          <div class="grid">
           <label>Idioma do app
             <select name="language" id="langSelect" class="input">
               <option value="pt-BR">Português (Brasil)</option><option value="en">English</option><option value="es">Español</option>
@@ -147,53 +159,60 @@
               <option value="auto">No idioma da pergunta</option><option value="app">Sempre no idioma do app</option>
             </select>
           </label>
-        </div>
-        <div id="desktopSettings">
-          <h4>App desktop</h4>
-          <div class="grid">
-            <label>Atalho da pergunta rápida (clique e pressione as teclas)
-              <div class="row"><input id="hotkeyInput" class="input" readonly><button type="button" class="btn" id="hotkeySave">Salvar</button></div>
-            </label>
-            <label>Modelo da pergunta rápida
-              <select name="quick_model" id="quickModelSelect" class="input"></select>
-              <small class="muted">Um modelo leve deixa a pergunta rápida bem mais ágil. Ele é carregado junto com o principal.</small>
-            </label>
-            <label>Onde rodar o modelo da pergunta rápida
-              <select name="quick_device" class="input"><option value="gpu">GPU (VRAM): mais rápido</option><option value="cpu">CPU (RAM): não ocupa a GPU</option></select>
-              <small class="muted">Na CPU, o modelo leve usa a RAM e deixa a GPU livre para o principal.</small>
-            </label>
-            <div class="checks">
-              <label class="check"><input type="checkbox" id="autoStart"> Iniciar junto com o Windows</label>
-              <label class="check"><input type="checkbox" id="hideOnBlur"> Esconder a pergunta rápida ao clicar fora</label>
-              <label class="check"><input type="checkbox" name="quick_keep_loaded"> Manter o modelo da pergunta rápida carregado</label>
-            </div>
-            <label>Atalho para falar na pergunta rápida
-              <div class="row"><input id="voiceHotkeyInput" class="input" readonly><button type="button" class="btn" id="voiceHotkeySave">Salvar</button></div>
-              <small class="muted">Aperte uma vez para começar a falar e de novo para enviar. Precisa do Whisper (Modelos → Mídia).</small>
-            </label>
-            <label>Atalho para perguntar sobre a tela
-              <div class="row"><input id="screenHotkeyInput" class="input" readonly><button type="button" class="btn" id="screenHotkeySave">Salvar</button></div>
-              <small class="muted">Tira um print do monitor onde está o mouse e abre a pergunta rápida com ele anexado. O modelo precisa ter visão 👁.</small>
-            </label>
-            <label>Voz para ler as respostas
-              <select id="ttsVoice" class="input"></select>
-              <small class="muted">Usa as vozes instaladas no Windows (funciona sem internet).</small>
-            </label>
-            <div class="full update-box">
+        </div></div>
+          <div class="set-group desktop-only"><h4>App desktop</h4>
+          <div class="checks"><label class="check"><input type="checkbox" id="autoStart"> Iniciar junto com o Windows</label></div>
+          <div class="full update-box">
               <span id="updateText" class="grow muted">Versão —</span>
               <button type="button" class="btn small" id="updateBtn">Verificar atualizações</button>
             </div>
-            <label class="full">Pasta de dados (modelos, motor e conversas)
+            
+          <label class="full">Pasta de dados (modelos, motor e conversas)
               <div class="row"><code id="dataDir" class="grow"></code><button type="button" class="btn" id="changeDataDir">Mudar...</button></div>
+            </label></div>
+          <div class="set-group"><h4>Contador de tokens</h4>
+          <div class="row between"><span id="statsSummary" class="muted"></span><button type="button" class="btn small" id="resetStats">Zerar contador</button></div></div>
+        </section>
+        <section class="set-pane" data-set-pane="quick">
+          <div class="set-title"><h3>Pergunta rápida</h3><p class="muted">A janelinha que abre por atalho em qualquer lugar do Windows.</p></div>
+          <div class="set-group desktop-only"><h4>Atalhos</h4>
+          <div class="grid"><label>Atalho da pergunta rápida (clique e pressione as teclas)
+              <div class="row"><input id="hotkeyInput" class="input" readonly><button type="button" class="btn" id="hotkeySave">Salvar</button></div>
             </label>
-          </div>
-          <h4>Conversa</h4>
-        </div>
-        <label class="full">Prompt de sistema (instruções fixas para o modelo)
+          <label>Atalho para falar na pergunta rápida
+              <div class="row"><input id="voiceHotkeyInput" class="input" readonly><button type="button" class="btn" id="voiceHotkeySave">Salvar</button></div>
+              <small class="muted">Aperte uma vez para começar a falar e de novo para enviar. Precisa do Whisper (Modelos → Mídia).</small>
+            </label>
+          <label>Atalho para perguntar sobre a tela
+              <div class="row"><input id="screenHotkeyInput" class="input" readonly><button type="button" class="btn" id="screenHotkeySave">Salvar</button></div>
+              <small class="muted">Tira um print do monitor onde está o mouse e abre a pergunta rápida com ele anexado. O modelo precisa ter visão 👁.</small>
+            </label></div></div>
+          <div class="set-group"><h4>Modelo</h4>
+          <div class="grid"><label>Modelo da pergunta rápida
+              <select name="quick_model" id="quickModelSelect" class="input"></select>
+              <small class="muted">Um modelo leve deixa a pergunta rápida bem mais ágil. Ele é carregado junto com o principal.</small>
+            </label>
+          <label>Onde rodar o modelo da pergunta rápida
+              <select name="quick_device" class="input"><option value="gpu">GPU (VRAM): mais rápido</option><option value="cpu">CPU (RAM): não ocupa a GPU</option></select>
+              <small class="muted">Na CPU, o modelo leve usa a RAM e deixa a GPU livre para o principal.</small>
+            </label>
+          <div class="checks full"><label class="check"><input type="checkbox" name="quick_keep_loaded"> Manter o modelo da pergunta rápida carregado</label>
+          <label class="check"><input type="checkbox" id="hideOnBlur"> Esconder a pergunta rápida ao clicar fora</label></div></div>
+          <small class="muted">Também dá para carregar e descarregar o modelo da pergunta rápida em Modelos → Meus modelos.</small></div>
+          <div class="set-group"><h4>Voz</h4>
+          <div class="grid"><label>Voz para ler as respostas
+              <select id="ttsVoice" class="input"></select>
+              <small class="muted">Usa as vozes instaladas no Windows (funciona sem internet).</small>
+            </label></div></div>
+        </section>
+        <section class="set-pane" data-set-pane="chat">
+          <div class="set-title"><h3>Conversa</h3><p class="muted">Como o modelo responde em todas as conversas.</p></div>
+          <div class="set-group"><h4>Instruções</h4>
+          <label class="full">Prompt de sistema (instruções fixas para o modelo)
           <textarea name="system_prompt" rows="5" class="input" placeholder="Ex.: Você é um assistente direto, responde em português..."></textarea>
-        </label>
-        <h4>Geração</h4>
-        <div class="grid">
+        </label></div>
+          <div class="set-group"><h4>Geração</h4>
+          <div class="grid">
           <label>Temperatura <input name="temperature" type="number" step="any" min="0" max="5" class="input"></label>
           <label>Top P <input name="top_p" type="number" step="any" min="0" max="1" class="input"></label>
           <label>Top K <input name="top_k" type="number" step="1" min="0" class="input"></label>
@@ -201,8 +220,14 @@
           <label>Penalidade de repetição <input name="repeat_penalty" type="number" step="any" min="0" max="5" class="input"></label>
           <label>Máx. tokens (0 = sem limite) <input name="max_tokens" type="number" step="1" min="0" class="input"></label>
         </div>
-        <h4>Carregamento do modelo <small class="muted">(aplica ao carregar)</small></h4>
-        <div class="grid">
+          <div class="checks" style="margin-top:12px"><label class="check full"><input type="checkbox" name="use_recommended"> Usar a amostragem recomendada para cada família de modelo (Qwen, Gemma, Llama...)</label>
+          <label class="check full"><input type="checkbox" name="auto_summarize"> Resumir a conversa antiga quando o contexto passar de 80% (a conversa continua sem estourar)</label></div>
+          <small class="muted">Cada modelo também pode ter ajustes próprios em Modelos → Meus modelos → ⚙️.</small></div>
+        </section>
+        <section class="set-pane" data-set-pane="engine">
+          <div class="set-title"><h3>Modelo e motor</h3><p class="muted">Aplicado ao carregar um modelo.</p></div>
+          <div class="set-group"><h4>Carregamento</h4>
+          <div class="grid">
           <label>Contexto (tokens) <input name="ctx_size" type="number" step="any" min="512" max="1048576" class="input"></label>
           <label>Camadas na GPU (999 = todas) <input name="gpu_layers" type="number" step="1" min="0" class="input"></label>
           <label>Uso da CPU <span id="cpuLabel" class="muted"></span>
@@ -216,17 +241,24 @@
             </select>
           </label>
           <label class="check full"><input type="checkbox" name="auto_load"> Carregar o último modelo automaticamente ao abrir o app</label>
-          <label class="check full"><input type="checkbox" name="use_recommended"> Usar a amostragem recomendada para cada família de modelo (Qwen, Gemma, Llama...)</label>
-          <label class="check full"><input type="checkbox" name="auto_summarize"> Resumir a conversa antiga quando o contexto passar de 80% (a conversa continua sem estourar)</label>
-          <small class="muted full">Cada modelo também pode ter ajustes próprios em Modelos → Meus modelos → ⚙️.</small>
+          
+          
+          
           <label>Descarregar modelos extras parados há (minutos)
             <input name="extra_idle_minutes" type="number" min="0" max="1440" class="input">
             <small class="muted">Modelos extras são os usados por agentes ou pela pergunta rápida além do principal. 0 = só ao fechar o app.</small>
           </label>
           <label class="full">Argumentos extras do llama-server <input name="extra_args" class="input" placeholder="ex.: --flash-attn on --cache-type-k q8_0"></label>
-        </div>
-        <h4>Codex (agente de programação)</h4>
-        <p class="muted small-note">O Codex só consegue ler e alterar arquivos dentro das pastas abaixo.</p>
+        </div></div>
+          <div class="set-group"><h4>Hugging Face</h4>
+          <label class="full">Token (opcional, só para modelos restritos/gated)
+          <input name="hf_token" type="password" class="input" autocomplete="off" placeholder="hf_...">
+        </label></div>
+        </section>
+        <section class="set-pane" data-set-pane="codex">
+          <div class="set-title"><h3>Codex</h3><p class="muted">O agente de programação que trabalha nas pastas que você liberar.</p></div>
+          <div class="set-group"><h4>Pastas liberadas</h4>
+          <p class="muted small-note">O Codex só consegue ler e alterar arquivos dentro das pastas abaixo.</p>
         <div id="workspaceList" class="list ws-list"></div>
         <div class="row" style="margin:8px 0 10px"><button type="button" class="btn" id="addWorkspace">+ Adicionar pasta</button></div>
         <div class="grid">
@@ -235,9 +267,12 @@
             <label class="check"><input type="checkbox" name="agent_confirm_writes"> Pedir confirmação antes de criar ou alterar arquivos</label>
           </div>
           <label>Máximo de passos por pedido <input name="agent_max_steps" type="number" min="1" max="200" class="input"></label>
-        </div>
-        <h4>🔌 Ferramentas MCP</h4>
-        <p class="muted small-note">Conecte o Codex e os agentes a outros programas que falam MCP, como o <b>Roblox Studio</b> (ler e alterar o jogo, testar no modo Play, ler o console). Os servidores marcados com "Usar no Codex" ficam disponíveis no Codex; nos agentes, escolha no editor de cada um.</p>
+        </div></div>
+        </section>
+        <section class="set-pane" data-set-pane="mcp">
+          <div class="set-title"><h3>Ferramentas MCP</h3></div>
+          <div class="set-group">
+          <p class="muted small-note">Conecte o Codex e os agentes a outros programas que falam MCP, como o <b>Roblox Studio</b> (ler e alterar o jogo, testar no modo Play, ler o console). Os servidores marcados com "Usar no Codex" ficam disponíveis no Codex; nos agentes, escolha no editor de cada um.</p>
         <div id="mcpList" class="list mcp-list"></div>
         <div class="row" style="margin:8px 0 6px">
           <button type="button" class="btn" id="mcpAddRoblox">+ Roblox Studio</button>
@@ -252,9 +287,12 @@
             <label class="full" id="mcpEnvRow">Variáveis de ambiente <small class="muted">(opcional, CHAVE=valor por linha)</small><textarea class="input" id="mcpEnv" rows="2"></textarea></label>
           </div>
           <div class="row end"><button type="button" class="btn" id="mcpCancel">Cancelar</button><button type="button" class="btn primary" id="mcpSave">Adicionar</button></div>
-        </div>
-        <h4>Áudio e imagem</h4>
-        <div class="grid">
+        </div></div>
+        </section>
+        <section class="set-pane" data-set-pane="media">
+          <div class="set-title"><h3>Áudio e imagem</h3><p class="muted">Transcrição (Whisper) e geração de imagens.</p></div>
+          <div class="set-group">
+          <div class="grid">
           <label>Idioma da transcrição
             <select name="whisper_language" class="input">
               <option value="auto">Detectar automaticamente</option><option value="pt">Português</option>
@@ -267,9 +305,12 @@
             <label class="check"><input type="checkbox" name="image_offload"> Economizar VRAM ao gerar imagens (um pouco mais lento)</label>
             <label class="check"><input type="checkbox" name="image_unload_llm"> Descarregar o modelo de texto enquanto gera imagens (libera a GPU toda)</label>
           </div>
-        </div>
-        <h4>Pesquisa na web</h4>
-        <div class="grid">
+        </div></div>
+        </section>
+        <section class="set-pane" data-set-pane="web">
+          <div class="set-title"><h3>Pesquisa na web</h3><p class="muted">Usada pelo botão 🌐 Web e pelos agentes que podem pesquisar.</p></div>
+          <div class="set-group">
+          <div class="grid">
           <label>Provedor
             <select name="search_provider" class="input" id="searchProvider">
               <option value="duckduckgo">DuckDuckGo (grátis, sem chave)</option>
@@ -288,19 +329,14 @@
           <label data-prov="google">ID do mecanismo (cx) <input name="google_cx" class="input" autocomplete="off"></label>
           <p data-prov="google" class="full muted small-note">Crie em <a href="https://programmablesearchengine.google.com/" target="_blank" rel="noopener">programmablesearchengine.google.com</a> (marque "Pesquisar em toda a Web") e gere a chave em <a href="https://console.cloud.google.com/apis/library/customsearch.googleapis.com" target="_blank" rel="noopener">Google Cloud → Custom Search API</a>. A cota grátis é de 100 pesquisas por dia.</p>
           <label data-prov="searxng" class="full">Endereço do SearXNG <input name="searxng_url" class="input" placeholder="http://localhost:8080"></label>
-        </div>
-        <h4>Contador de tokens</h4>
-        <div class="row between"><span id="statsSummary" class="muted"></span><button type="button" class="btn small" id="resetStats">Zerar contador</button></div>
-        <h4>Hugging Face</h4>
-        <label class="full">Token (opcional, só para modelos restritos/gated)
-          <input name="hf_token" type="password" class="input" autocomplete="off" placeholder="hf_...">
-        </label>
-        <div class="row end">
+        </div></div>
+        </section>
+      </div>
+      <div class="set-foot">
           <button type="button" class="btn" id="resetSettings">Restaurar padrões</button>
           <button type="submit" class="btn primary">Salvar</button>
         </div>
-      </form>
-    </div>
+    </form>
   </div>
 </div>
 
