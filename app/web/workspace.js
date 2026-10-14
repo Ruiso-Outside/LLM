@@ -3,7 +3,8 @@
 // e o registro de travamentos da janela. Carregado depois do app.js.
 
 const MODE_NAMES = { chat: "💬 Chat", codex: "🛠️ Codex", image: "🎨 Imagem", agents: "👥 Agentes" };
-function renderModeTag() { $("#modeTag").textContent = t(MODE_NAMES[S.mode] || ""); }
+// cada modo tem a sua cor (Chat violeta, Codex verde-água, Imagem rosa, Agentes âmbar): dá para saber de relance onde se está
+function applyModeTheme() { document.body.dataset.mode = S.mode; }
 
 // ------------------------------------------------------------------ painel do sistema (direita)
 const gb = mb => (mb / 1024).toFixed(1);
@@ -106,7 +107,7 @@ function paletteItems() {
     act("🧠", "Abrir Modelos", () => openModal("modelsModal")),
     act("⬇️", "Baixar modelos", () => { openModal("modelsModal"); switchTab("tabHF"); }),
     act("📚", "Abrir bases de conhecimento", () => openModal("kbModal")),
-    act("🤖", "Abrir agentes e grupos", () => openModal("agentsModal")),
+    act("🤖", "Criar e editar agentes", () => openModal("agentsModal")),
     act("⚙️", "Abrir Configurações", () => openModal("settingsModal")),
     act("💾", "Backup das conversas", () => openModal("backupModal")),
     act("▤", "Painel do sistema", () => setInspector(!$("#app").classList.contains("insp-open")), "Ctrl+I"),
@@ -134,7 +135,7 @@ function renderPalette() {
 function openPalette() { $("#palette").hidden = false; $("#paletteInput").value = ""; PAL.sel = 0; renderPalette(); $("#paletteInput").focus(); }
 function closePalette() { $("#palette").hidden = true; }
 function runPalette(i) { const x = PAL.items[i]; closePalette(); if (x) Promise.resolve(x.run()).catch(err => toast(err.message, 5000)); }
-$("#paletteBtn").onclick = $("#paletteTop").onclick = openPalette;
+$("#paletteTop").onclick = openPalette;
 $("#paletteInput").addEventListener("input", () => { PAL.sel = 0; renderPalette(); });
 $("#paletteInput").addEventListener("keydown", e => {
   if (e.key === "ArrowDown") { e.preventDefault(); PAL.sel = Math.min(PAL.items.length - 1, PAL.sel + 1); renderPalette(); }
@@ -166,4 +167,4 @@ try {
 } catch {}
 
 setInspector(ls("insp", "0") === "1");
-renderModeTag();
+applyModeTheme();

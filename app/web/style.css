@@ -664,3 +664,32 @@ kbd { white-space: nowrap; }
 .rea-chip.on { color: var(--neon); border-color: #22d3ee66; background: #22d3ee10; }
 .rea-chip[hidden] { display: none; }
 #reaSettings .rea-box { margin-top: 0; }
+
+/* ================================================================ cor de cada modo (v1.16) */
+body { --mode: #7c5cff; --mode2: #a68bff; --mode-soft: #7c5cff1f; --mode-line: #7c5cff66; --mode-glow: #7c5cff44; }
+body[data-mode="codex"] { --mode: #14b8a6; --mode2: #5eead4; --mode-soft: #14b8a61f; --mode-line: #14b8a666; --mode-glow: #14b8a644; }
+body[data-mode="image"] { --mode: #ec4899; --mode2: #f9a8d4; --mode-soft: #ec48991f; --mode-line: #ec489966; --mode-glow: #ec489944; }
+body[data-mode="agents"] { --mode: #f59e0b; --mode2: #fcd34d; --mode-soft: #f59e0b1f; --mode-line: #f59e0b66; --mode-glow: #f59e0b44; }
+#main { position: relative; }
+#main::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px; z-index: 3; pointer-events: none;
+  background: linear-gradient(90deg, transparent, var(--mode), transparent); box-shadow: 0 0 14px var(--mode); transition: background .3s; }
+#modes button.on { background: linear-gradient(180deg, var(--mode-soft), transparent); border-color: var(--mode-line); box-shadow: 0 0 16px var(--mode-glow); }
+#modes button.on::before { background: var(--mode); box-shadow: 0 0 10px var(--mode); }
+#modes button[data-mode="chat"].on .rl { color: #c4b5fd; } #modes button[data-mode="codex"].on .rl { color: #5eead4; }
+#modes button[data-mode="image"].on .rl { color: #f9a8d4; } #modes button[data-mode="agents"].on .rl { color: #fcd34d; }
+.composer-box { border-color: var(--mode-line); }
+.composer-box:focus-within { border-color: var(--mode); box-shadow: 0 0 0 1px var(--mode-line), 0 0 22px var(--mode-glow); }
+#sendBtn:not(.stop) { background: linear-gradient(135deg, var(--mode), var(--mode2)); color: #0b0c12; font-weight: 600; box-shadow: 0 0 14px var(--mode-glow); }
+#sendBtn:not(.stop):hover { box-shadow: 0 0 0 1px var(--mode), 0 0 22px var(--mode-glow); }
+.msg.user .bubble { border-color: var(--mode-line); background: linear-gradient(135deg, var(--mode-soft), #15172a); }
+.cursor::after { color: var(--mode2); text-shadow: 0 0 8px var(--mode); }
+.mode-bar .input { border-color: var(--mode-line); }
+/* tela inicial de cada modo */
+.hero { display: flex; flex-direction: column; align-items: center; gap: 10px; max-width: 640px; }
+.hero-icon { width: 76px; height: 76px; border-radius: 22px; display: grid; place-items: center; font-size: 38px;
+  background: radial-gradient(circle at 30% 30%, var(--mode-soft), transparent 70%), #0d0f17; border: 1px solid var(--mode-line); box-shadow: 0 0 30px var(--mode-glow); }
+.hero h2 { margin: 6px 0 0; font-size: 28px; background: linear-gradient(90deg, #fff, var(--mode2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.hero p { margin: 0; color: var(--muted); line-height: 1.5; }
+.hero-tips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 10px; }
+.hero-tip { border: 1px solid var(--line2); background: #0d0f17; color: #c9cbd6; border-radius: 99px; padding: 7px 14px; font-size: 13px; cursor: pointer; transition: border-color .15s, box-shadow .15s, color .15s; }
+.hero-tip:hover { border-color: var(--mode); color: var(--text); box-shadow: 0 0 14px var(--mode-glow); }

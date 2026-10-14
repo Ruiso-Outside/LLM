@@ -166,7 +166,7 @@ Em **Modelos → Meus modelos → ⚙️**, cada modelo pode ter contexto, camad
 
 ## Área de trabalho e atalhos ⌨️
 
-- **Trilho à esquerda:** modos (Chat, Codex, Imagem, Agentes), Docs, Modelos, Equipe, Ações, Backup e Configurações.
+- **Trilho à esquerda:** modos (Chat, Codex, Imagem, Agentes), Bases, Modelos, Backup e Configurações. Cada modo tem a sua cor (Chat violeta, Codex verde-água, Imagem rosa, Agentes âmbar) e a sua tela inicial com sugestões.
 - **Painel do sistema (▤ ou `Ctrl+I`):** VRAM e RAM reais ao vivo, modelos carregados (com ⏏ para descarregar), uso de contexto da conversa, ferramentas MCP e diagnóstico.
 - **Paleta de comandos (`Ctrl+K`):** busca qualquer ação, modelo para carregar ou conversa.
 - **Atalhos:** `Ctrl+1` a `Ctrl+4` trocam o modo, `Ctrl+N` nova conversa, `Ctrl+B` mostra/oculta as conversas.

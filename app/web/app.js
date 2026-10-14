@@ -100,14 +100,10 @@ function updateHint() {
     const im = S.media?.image;
     if (!im?.installed) h = "Para gerar imagens, instale o motor em Modelos → Mídia.";
     else if (!Object.values(im.presets).some(p => p.installed)) h = "Baixe um modelo de imagem em Modelos → Mídia.";
-    else h = "🎨 Descreva a imagem. Pode escrever em português.";
   } else if (!Object.keys(st.backends).length) h = "Primeiro passo: abra Modelos → Motor e instale o motor.";
   else if (!st.models.length) h = "Baixe um modelo em Modelos → Baixar modelos.";
   else if (st.engine.state !== "ready") h = st.engine.state === "loading" ? "Carregando modelo na memória..." : "Selecione um modelo e clique em Carregar.";
-  else if (S.mode === "agents") h = agentsHint();
-  else if (S.mode === "codex" && S.workspace === "__mcp") h = t("🔌 O Codex vai usar só as ferramentas MCP: {names}", { names: mcpEnabled().map(s => s.name).join(", ") });
-  else if (S.mode === "codex") h = S.workspace ? t("🛠️ O Codex trabalha somente dentro de {path}", { path: S.workspace }) : t("Escolha ou adicione uma pasta para o Codex trabalhar.");
-  else h = S.web ? "🌐 Pesquisa na web ligada: o modelo vai pesquisar antes de cada resposta." : "";
+  else if (S.mode === "codex" && !S.workspace) h = t("Escolha ou adicione uma pasta para o Codex trabalhar.");
   $("#hint").textContent = h;
 }
 
@@ -140,7 +136,8 @@ function setMode(mode) {
   $("#attachBtn").hidden = mode === "image";
   if (mode === "image" && S.attachments.length) { S.attachments = []; renderAttachTray(); }
   renderModeBars(); updateHint();
-  if (typeof renderModeTag === "function") renderModeTag();
+  if (typeof applyModeTheme === "function") applyModeTheme();
+  if (!S.chat?.messages.length) renderMessages(); // a tela inicial muda com o modo
 }
 $("#modes").onclick = e => { const b = e.target.closest("[data-mode]"); if (b && !S.generating) setMode(b.dataset.mode); };
 
@@ -408,19 +405,40 @@ function imageMsgHTML(msg, idx, isLast, streaming) {
   return h + "</div>";
 }
 
+// tela inicial própria de cada modo: ícone, título, para que serve e sugestões clicáveis
+const MODE_HERO = {
+  chat: { icon: "💬", title: "Chat", sub: "Converse com o modelo. Anexe arquivos, imagens, áudios e vídeos com 📎 ou arrastando.",
+    tips: ["Explique este código passo a passo", "Resuma o texto que eu vou colar", "Me ajude a planejar um jogo no Roblox"] },
+  codex: { icon: "🛠️", title: "Codex", sub: "O agente cria e edita arquivos na pasta escolhida ao lado, roda comandos e testa. Com uma base 📚, ele consulta os seus documentos.",
+    tips: ["Crie um jogo da cobrinha em HTML", "Encontre e corrija o erro deste projeto", "Explique a estrutura desta pasta"] },
+  image: { icon: "🎨", title: "Imagem", sub: "Descreva a imagem (em português mesmo). O modelo de texto melhora a descrição antes de gerar.",
+    tips: ["Um castelo flutuante ao pôr do sol, estilo pintura", "Ícone de app de um raio neon, fundo escuro", "Textura de pedra para um jogo"] },
+  agents: { icon: "👥", title: "Agentes", sub: "Converse com um agente ou rode um grupo em sequência: cada um faz a sua parte e o validador confere.",
+    tips: ["Crie um problema de matemática nível médio", "Escreva um texto sobre energia solar", "Planeje e programe uma calculadora"] },
+};
+function modeHeroHTML() {
+  const h = MODE_HERO[S.mode] || MODE_HERO.chat;
+  const extra = S.mode === "agents" && !AG.doc.agents.length
+    ? `<button class="btn primary" data-open-agents>${t("Criar o primeiro agente")}</button>` : "";
+  return `<div class="hero"><div class="hero-icon">${h.icon}</div><h2>${t(h.title)}</h2><p>${t(h.sub)}</p>${extra}
+    <div class="hero-tips">${h.tips.map(x => `<button class="hero-tip" data-tip="${esc(t(x))}">${esc(t(x))}</button>`).join("")}</div></div>`;
+}
+$("#messages").addEventListener("click", e => {
+  const tip = e.target.closest("[data-tip]");
+  if (tip) { $("#input").value = tip.dataset.tip; autoGrow(); $("#input").focus(); return; }
+  if (e.target.closest("[data-open-agents]")) openModal("agentsModal");
+});
+
 function renderMessages() {
   const box = $("#messages");
   if (!S.chat || !S.chat.messages.length) {
     const st = S.status;
     const noEngine = st && !Object.keys(st.backends).length; const noModel = st && !st.models.length;
-    box.innerHTML = `<div class="empty"><h2>LLM Local</h2><div>Seus modelos, sua máquina. Sem conta, sem limites, sem nada saindo do seu PC.</div>
+    box.innerHTML = `<div class="empty">${noEngine || noModel ? `<h2>LLM Local</h2><div>Seus modelos, sua máquina. Sem conta, sem limites, sem nada saindo do seu PC.</div>` : ""}
       ${noEngine || noModel ? `<ol class="steps">
         <li>${noEngine ? "" : "✅ "}Instale o motor em <b>Modelos → Motor</b></li>
         <li>${noModel ? "" : "✅ "}Baixe um modelo em <b>Modelos → Baixar modelos</b></li>
-        <li>Selecione o modelo no topo e clique em <b>Carregar</b></li></ol>` : `<div class="mode-cards">
-        <div><b>💬 Chat</b><span>Converse, anexe arquivos 📎, imagens, áudios e vídeos.</span></div>
-        <div><b>🛠️ Codex</b><span>Crie e edite projetos de software numa pasta que você liberar.</span></div>
-        <div><b>🎨 Imagem</b><span>Gere imagens a partir de uma descrição.</span></div></div>`}</div>`;
+        <li>Selecione o modelo no topo e clique em <b>Carregar</b></li></ol>` : modeHeroHTML()}</div>`;
     return;
   }
   const n = S.chat.messages.length;

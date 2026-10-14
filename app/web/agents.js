@@ -49,7 +49,7 @@ function agentsHint() {
   const s = currentAgentSel();
   if (s.group) return `👥 ${s.group.name}: ` + s.group.steps.map(st => { const a = agentById(st.agent); return a ? `${a.icon} ${a.name}${st.role === "validator" ? " " + t("(valida)") : ""}` : ""; }).join(" → ");
   if (s.agent) return `${s.agent.icon} ` + t("Conversando com o agente {name}.", { name: s.agent.name });
-  return t("Crie um agente ou grupo no ⚙️ ao lado (ou na barra lateral, em Agentes).");
+  return t("Crie um agente ou grupo no ⚙️ ao lado.");
 }
 
 // ------------------------------------------------------------------ janela de edição
