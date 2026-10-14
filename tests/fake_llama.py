@@ -29,6 +29,8 @@ def plan(req, msgs):
     """Decide a proxima chamada de ferramenta (ou None para a resposta final)."""
     names = [t["function"]["name"] for t in req.get("tools") or []]
     n_tools = sum(1 for m in msgs if m["role"] == "tool")
+    if "search_knowledge" in names:  # roteiro com base de conhecimento: consulta a base e responde
+        return ("search_knowledge", {"query": "receita de bolo de chocolate"}) if n_tools == 0 else None
     echo = next((n for n in names if n.endswith("__echo")), None)
     setv = next((n for n in names if n.endswith("__set_value")), None)
     if echo:  # roteiro MCP: echo (leitura) -> set_value (altera, pede confirmacao)

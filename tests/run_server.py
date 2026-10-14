@@ -10,7 +10,8 @@ from pathlib import Path
 TESTS = Path(__file__).resolve().parent
 HOME = Path(os.environ["LLM_HOME"])
 GB = 1024 ** 3
-for name, size in [("models/Qwen3-8B-Q4_K_M.gguf", 5 * GB), ("models/gemma-3-4b-it-Q4_K_M.gguf", 3 * GB)]:
+for name, size in [("models/Qwen3-8B-Q4_K_M.gguf", 5 * GB), ("models/gemma-3-4b-it-Q4_K_M.gguf", 3 * GB),
+                   ("models/embed/Qwen3-Embedding-0.6B-Q8_0.gguf", 600 * 1024 ** 2)]:
     f = HOME / name
     f.parent.mkdir(parents=True, exist_ok=True)
     if not f.exists():

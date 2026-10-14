@@ -80,7 +80,7 @@ function renderKbSelect() {
   const html = `<option value="">📚 ${t("Sem base")}</option>` + KB.list.map(k => `<option value="${k.id}">📚 ${esc(k.name)}</option>`).join("");
   if (sel.dataset.sig !== html) { sel.innerHTML = html; sel.dataset.sig = html; }
   sel.value = KB.list.some(k => k.id === cur) ? cur : "";
-  sel.hidden = !KB.list.length || !["chat", "agents"].includes(S.mode);
+  sel.hidden = !KB.list.length || !["chat", "agents", "codex"].includes(S.mode);
   S.kb = sel.hidden ? "" : sel.value;
 }
 $("#kbSelect").onchange = e => { lsSet("kb", e.target.value); S.kb = e.target.value; };

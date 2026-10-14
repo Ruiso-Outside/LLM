@@ -2076,8 +2076,9 @@ class Handler(BaseHTTPRequestHandler):
         apply_model_sampling(sampling, ENGINE_PROC.model)
         chat_id = b.get("chat_id", "") if ID_RE.match(b.get("chat_id", "")) else "sem-conversa"
         ckpt = CHECKPOINTS / chat_id / uuid.uuid4().hex[:10]
+        kb_fn, kb_name = self.codex_kb(b.get("kb", ""))
         run = agent.AgentRun(lambda payload: self.engine_call(payload, True), self.sse_safe, s, image_fn if ws else None,
-                             ckpt, mcp_ids, self.save_tool_image)
+                             ckpt, mcp_ids, self.save_tool_image, kb_fn, kb_name)
         try:
             trace, timings = run.run(ws, history, b.get("chat_id", ""), sampling)
             run.send({"agent": {"type": "trace", "trace": trace}})
@@ -2085,6 +2086,28 @@ class Handler(BaseHTTPRequestHandler):
                 add_stats(timings)
         except (RuntimeError, agent.ToolError) as e:
             run.send({"error": {"message": str(e)}})
+
+    def codex_kb(self, kid):
+        """Funcao de busca na base de conhecimento para o Codex (ferramenta search_knowledge)."""
+        if not kid:
+            return None, ""
+        try:
+            meta = kb.load_meta(kid)
+        except (ValueError, OSError):
+            return None, ""
+
+        def search(query):
+            if not query.strip():
+                return "Erro: informe o que procurar."
+            try:
+                hits = kb.search(kid, query[:2000], embed_texts, k=6)
+            except RuntimeError as e:
+                return f"Erro ao buscar na base: {e}"
+            if not hits:
+                return "Nada relevante encontrado na base para essa consulta. Tente outras palavras."
+            return "\n\n---\n\n".join(f"[D{i}] {h['path']} (linhas {h['lines']}, relevancia {h['score']})\n{h['text']}"
+                                         for i, h in enumerate(hits, 1))
+        return search, meta.get("name", "")
 
     def save_tool_image(self, data, mime):
         """Guarda uma imagem devolvida por uma ferramenta MCP (ex.: print da tela) e devolve o id do arquivo."""

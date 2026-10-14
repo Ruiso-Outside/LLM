@@ -110,6 +110,8 @@ O modelo cria e edita projetos de software sozinho, **somente** dentro das pasta
 - Caminhos fora da pasta liberada são bloqueados.
 - Funciona melhor com modelos bons em programação e em "tool calling", como Qwen3, Qwen3-Coder ou Devstral, e com contexto de 32k ou mais.
 
+**Base de conhecimento no Codex:** escolha a base no 📚 da barra do Codex. O Codex ganha a ferramenta *search_knowledge* e consulta seus documentos (specs, documentação, código de referência) quantas vezes precisar enquanto trabalha, citando os trechos como [D1], [D2].
+
 **Desfazer o que o Codex fez:** antes de alterar um arquivo, o Codex guarda a versão original. Na resposta aparecem **🔍 Ver alterações** (as diferenças, linha por linha) e **↩ Desfazer alterações** (tudo volta a ficar como antes do pedido; arquivos criados são removidos). Comandos executados não são desfeitos. Os pontos de restauração ficam 30 dias.
 
 ### 🔌 Ferramentas MCP (Roblox Studio e outros programas)
@@ -122,7 +124,7 @@ O Codex e os agentes podem controlar outros programas que falam **MCP** (Model C
 
 ### 🔬 REA (engenharia reversa)
 O [REA](https://github.com/morluto/rea) faz parte do motor: o Codex passa a entender programas sem o código-fonte (apps Electron/JavaScript, `.exe`/`.dll`, .NET, Go, Rust, pacotes, SQLite).
-- **Instalar:** Modelos → Motor → **Instalar REA**. Baixa uma vez (~290 MB: um Node.js portátil oficial, conferido por SHA-256, e o `rea-agents` numa versão fixa) para `engine/rea`. Depois **funciona sem internet** e sem nada instalado no Windows.
+- **Instalar:** Configurações → **Codex** → **Instalar REA** (ou o indicador 🔬 na barra do modo Codex, ou Modelos → Motor). Baixa uma vez (~290 MB: um Node.js portátil oficial, conferido por SHA-256, e o `rea-agents` numa versão fixa) para `engine/rea`. Depois **funciona sem internet** e sem nada instalado no Windows.
 - **No Codex:** com uma pasta de projeto, o Codex usa o REA pelo terminal com a saída limitada (`--token-limit`), sem gastar contexto com as 207 ferramentas dele. Dá para desligar em Configurações → Codex.
 - **Como ferramentas MCP (opcional):** Configurações → Ferramentas MCP → **+ REA (MCP)** usa a mesma cópia local. O perfil **Essenciais** liga 8 ferramentas (~4,4 mil tokens) e **Windows completo**, 18. Em cada servidor MCP dá para ligar e desligar ferramentas uma a uma.
 

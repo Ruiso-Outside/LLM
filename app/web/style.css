@@ -658,3 +658,9 @@ kbd { white-space: nowrap; }
 .rea-box { margin-top: 12px; border: 1px solid #22d3ee44; border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px;
   background: linear-gradient(135deg, #22d3ee0b, #7c5cff0b); }
 .rea-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+.rea-chip { border: 1px solid var(--line2); background: #0a0c14; color: var(--muted); border-radius: 99px; padding: 3px 10px; font-size: 12px; cursor: pointer; white-space: nowrap; }
+.rea-chip:hover { color: var(--text); border-color: #22d3ee88; }
+.rea-chip.on { color: var(--neon); border-color: #22d3ee66; background: #22d3ee10; }
+.rea-chip[hidden] { display: none; }
+#reaSettings .rea-box { margin-top: 0; }

@@ -66,6 +66,13 @@ IMAGE_TOOL = _fn("generate_image", "Gera uma imagem PNG a partir de uma descrica
                   "width": I, "height": I}, ["prompt", "path"])
 
 
+KB_TOOL = _fn("search_knowledge", "Procura trechos relevantes na base de conhecimento do usuario (documentacao, specs, "
+              "codigo de referencia). Use antes de decidir como implementar algo e sempre que precisar de um detalhe "
+              "dos documentos. Pode chamar varias vezes com consultas diferentes e especificas.",
+              {"query": S | {"description": "O que procurar, em linguagem natural (ex.: 'como o login valida o token')"}},
+              ["query"])
+
+
 def system_prompt(root, has_image_tool):
     return f"""Voce e o Codex do LLM Local, um engenheiro de software autonomo trabalhando no computador do usuario.
 
@@ -451,10 +458,12 @@ class AgentRun:
     PENDING = {}  # id -> {"event": Event, "answer": dict}
     SESSION_AUTO = {}  # chat_id -> {"commands": bool, "files": bool}
 
-    def __init__(self, engine_call, emit, settings, image_fn=None, checkpoint_dir=None, mcp_ids=(), save_image=None):
+    def __init__(self, engine_call, emit, settings, image_fn=None, checkpoint_dir=None, mcp_ids=(), save_image=None,
+                 kb_fn=None, kb_name=""):
         self.engine_call, self.emit, self.s, self.image_fn = engine_call, emit, settings, image_fn
         self.checkpoint_dir = checkpoint_dir
         self.mcp_ids, self.save_image, self.mcp_map = list(mcp_ids or ()), save_image, {}
+        self.kb_fn, self.kb_name = kb_fn, kb_name
         self.ckpt = None
         self.alive = True
 
@@ -504,6 +513,8 @@ class AgentRun:
 
     # -- ferramentas
     def execute(self, ws, name, args):
+        if name == "search_knowledge" and self.kb_fn:
+            return self.kb_fn(args.get("query", ""))
         if name in self.mcp_map:
             srv, tool = self.mcp_map[name]
             try:
@@ -555,6 +566,9 @@ class AgentRun:
 
     def _run(self, ws, history, chat_id, sampling):
         tools = (TOOLS + ([IMAGE_TOOL] if self.image_fn else [])) if ws else []
+        if self.kb_fn:
+            tools.append(KB_TOOL)
+            self.send({"agent": {"type": "notice", "text": f"📚 Base de conhecimento: {self.kb_name}"}})
         servers = []
         if self.mcp_ids:
             self.send({"agent": {"type": "notice", "text": "🔌 Conectando às ferramentas MCP..."}})
@@ -573,6 +587,8 @@ class AgentRun:
             raise ToolError("Sem ferramentas: escolha uma pasta de projeto ou conecte um servidor MCP.")
         sp = (system_prompt(ws.root, bool(self.image_fn)) if ws else system_prompt_mcp_only()) + \
             mcp_prompt(servers, bool(ws)) + ("\n\n" + rea.cli_prompt() if rea_cli else "") + \
+            (f"\n\nBase de conhecimento \"{self.kb_name}\": use search_knowledge para consultar os documentos do usuario "
+             "antes de implementar e quando precisar de detalhes. Cite os trechos usados como [D1], [D2]." if self.kb_fn else "") + \
             ("\n" + self.s["_reply_rule"] if self.s.get("_reply_rule") else "")
         messages = [{"role": "system", "content": sp}] + history
         trace, last_timings = [], None

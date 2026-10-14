@@ -733,6 +733,12 @@ const DICT = {
   "REA removido": ["REA removed", "REA quitado"],
   "🔬 Usar o REA (engenharia reversa) quando estiver instalado": ["🔬 Use REA (reverse engineering) when installed", "🔬 Usar el REA (ingeniería inversa) cuando esté instalado"],
   "REA adicionado como servidor MCP (usa a cópia instalada no motor, sem internet).": ["REA added as an MCP server (uses the copy installed in the engine, offline).", "REA agregado como servidor MCP (usa la copia instalada en el motor, sin internet)."],
+  "Instalando o REA... acompanhe o progresso no topo da janela.": ["Installing REA... follow the progress at the top of the window.", "Instalando el REA... sigue el progreso en la parte superior de la ventana."],
+  "Instalar REA": ["Install REA", "Instalar REA"],
+  "REA instalado: o Codex pode fazer engenharia reversa (sem internet). Clique para ver.": ["REA installed: Codex can do reverse engineering (offline). Click to see.", "REA instalado: el Codex puede hacer ingeniería inversa (sin internet). Haz clic para ver."],
+  "Instale o REA para o Codex entender programas sem o código-fonte.": ["Install REA so Codex can understand programs without source code.", "Instala el REA para que el Codex entienda programas sin el código fuente."],
+  "Buscou na base:": ["Searched the base:", "Buscó en la base:"],
+  "🔬 REA · Engenharia reversa": ["🔬 REA · Reverse engineering", "🔬 REA · Ingeniería inversa"],
 };
 
 function _pick(key) {

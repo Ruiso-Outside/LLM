@@ -278,6 +278,32 @@ class ServerTest(unittest.TestCase):
             self.call("/api/settings", {"quick_model": "", "quick_keep_loaded": True}, "PUT")
             self.call("/api/unload", {"extra": "all"})
 
+    def test_15_codex_with_knowledge_base(self):
+        docs = self.home / "docs"
+        docs.mkdir(exist_ok=True)
+        (docs / "receita.txt").write_text("Receita de bolo de chocolate: misture farinha, ovos e chocolate. Asse por 40 minutos.", "utf-8")
+        (docs / "jogo.md").write_text("# Obby\nO jogador pula plataformas e evita a lava.", "utf-8")
+        base = self.call("/api/kb/create", {"name": "Docs do projeto", "folders": [str(docs)]})
+        self.call("/api/kb/index", {"id": base["id"]})
+        for _ in range(100):
+            k = next(x for x in self.call("/api/kb")["bases"] if x["id"] == base["id"])
+            if k["status"] not in ("nova", "indexando"):
+                break
+            time.sleep(0.2)
+        self.assertGreaterEqual(k["n_chunks"], 2)
+        ev = self.sse("/api/agent", {"chat_id": "teste-kb", "workspace": str(self.ws), "kb": base["id"],
+                                     "messages": [{"role": "user", "content": "como fazer o bolo?"}]})
+        a = [e["agent"] for e in ev if "agent" in e]
+        self.assertTrue(any(x["type"] == "notice" and "Docs do projeto" in x["text"] for x in a))
+        self.assertEqual([x["name"] for x in a if x["type"] == "tool_start"], ["search_knowledge"])
+        result = next(x["result"] for x in a if x["type"] == "tool_end")
+        self.assertIn("[D1]", result)
+        self.assertIn("bolo de chocolate", result)
+        self.assertIn("bolo de chocolate", self.text_of(ev, "agent"))  # a resposta final usou o trecho
+        # sem base escolhida, o Codex nao recebe a ferramenta
+        ev = self.sse("/api/agent", {"chat_id": "teste-kb2", "workspace": str(self.ws), "messages": [{"role": "user", "content": "oi"}]})
+        self.assertNotIn("search_knowledge", [e["agent"].get("name") for e in ev if e.get("agent", {}).get("type") == "tool_start"])
+
     def test_12_summarize_and_backup(self):
         r = self.call("/api/summarize", {"messages": [{"role": "user", "content": "a"}, {"role": "assistant", "content": "b"}]})
         self.assertIn("Resumo", r["summary"])

@@ -62,6 +62,7 @@
           <div id="codexBar" class="mode-bar" hidden>
             <select id="workspaceSelect" class="input small-input"></select>
             <button class="icon-btn" id="openWorkspace" title="Abrir a pasta no Explorer">📂</button>
+            <button type="button" id="reaChip" class="rea-chip" data-rea="open" hidden></button>
           </div>
           <div id="imageBar" class="mode-bar" hidden>
             <select id="imagePresetSelect" class="input small-input"></select>
@@ -283,6 +284,7 @@
         </section>
         <section class="set-pane" data-set-pane="codex">
           <div class="set-title"><h3>Codex</h3><p class="muted">O agente de programação que trabalha nas pastas que você liberar.</p></div>
+          <div id="reaSettings"></div>
           <div class="set-group"><h4>Pastas liberadas</h4>
           <p class="muted small-note">O Codex só consegue ler e alterar arquivos dentro das pastas abaixo.</p>
         <div id="workspaceList" class="list ws-list"></div>

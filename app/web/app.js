@@ -55,14 +55,15 @@ async function refreshStatus() {
   finished.forEach(t => S.doneTasks.add(t.id));
   if (finished.length) { loadMedia(); loadKbs(); }
   const lang = S.status.settings.language; if (lang && lang !== LANG && !S.generating) return setLanguage(lang);
-  renderTopbar(); renderChatList(); renderTasks(); renderStatsBar(); renderModeBars();
+  renderTopbar(); renderChatList(); renderTasks(); renderStatsBar(); renderModeBars(); renderReaPlaces();
   if ($("#modelsModal").classList.contains("open")) { renderLocalModels(); renderEngine(); }
   if (typeof renderInspector === "function") renderInspector();
 }
 
 async function loadMedia() {
   try { S.media = await api("/api/media"); } catch { return; }
-  renderModeBars();
+  renderModeBars(); renderReaPlaces();
+  if ($("#modelsModal").classList.contains("open")) renderEngine();
   if ($("#modelsModal").classList.contains("open")) { renderMedia(); renderLocalModels(); }
 }
 
@@ -350,6 +351,7 @@ const TOOL_LABEL = {
   delete_path: a => ["🗑️", `Apagar <code>${esc(a.path)}</code>`],
   run_command: a => ["▶️", `<code>${esc(a.command)}</code>`],
   generate_image: a => ["🎨", `Gerar imagem <code>${esc(a.path)}</code>`],
+  search_knowledge: a => ["📚", `${t("Buscou na base:")} <code>${esc(a.query || "")}</code>`],
 };
 function toolBody(step) {
   const a = step.args || {}; let b = "";
@@ -660,7 +662,7 @@ async function runAgent(workspace) {
   let base = 0, lastPred = 0;
   const lastStep = type => { let s = msg.steps.at(-1); if (!s || s.type !== type) { s = { type, text: "" }; msg.steps.push(s); } return s; };
   try {
-    const where = workspace === "__mcp" ? { mcp_only: true } : { workspace };
+    const where = { ...(workspace === "__mcp" ? { mcp_only: true } : { workspace }), kb: S.kb || "" };
     await streamChat({ chat_id: S.chat.id, ...where, messages, ...sampling() }, S.abort.signal, j => {
       if (j.timings) {
         const t = j.timings;
@@ -1011,10 +1013,24 @@ function reaBoxHTML(running) {
     <div class="row wrap">${r.installed ? `<button class="btn small" data-rea="install" ${running ? "disabled" : ""}>${t("Reinstalar")}</button><button class="btn small danger" data-rea="uninstall">${t("Remover")}</button>`
       : `<button class="btn small primary" data-rea="install" ${running ? "disabled" : ""}>${t("Instalar REA {v}", { v: esc(r.pinned) })}</button>`}</div></div>`;
 }
+document.addEventListener("click", async e => {
+  const ra = e.target.closest("[data-rea]")?.dataset.rea; if (!ra) return;
+  if (ra === "open") { openModal("settingsModal"); return showSettingsTab("codex"); }
+  if (ra === "install") { try { await post("/api/media/install", { what: "rea", value: "install" }); toast(t("Instalando o REA... acompanhe o progresso no topo da janela.")); } catch (err) { toast(err.message, 5000); } return refreshStatus(); }
+  if (ra === "uninstall") { if (!confirm(t("Remover o REA do motor?"))) return; await post("/api/rea/uninstall"); toast(t("REA removido")); await loadMedia(); renderEngine(); renderReaPlaces(); }
+});
+// o REA aparece no Motor, em Configurações → Codex e como indicador na barra do Codex
+function renderReaPlaces() {
+  const running = S.status?.tasks?.some(t => t.kind === "engine" && t.status === "running");
+  const box = $("#reaSettings"); if (box) { const h = reaBoxHTML(running); if (box.dataset.sig !== h) { box.innerHTML = h; box.dataset.sig = h; } }
+  const chip = $("#reaChip"), r = S.media?.rea;
+  if (chip) {
+    chip.hidden = !r;
+    if (r) { chip.className = "rea-chip" + (r.installed ? " on" : ""); chip.textContent = r.installed ? "🔬 REA" : "🔬 " + t("Instalar REA");
+      chip.title = r.installed ? t("REA instalado: o Codex pode fazer engenharia reversa (sem internet). Clique para ver.") : t("Instale o REA para o Codex entender programas sem o código-fonte."); }
+  }
+}
 $("#engineInfo").addEventListener("click", async e => {
-  const ra = e.target.dataset.rea;
-  if (ra === "install") { try { await post("/api/media/install", { what: "rea", value: "install" }); toast(t("Instalando o REA...")); } catch (err) { toast(err.message, 5000); } return refreshStatus(); }
-  if (ra === "uninstall") { if (!confirm(t("Remover o REA do motor?"))) return; await post("/api/rea/uninstall"); toast(t("REA removido")); await loadMedia(); return renderEngine(); }
   const b = e.target.dataset.install; if (!b) return;
   try { await post("/api/engine/install", { backend: b }); toast("Baixando motor..."); } catch (err) { toast(err.message, 5000); }
   refreshStatus();
@@ -1050,7 +1066,7 @@ function fillSettings(src = S.status.settings) {
   src = { ...src, language: src.language || LANG };
   const f = $("#settingsForm");
   for (const el of f.elements) if (el.name && src[el.name] !== undefined) { if (el.type === "checkbox") el.checked = !!src[el.name]; else el.value = src[el.name]; }
-  S.wsEdit = [...(S.status.settings.workspaces || [])]; renderWorkspaceList(); cpuLabel(); loadMcp();
+  S.wsEdit = [...(S.status.settings.workspaces || [])]; renderWorkspaceList(); cpuLabel(); loadMcp(); loadMedia();
   showProviderFields(); renderStatsSummary();
 }
 function renderWorkspaceList() {
