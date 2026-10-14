@@ -120,6 +120,11 @@ O Codex e os agentes podem controlar outros programas que falam **MCP** (Model C
 - **Nos agentes:** marque os servidores no editor de cada agente (campo *Ferramentas MCP*). Um agente sozinho com ferramentas, ou dentro de um grupo, chama as ferramentas e mostra cada passo.
 - **Confirmação:** ações que alteram algo pedem **Permitir / Sempre nesta conversa / Negar**. Ferramentas só de leitura não pedem. Marque *Não pedir confirmação* se confiar no servidor.
 
+### 🔬 REA (engenharia reversa)
+Em **Configurações → Ferramentas MCP → + REA**, o Codex passa a entender programas sem o código-fonte (apps Electron/JavaScript, `.exe`/`.dll`, .NET, Go, Rust, pacotes, SQLite, sites), usando o [REA](https://github.com/morluto/rea). Precisa do Node.js 22.19+.
+- **Modo leve (padrão):** o Codex chama o REA pelo terminal com a saída limitada (`--token-limit`), sem gastar contexto com as 207 ferramentas dele. Precisa de uma pasta de projeto no Codex.
+- **Modo MCP:** desmarque "Modo leve" para usar as ferramentas direto (Codex e agentes). O perfil **Essenciais** liga só 8 ferramentas (~4,4 mil tokens) e **Windows completo**, 18. Em cada servidor MCP dá para ligar e desligar ferramentas uma a uma, e o app mostra quantos tokens elas ocupam.
+
 ### 🎨 Imagem
 Descreva a imagem (em português mesmo). O modelo de texto carregado melhora a descrição antes de gerar.
 - Instale em **Modelos → Mídia**: o motor (*stable-diffusion.cpp*; Vulkan é o recomendado) e um modelo: **Z-Image Turbo** (melhor qualidade, ~6 GB) ou **SDXL Turbo** (mais rápido).
@@ -155,6 +160,21 @@ Alguns repositórios trazem arquivos `mtp-…gguf` (ou `…-FastMTP…`) de algu
 ## Ajustes por modelo ⚙️
 
 Em **Modelos → Meus modelos → ⚙️**, cada modelo pode ter contexto, camadas na GPU, temperatura, top P/K, min P e penalidade próprios. Sem ajustes, o app usa a **amostragem recomendada da família** (Qwen3, Gemma, Llama, Mistral, DeepSeek R1...) e o resto vem das configurações globais.
+
+## Área de trabalho e atalhos ⌨️
+
+- **Trilho à esquerda:** modos (Chat, Codex, Imagem, Agentes), Docs, Modelos, Equipe, Ações, Backup e Configurações.
+- **Painel do sistema (▤ ou `Ctrl+I`):** VRAM e RAM reais ao vivo, modelos carregados (com ⏏ para descarregar), uso de contexto da conversa, ferramentas MCP e diagnóstico.
+- **Paleta de comandos (`Ctrl+K`):** busca qualquer ação, modelo para carregar ou conversa.
+- **Atalhos:** `Ctrl+1` a `Ctrl+4` trocam o modo, `Ctrl+N` nova conversa, `Ctrl+B` mostra/oculta as conversas.
+
+## Travamentos e diagnóstico 🩺
+
+O motivo mais comum de o PC travar é a **memória da placa de vídeo encher** (ex.: um jogo aberto junto com um modelo grande): o Windows passa a usar a RAM como memória de vídeo e tudo fica lento ou congela.
+- O topo mostra a VRAM real (🎮) e avisa quando ela enche.
+- **Proteção de VRAM** (ligada por padrão, em Configurações → Modelo e motor): se a VRAM ficar cheia por ~40 s sem nada sendo gerado, o app descarrega os modelos extras e depois o principal.
+- Se a janela parar de responder, aparece a opção de **recarregar** ou **fechar**. A bandeja também tem *Recarregar a janela* e *Abrir relatório de diagnóstico*.
+- Tudo fica registrado em `diagnostico.log` (pasta `%APPDATA%\LLM Local` e pasta `data` do app): VRAM, RAM, travamentos da janela e quedas de processos.
 
 ## Pesquisa na web 🌐
 

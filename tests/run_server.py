@@ -34,4 +34,5 @@ def popen(cmd, *a, **kw):
 
 server.subprocess.Popen = popen
 server.GPU = {"vendor": "nvidia", "name": "teste", "vram_mb": 16303}
+server.gpu_sample = lambda: None  # nao le a placa de verdade (a protecao de VRAM nao age nos testes)
 server.main()

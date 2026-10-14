@@ -8,18 +8,31 @@
 </head>
 <body>
 <div id="app">
+  <nav id="rail">
+    <div class="rail-logo" title="LLM Local"><span class="logo"></span></div>
+    <div class="rail-group" id="modes">
+      <button data-mode="chat" title="Conversa normal (Ctrl+1)"><span class="ri">💬</span><span class="rl">Chat</span></button>
+      <button data-mode="codex" title="Agente que cria e edita arquivos numa pasta liberada (Ctrl+2)"><span class="ri">🛠️</span><span class="rl">Codex</span></button>
+      <button data-mode="image" title="Gerar imagens a partir de uma descrição (Ctrl+3)"><span class="ri">🎨</span><span class="rl">Imagem</span></button>
+      <button data-mode="agents" title="Conversar com um agente ou um grupo de agentes (Ctrl+4)"><span class="ri">👥</span><span class="rl">Agentes</span></button>
+    </div>
+    <div class="rail-sep"></div>
+    <div class="rail-group">
+      <button data-open="kbModal" title="Bases de conhecimento"><span class="ri">📚</span><span class="rl">Docs</span></button>
+      <button data-open="modelsModal" title="Modelos, motor e mídia"><span class="ri">🧠</span><span class="rl">Modelos</span></button>
+      <button data-open="agentsModal" title="Criar e editar agentes e grupos"><span class="ri">🤖</span><span class="rl">Equipe</span></button>
+    </div>
+    <div class="spacer"></div>
+    <div class="rail-group">
+      <button id="paletteBtn" title="Paleta de comandos (Ctrl+K)"><span class="ri">⌘</span><span class="rl">Ações</span></button>
+      <button data-open="backupModal" title="Backup das conversas"><span class="ri">💾</span><span class="rl">Backup</span></button>
+      <button data-open="settingsModal" title="Configurações"><span class="ri">⚙️</span><span class="rl">Config</span></button>
+    </div>
+  </nav>
   <aside id="sidebar">
-    <div class="brand"><span class="logo"></span>LLM Local</div>
-    <button id="newChat" class="btn primary wide">+ Nova conversa</button>
+    <div class="side-head"><b>Conversas</b><span class="spacer"></span><button id="newChat" class="btn small primary" title="Nova conversa (Ctrl+N)">+ Nova</button></div>
     <input id="chatSearch" class="input" placeholder="Buscar conversas...">
     <nav id="chatList"></nav>
-    <div class="side-foot">
-      <button class="btn ghost wide" data-open="agentsModal">Agentes</button>
-      <button class="btn ghost wide" data-open="kbModal">Conhecimento</button>
-      <button class="btn ghost wide" data-open="modelsModal">Modelos</button>
-      <button class="btn ghost wide" data-open="settingsModal">Configurações</button>
-      <button class="btn ghost wide" data-open="backupModal">Backup</button>
-    </div>
   </aside>
 
   <main id="main">
@@ -29,20 +42,19 @@
       <button id="loadBtn" class="btn primary">Carregar</button>
       <span id="statusPill" class="pill">—</span>
       <div class="spacer"></div>
+      <button id="gpuChip" class="gpu-chip" title="Memória da placa de vídeo em uso (medida real). Clique para ver o painel do sistema."></button>
+      <button id="paletteTop" class="kbd-btn" title="Paleta de comandos">⌘ <span>Ações</span> <kbd>Ctrl K</kbd></button>
       <button id="exportBtn" class="icon-btn" title="Exportar conversa (.md)">⤓</button>
+      <button id="toggleInspector" class="icon-btn" title="Painel do sistema (Ctrl+I)">▤</button>
     </header>
+    <div id="vramWarn" class="vram-warn" hidden></div>
 
     <section id="messages"></section>
 
     <footer id="composer">
       <div class="composer-wrap">
         <div class="composer-tools">
-          <div class="modes" id="modes">
-            <button data-mode="chat" title="Conversa normal">💬 Chat</button>
-            <button data-mode="codex" title="Agente que cria e edita arquivos numa pasta liberada">🛠️ Codex</button>
-            <button data-mode="image" title="Gerar imagens a partir de uma descrição">🎨 Imagem</button>
-            <button data-mode="agents" title="Conversar com um agente ou um grupo de agentes criado por você">👥 Agentes</button>
-          </div>
+          <span id="modeTag" class="mode-tag"></span>
           <div id="agentsBar" class="mode-bar" hidden>
             <select id="agentSelect" class="input small-input"></select>
             <button class="icon-btn" data-open="agentsModal" title="Criar e editar agentes e grupos">⚙️</button>
@@ -76,6 +88,19 @@
       <div id="hint" class="hint"></div>
     </footer>
   </main>
+  <aside id="inspector">
+    <div class="insp-head"><b>Sistema</b><span class="spacer"></span><button class="icon-btn" id="closeInspector" title="Fechar (Ctrl+I)">✕</button></div>
+    <div id="inspBody" class="insp-body"></div>
+  </aside>
+</div>
+
+<!-- Paleta de comandos -->
+<div class="palette" id="palette" hidden>
+  <div class="palette-card">
+    <input id="paletteInput" class="palette-input" placeholder="Digite um comando, modelo ou conversa..." autocomplete="off" spellcheck="false">
+    <div id="paletteList" class="palette-list"></div>
+    <div class="palette-foot"><kbd>↑</kbd><kbd>↓</kbd> navegar · <kbd>Enter</kbd> executar · <kbd>Esc</kbd> fechar</div>
+  </div>
 </div>
 
 <!-- Modelos -->
@@ -241,6 +266,7 @@
             </select>
           </label>
           <label class="check full"><input type="checkbox" name="auto_load"> Carregar o último modelo automaticamente ao abrir o app</label>
+          <label class="check full" title="Quando a memória da placa de vídeo enche (ex.: um jogo aberto junto), o Windows passa a usar a RAM no lugar e o PC pode travar. Com isto ligado, o app descarrega os modelos extras e depois o principal se a VRAM ficar cheia por ~40 s sem nada sendo gerado."><input type="checkbox" name="vram_guard"> Proteção de VRAM: descarregar os modelos se a placa de vídeo encher (evita travar o PC)</label>
           
           
           
@@ -449,5 +475,6 @@
 <script src="features.js"></script>
 <script src="mcp.js"></script>
 <script src="app.js"></script>
+<script src="workspace.js"></script>
 </body>
 </html>

@@ -174,6 +174,43 @@ class ModelFiles(unittest.TestCase):
         self.assertIsNone(self.server.pick_mtp([{"path": "g.gguf", "size": 1}]))
 
 
+class VramGuard(unittest.TestCase):
+    """Protecao de VRAM: descarrega extras (e depois o principal) so quando nada esta gerando."""
+
+    @classmethod
+    def setUpClass(cls):
+        import os
+        cls._tmp = tempfile.TemporaryDirectory()
+        os.environ["LLM_HOME"] = cls._tmp.name
+        import server
+        cls.server = server
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._tmp.cleanup()
+
+    def test_guard(self):
+        s = self.server
+
+        class Eng:
+            def __init__(self, busy=0):
+                self.busy, self.state, self.stopped = busy, "ready", False
+
+            def stop(self):
+                self.stopped = True
+        busy = Eng(busy=1)
+        s.POOL.extra = {("a.gguf", "gpu"): busy}
+        s.vram_guard()
+        self.assertFalse(busy.stopped)  # gerando: nao mexe
+        idle, cpu = Eng(), Eng()
+        s.POOL.extra = {("a.gguf", "gpu"): idle, ("b.gguf", "cpu"): cpu}
+        s.vram_guard()
+        self.assertTrue(idle.stopped)
+        self.assertFalse(cpu.stopped)  # so libera a GPU
+        self.assertIn("a", s.DIAG["guard"]["what"])
+        s.POOL.extra = {}
+
+
 class McpHelpers(TempDirCase):
     def test_split_command(self):
         self.assertEqual(mcp.split_command('npx -y pkg "C:\\minha pasta"'), ("npx", ["-y", "pkg", "C:\\minha pasta"]))

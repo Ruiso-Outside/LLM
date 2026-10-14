@@ -81,7 +81,8 @@ DEFAULT_SETTINGS = {
     "use_recommended": True,  # aplica a amostragem recomendada da familia de cada modelo
     "quick_model": "",  # modelo da pergunta rapida ("" = o principal)
     "quick_device": "gpu",  # onde roda o modelo da pergunta rapida: gpu | cpu ("auto" antigo = gpu)
-    "quick_keep_loaded": True,  # deixa o modelo da pergunta rapida sempre carregado (responde na hora)
+    "quick_keep_loaded": True,
+    "vram_guard": True,  # VRAM cheia por ~40 s sem nada gerando: descarrega os modelos para o PC nao travar  # deixa o modelo da pergunta rapida sempre carregado (responde na hora)
     "language": "",  # idioma da interface: pt-BR | en | es ("" = o do sistema)
     "reply_language": "auto",  # auto = a IA responde no idioma da pergunta | app = sempre no idioma do app
     "extra_idle_minutes": 10,  # modelos extras (agentes/pergunta rapida) sao descarregados apos X min parados
@@ -316,7 +317,8 @@ GPU = detect_gpu()
 # Amostra a VRAM real (nvidia-smi) e a RAM a cada 20 s. Quando a VRAM enche, o Windows passa a usar a RAM
 # como memoria de video ("sysmem fallback") e o PC inteiro pode travar: isso fica registrado e a interface avisa.
 DIAG_FILE = DATA / "diagnostico.log"
-DIAG = {"vram_used": 0, "vram_total": 0, "gpu_util": 0, "at": 0, "samples": deque(maxlen=90), "full_since": 0}
+DIAG = {"vram_used": 0, "vram_total": 0, "gpu_util": 0, "at": 0, "samples": deque(maxlen=90), "full_since": 0,
+        "full_count": 0, "guard": None}
 
 
 def diag_log(msg):
@@ -351,6 +353,26 @@ def diag_snapshot():
             "threads": threading.active_count()}
 
 
+def vram_guard():
+    """Protecao contra travar o PC: com a VRAM cheia e nada sendo gerado, descarrega extras e depois o principal."""
+    busy = ENGINE_PROC.busy > 0 or any(e.busy > 0 for e in list(POOL.extra.values()))
+    if busy:
+        return
+    gpu_extras = [m for (m, d), e in list(POOL.extra.items()) if d == "gpu" and e.state in ("ready", "loading")]
+    if gpu_extras:
+        POOL.stop_device("gpu")
+        what = "os modelos extras da GPU (" + ", ".join(model_display(m) for m in gpu_extras) + ")"
+    elif ENGINE_PROC.state in ("ready", "loading") and ENGINE_PROC.device == "gpu":
+        what = "o modelo principal (" + model_display(ENGINE_PROC.model) + ")"
+        ENGINE_PROC.stop()
+    else:
+        return
+    POOL.quick_error = "Descarregado pela proteção de VRAM (a placa de vídeo encheu). Carregue de novo quando liberar memória."
+    DIAG["guard"] = {"at": time.time(), "what": what}
+    DIAG["full_count"] = 0
+    diag_log(f"PROTEÇÃO DE VRAM: descarreguei {what}")
+
+
 def diag_sampler():
     diag_log(f"servidor iniciado | GPU: {GPU.get('name', '-')} {GPU.get('vram_mb', 0)} MB")
     while True:
@@ -366,6 +388,9 @@ def diag_sampler():
             elif not full and DIAG["full_since"]:
                 diag_log(f"VRAM voltou ao normal: {used}/{total} MB (ficou cheia por {time.time() - DIAG['full_since']:.0f}s)")
                 DIAG["full_since"] = 0
+            DIAG["full_count"] = DIAG["full_count"] + 1 if full else 0
+            if full and DIAG["full_count"] >= 2 and load_settings().get("vram_guard", True):
+                vram_guard()
         time.sleep(20)
 
 
@@ -778,6 +803,13 @@ class EnginePool:
     def release(self, eng):
         eng.busy = max(0, eng.busy - 1)
         eng.last_used = time.time()
+
+    def stop_device(self, device):
+        with self.lock:
+            for key in [k for k in list(self.extra) if k[1] == device and self.extra[k].busy == 0]:
+                e = self.extra.pop(key, None)
+                if e:
+                    e.stop()
 
     def stop(self, model_rel=None):
         with self.lock:
@@ -1389,7 +1421,7 @@ class Handler(BaseHTTPRequestHandler):
             if p == "/api/status":
                 return self.send_json({"engine": ENGINE_PROC.status() | {"device": ENGINE_PROC.device}, "extras": POOL.status(),
                                        "memory": POOL.memory(), "backends": installed_backends(), "quick": POOL.quick_status(),
-                                       "gpu_live": {k: DIAG[k] for k in ("vram_used", "vram_total", "gpu_util")} | {"full": bool(DIAG["full_since"])},
+                                       "gpu_live": {k: DIAG[k] for k in ("vram_used", "vram_total", "gpu_util", "guard")} | {"full": bool(DIAG["full_since"])},
                                        "gpu": GPU | {"cpu_count": CPU_COUNT},
                                        "models": list_models(), "tasks": public_tasks(),
                                        "settings": masked(load_settings()), "chats": list_chats(),

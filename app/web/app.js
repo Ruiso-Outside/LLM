@@ -57,6 +57,7 @@ async function refreshStatus() {
   const lang = S.status.settings.language; if (lang && lang !== LANG && !S.generating) return setLanguage(lang);
   renderTopbar(); renderChatList(); renderTasks(); renderStatsBar(); renderModeBars();
   if ($("#modelsModal").classList.contains("open")) { renderLocalModels(); renderEngine(); }
+  if (typeof renderInspector === "function") renderInspector();
 }
 
 async function loadMedia() {
@@ -138,6 +139,7 @@ function setMode(mode) {
   $("#attachBtn").hidden = mode === "image";
   if (mode === "image" && S.attachments.length) { S.attachments = []; renderAttachTray(); }
   renderModeBars(); updateHint();
+  if (typeof renderModeTag === "function") renderModeTag();
 }
 $("#modes").onclick = e => { const b = e.target.closest("[data-mode]"); if (b && !S.generating) setMode(b.dataset.mode); };
 
@@ -1020,7 +1022,7 @@ const NUM_FIELDS = ["temperature", "top_p", "top_k", "min_p", "repeat_penalty", 
 const DEFAULTS = { system_prompt: "", temperature: 0.7, top_p: 0.95, top_k: 40, min_p: 0.05, repeat_penalty: 1.0, max_tokens: 0,
   ctx_size: 8192, gpu_layers: 999, cpu_percent: 0, backend: "auto", extra_args: "", search_provider: "duckduckgo",
   search_region: "br-pt", search_results: 4, auto_load: true, agent_confirm_commands: true, agent_confirm_writes: false,
-  agent_max_steps: 40, quick_model: "", quick_device: "gpu", quick_keep_loaded: true, reply_language: "auto", auto_summarize: true, use_recommended: true, extra_idle_minutes: 10, whisper_language: "auto", image_steps: 0, image_enhance: true, image_offload: true, image_unload_llm: false };
+  agent_max_steps: 40, quick_model: "", quick_device: "gpu", quick_keep_loaded: true, vram_guard: true, reply_language: "auto", auto_summarize: true, use_recommended: true, extra_idle_minutes: 10, whisper_language: "auto", image_steps: 0, image_enhance: true, image_offload: true, image_unload_llm: false };
 function cpuLabel() {
   const pct = +$("#cpuRange").value; const n = S.status?.gpu?.cpu_count || 0;
   $("#cpuLabel").textContent = pct ? t("{pct}% · {n} de {total} threads", { pct, n: Math.max(1, Math.round(n * pct / 100)), total: n }) : t("Automático ({n} threads no PC)", { n });
