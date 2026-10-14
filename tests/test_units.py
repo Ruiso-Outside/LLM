@@ -250,12 +250,9 @@ class McpHelpers(TempDirCase):
         self.assertIn("itens omitidos", text)
         self.assertTrue(text.startswith("[resultado com"))
 
-    def test_rea_profiles_and_node(self):
+    def test_rea_profiles(self):
         self.assertTrue(set(mcp.REA_ESSENTIALS) <= set(mcp.REA_WINDOWS))
         self.assertLessEqual(len(mcp.REA_ESSENTIALS), 10)
-        for v, ok in [((22, 19), True), ((22, 18), False), ((24, 11), True), ((24, 10), False), ((26, 0), True), ((20, 5), False), (None, False)]:
-            self.assertEqual(mcp.rea_node_ok(v), ok, v)
-        self.assertIn("--token-limit", mcp.REA_CLI_PROMPT)
 
     def test_approval_rules(self):
         srv = mcp.Server({"id": "s", "name": "S", "auto_approve": False})

@@ -21,6 +21,11 @@ let mainWin = null, quickWin = null, tray = null, server = null;
 // ------------------------------------------------------------------ idioma (bandeja, avisos e janelas do sistema)
 // O idioma vem das Configurações do app (settings.language); antes do servidor subir, usa o do Windows.
 const MAIN_I18N = {
+  "O servidor interno não respondeu.": ["The internal server did not respond.", "El servidor interno no respondió."],
+  "Veja o log em:": ["See the log at:", "Mira el registro en:"],
+  "O servidor interno parou várias vezes.": ["The internal server stopped several times.", "El servidor interno se detuvo varias veces."],
+  "O servidor interno parou (código {c}). Reiniciando...": ["The internal server stopped (code {c}). Restarting...", "El servidor interno se detuvo (código {c}). Reiniciando..."],
+  "Não foi possível aplicar a atualização; o app continua na versão atual.": ["Could not apply the update; the app stays on the current version.", "No se pudo aplicar la actualización; la app sigue en la versión actual."],
   "A janela do LLM Local parou de responder.": ["The LLM Local window stopped responding.", "La ventana de LLM Local dejó de responder."],
   "Isso costuma acontecer quando a memória da placa de vídeo enche ou uma resposta muito longa está sendo desenhada. O ocorrido foi salvo no relatório de diagnóstico.": ["This usually happens when the graphics card memory is full or a very long answer is being drawn. It was saved in the diagnostic report.", "Esto suele pasar cuando la memoria de la tarjeta gráfica se llena o se está dibujando una respuesta muy larga. Se guardó en el informe de diagnóstico."],
   "Recarregar a janela": ["Reload the window", "Recargar la ventana"],
@@ -114,14 +119,22 @@ async function askHomeDir(firstRun) {
 }
 
 // ------------------------------------------------------------------ servidor Python
-function findPython() {
-  const cands = [["python", []], ["py", ["-3"]], ["python3", []]];
-  for (const [cmd, args] of cands) {
-    try {
-      const r = spawnSync(cmd, [...args, "-c", "import sys;print(sys.version_info>=(3,9))"], { windowsHide: true, encoding: "utf8", timeout: 15000 });
-      if (r.status === 0 && r.stdout.trim() === "True") return [cmd, args];
-    } catch {}
-  }
+// sem spawnSync: uma chamada travada (ex.: o "python" da Microsoft Store) não congela o app
+function tryPython(cmd, args) {
+  return new Promise(resolve => {
+    let out = "", done = false;
+    const finish = ok => { if (!done) { done = true; clearTimeout(timer); resolve(ok); } };
+    let p;
+    try { p = spawn(cmd, [...args, "-c", "import sys;print(sys.version_info>=(3,9))"], { windowsHide: true }); }
+    catch { return resolve(false); }
+    const timer = setTimeout(() => { try { p.kill(); } catch {} finish(false); }, 10000);
+    p.stdout.on("data", d => out += d);
+    p.on("error", () => finish(false));
+    p.on("exit", code => finish(code === 0 && out.trim() === "True"));
+  });
+}
+async function findPython() {
+  for (const [cmd, args] of [["python", []], ["py", ["-3"]], ["python3", []]]) if (await tryPython(cmd, args)) return [cmd, args];
   return null;
 }
 
@@ -136,7 +149,7 @@ function ping(urlPath = "/api/status", timeout = 1500) {
 
 async function startServer() {
   if (await ping()) return true; // ja tem um servidor rodando
-  const py = findPython();
+  const py = await findPython();
   if (!py) {
     const r = await dialog.showMessageBox({ type: "error", title: "LLM Local",
       message: "Python não encontrado",
@@ -155,21 +168,40 @@ async function startServer() {
   server.stdout.pipe(log); server.stderr.pipe(log);
   server.on("exit", code => {
     server = null;
-    if (!quitting) dialog.showErrorBox("LLM Local", `O servidor interno parou (código ${code}).\nVeja o log em:\n${LOG_FILE}`);
+    if (quitting) return;
+    diag(`servidor interno parou (código ${code})`);
+    restartServer(code);
   });
   for (let i = 0; i < 60; i++) {
     if (await ping()) return true;
     await new Promise(r => setTimeout(r, 300));
   }
-  dialog.showErrorBox("LLM Local", `O servidor interno não respondeu.\nVeja o log em:\n${LOG_FILE}`);
+  diag("servidor interno não respondeu ao iniciar");
+  dialog.showMessageBox({ type: "error", title: "LLM Local", message: tm("O servidor interno não respondeu."), detail: tm("Veja o log em:") + "\n" + LOG_FILE });
   return false;
+}
+
+// reinicia o servidor que caiu (até 3 vezes em 5 minutos); a janela recarrega quando ele volta
+let restarts = [];
+async function restartServer(code) {
+  restarts = restarts.filter(t => Date.now() - t < 5 * 60 * 1000);
+  if (restarts.length >= 3) {
+    diag("servidor caiu 3 vezes em 5 minutos: parei de reiniciar");
+    return dialog.showMessageBox({ type: "error", title: "LLM Local", message: tm("O servidor interno parou várias vezes."),
+      detail: tm("Veja o log em:") + "\n" + LOG_FILE });
+  }
+  restarts.push(Date.now());
+  if (Notification.isSupported()) new Notification({ title: "LLM Local", icon: ICON, body: tm("O servidor interno parou (código {c}). Reiniciando...", { c: code }) }).show();
+  await new Promise(r => setTimeout(r, 1500));
+  if (quitting) return;
+  if (await startServer()) { diag("servidor reiniciado"); for (const w of [mainWin, quickWin]) if (w && !w.isDestroyed()) w.webContents.reload(); }
 }
 
 function stopServer() {
   if (!server) return;
   const pid = server.pid; server = null;
   // encerra a arvore toda (python + llama-server)
-  try { spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], { windowsHide: true }); } catch {}
+  try { spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], { windowsHide: true, timeout: 5000 }); } catch {}
 }
 
 // ------------------------------------------------------------------ janelas
@@ -234,10 +266,16 @@ app.on("child-process-gone", (_e, d) => diag(`processo ${d.type} caiu: ${d.reaso
 // sair de qualquer jeito: encerra o servidor e os motores e fecha o app sem esperar as janelas
 function forceQuit() {
   quitting = true;
-  try { if (server?.pid) spawnSync("taskkill", ["/pid", String(server.pid), "/T", "/F"], { windowsHide: true }); } catch {}
+  try { if (server?.pid) spawnSync("taskkill", ["/pid", String(server.pid), "/T", "/F"], { windowsHide: true, timeout: 5000 }); } catch {}
   app.exit(0);
 }
 ipcMain.on("diag", (_e, msg) => diag(`[janela] ${String(msg).slice(0, 500)}`));
+let lastTick = Date.now();
+setInterval(() => {
+  const lag = Date.now() - lastTick - 1000;
+  if (lag > 3000) diag(`processo principal ficou parado por ${(lag / 1000).toFixed(1)} s (janelas e bandeja sem resposta nesse tempo)`);
+  lastTick = Date.now();
+}, 1000);
 ipcMain.handle("open-diag", () => { const f = DIAG_FILE(); if (!fs.existsSync(f)) fs.writeFileSync(f, ""); shell.showItemInFolder(f); });
 
 function createMain(show) {
@@ -542,7 +580,13 @@ async function downloadPatch(m) {
   if (hash.digest("base64") !== m.sha512) throw new Error("o arquivo baixado está corrompido (SHA-512 diferente). Tente de novo.");
   // tar.exe vem com o Windows 10/11 e extrai .zip
   const tarExe = path.join(process.env.SystemRoot || "C:\\Windows", "System32", "tar.exe"); // nao depende do PATH
-  const x = spawnSync(tarExe, ["-xf", zip, "-C", staging], { windowsHide: true, encoding: "utf8" });
+  const x = await new Promise(resolve => { // assíncrono: um antivírus lento não congela o app
+    let stderr = "";
+    const t = spawn(tarExe, ["-xf", zip, "-C", staging], { windowsHide: true });
+    t.stderr.on("data", d => stderr += d);
+    t.on("error", e => resolve({ status: -1, stderr: e.message }));
+    t.on("exit", status => resolve({ status, stderr }));
+  });
   if (x.status !== 0) throw new Error("falha ao extrair a atualização: " + (x.stderr || "").trim().split("\n")[0]);
   fs.rmSync(zip, { force: true });
   const pkg = JSON.parse(fs.readFileSync(path.join(staging, "app", "package.json"), "utf8"));
@@ -562,7 +606,7 @@ async function downloadPatch(m) {
 }
 
 // troca as pastas do app pela versao nova; se algo falhar, volta a versao anterior
-function applyPatch() {
+async function applyPatch() {
   if (!patchReady || applyingPatch) return false;
   applyingPatch = true;
   stopServer();
@@ -571,8 +615,8 @@ function applyPatch() {
     for (const d of ["app", "server"]) {
       const cur = path.join(RES, d), old = path.join(RES, `_old_${d}`), next = path.join(patchReady.staging, d);
       fs.rmSync(old, { recursive: true, force: true });
-      renameRetry(cur, old); done.push([d, "old"]);
-      renameRetry(next, cur); done.push([d, "new"]);
+      await renameRetry(cur, old); done.push([d, "old"]);
+      await renameRetry(next, cur); done.push([d, "new"]);
     }
     return true;
   } catch (err) {
@@ -582,29 +626,30 @@ function applyPatch() {
         else fs.renameSync(path.join(RES, `_old_${d}`), path.join(RES, d));
       } catch {}
     }
-    dialog.showErrorBox("LLM Local", "Não foi possível aplicar a atualização; o app continua na versão atual.\n\n" + errText(err));
+    diag("falha ao aplicar a atualização: " + errText(err));
+    dialog.showMessageBox({ type: "error", title: "LLM Local", message: tm("Não foi possível aplicar a atualização; o app continua na versão atual."), detail: errText(err) });
     return false;
   } finally {
     patchReady = null;
   }
 }
 
-function renameRetry(from, to) {
+async function renameRetry(from, to) {
   // o Windows pode segurar a pasta por alguns instantes depois que o servidor fecha
   for (let i = 0; ; i++) {
     try { return fs.renameSync(from, to); } catch (err) {
       if (i >= 20 || !["EPERM", "EBUSY", "EACCES"].includes(err.code)) throw err;
-      spawnSync("cmd", ["/c", "ping -n 2 127.0.0.1 >nul"], { windowsHide: true }); // espera ~1 s
+      await new Promise(r => setTimeout(r, 1000));
     }
   }
 }
 
-function installUpdate() {
+async function installUpdate() {
   if (updateState.status === "manual") return shell.openExternal(`${RELEASES}/latest`);
   if (!patchReady) return;
   quitting = true;
   globalShortcut.unregisterAll();
-  if (applyPatch()) { app.relaunch(); app.exit(0); }
+  if (await applyPatch()) { app.relaunch(); app.exit(0); }
   else quitting = false;
 }
 
@@ -635,7 +680,7 @@ async function offerShortcuts() {
     detail: tm("No Menu Iniciar e na Área de Trabalho, apontando para:\n{p}\n\nDeixe a pasta do app onde ela está (se mover, crie os atalhos de novo pelo menu do ícone perto do relógio).", { p: process.execPath }),
     buttons: [tm("Criar atalhos"), tm("Agora não")], defaultId: 0, cancelId: 1, noLink: true,
   });
-  if (r.response === 0 && !createShortcuts()) dialog.showErrorBox("LLM Local", tm("Não foi possível criar os atalhos."));
+  if (r.response === 0 && !createShortcuts()) dialog.showMessageBox({ type: "error", title: "LLM Local", message: tm("Não foi possível criar os atalhos.") });
 }
 
 // ------------------------------------------------------------------ inicio

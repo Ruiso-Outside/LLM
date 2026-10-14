@@ -654,3 +654,7 @@ kbd { font: 11px var(--mono); background: #ffffff10; border: 1px solid var(--lin
 #modelSelect { flex: 0 1 300px; min-width: 160px; }
 kbd { white-space: nowrap; }
 @media (max-width: 1250px) { .kbd-btn span { display: none; } }
+
+.rea-box { margin-top: 12px; border: 1px solid #22d3ee44; border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px;
+  background: linear-gradient(135deg, #22d3ee0b, #7c5cff0b); }
+.rea-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }

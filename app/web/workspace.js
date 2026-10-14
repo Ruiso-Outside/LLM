@@ -63,7 +63,7 @@ function renderInspector() {
       ${last ? `<div class="kv"><span>${t("Última velocidade")}</span><b>${last.stats.tps.toFixed(1)} tok/s</b></div>` : ""}
     </section>` : ""}
     ${typeof MCP !== "undefined" && MCP.list.length ? `<section class="insp-sec"><h5>${t("Ferramentas MCP")}</h5>
-      ${MCP.list.map(s => `<div class="kv"><span>${s.state === "pronto" ? "🟢" : s.state === "erro" ? "🔴" : "⚪"} ${esc(s.name)}</span><b>${s.cli_mode ? t("terminal") : s.tools.length ? mcpOn(s).length + "/" + s.tools.length : "—"}</b></div>`).join("")}
+      ${MCP.list.map(s => `<div class="kv"><span>${s.state === "pronto" ? "🟢" : s.state === "erro" ? "🔴" : "⚪"} ${esc(s.name)}</span><b>${s.tools.length ? mcpOn(s).length + "/" + s.tools.length : "—"}</b></div>`).join("")}
     </section>` : ""}
     <section class="insp-sec"><h5>${t("Diagnóstico")}</h5>
       <p class="muted small-note">${t("Se o app travar, o ocorrido fica registrado no relatório (VRAM, RAM e o que estava rodando).")}</p>

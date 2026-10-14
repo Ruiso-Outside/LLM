@@ -17,6 +17,7 @@ from datetime import datetime
 from pathlib import Path
 
 import mcp
+import rea
 
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", "dist", "build", ".next", ".idea", ".vs",
@@ -555,8 +556,7 @@ class AgentRun:
     def _run(self, ws, history, chat_id, sampling):
         tools = (TOOLS + ([IMAGE_TOOL] if self.image_fn else [])) if ws else []
         servers = []
-        cli_only = all(s.cfg.get("cli_mode") for s in mcp.MANAGER.all() if s.cfg["id"] in self.mcp_ids)
-        if self.mcp_ids and not cli_only:
+        if self.mcp_ids:
             self.send({"agent": {"type": "notice", "text": "🔌 Conectando às ferramentas MCP..."}})
             mtools, self.mcp_map = mcp.MANAGER.toolset(
                 self.mcp_ids, self.send_ping,
@@ -566,13 +566,13 @@ class AgentRun:
             self.send({"agent": {"type": "notice", "text": "🔌 " + ", ".join(
                 f"{s.cfg['name']} ({len(s.tools)} ferramentas)" for s in servers)}} if servers else
                 {"agent": {"type": "notice", "level": "error", "text": "⚠ Nenhuma ferramenta MCP disponível."}})
-        rea_cli = ws is not None and any(s.cfg.get("cli_mode") for s in mcp.MANAGER.all() if s.cfg["id"] in self.mcp_ids)
+        rea_cli = ws is not None and rea.installed() and self.s.get("rea_codex", True)
         if rea_cli:
-            self.send({"agent": {"type": "notice", "text": "🔬 REA disponível pelo terminal (modo leve)"}})
+            self.send({"agent": {"type": "notice", "text": "🔬 REA disponível (engenharia reversa, sem internet)"}})
         if not tools:
             raise ToolError("Sem ferramentas: escolha uma pasta de projeto ou conecte um servidor MCP.")
         sp = (system_prompt(ws.root, bool(self.image_fn)) if ws else system_prompt_mcp_only()) + \
-            mcp_prompt(servers, bool(ws)) + ("\n\n" + mcp.REA_CLI_PROMPT if rea_cli else "") + \
+            mcp_prompt(servers, bool(ws)) + ("\n\n" + rea.cli_prompt() if rea_cli else "") + \
             ("\n" + self.s["_reply_rule"] if self.s.get("_reply_rule") else "")
         messages = [{"role": "system", "content": sp}] + history
         trace, last_timings = [], None

@@ -44,7 +44,6 @@ function renderMcpList() {
         <small class="muted mcp-cmd" title="${esc(s.url || s.command_line)}">${esc(s.url || s.command_line)}</small>
         ${mcpToolsHTML(s)}
         <div class="mcp-opts"><label class="check"><input type="checkbox" data-mcp-opt="enabled" ${s.enabled ? "checked" : ""}> ${t("Usar no Codex")}</label>
-          ${s.id === "rea" ? `<label class="check" title="${esc(t("O Codex chama o REA pelo terminal (PowerShell) com a saída limitada, sem carregar as ferramentas MCP no contexto. Recomendado para modelos locais. Precisa de uma pasta de projeto no Codex."))}"><input type="checkbox" data-mcp-opt="cli_mode" ${s.cli_mode ? "checked" : ""}> ${t("Modo leve (terminal)")}</label>` : ""}
           <label class="check" title="${esc(t("Sem isso, o app pede sua confirmação antes de cada ação que altera algo (ferramentas só de leitura não pedem)."))}"><input type="checkbox" data-mcp-opt="auto_approve" ${s.auto_approve ? "checked" : ""}> ${t("Não pedir confirmação")}</label></div></div>
       <div class="mcp-btns"><button type="button" class="btn small" data-mcp-act="test">${t("Testar")}</button><button type="button" class="btn small danger" data-mcp-act="del">${t("Remover")}</button></div>
     </div>`).join("") : `<p class="muted small-note">${t("Nenhum servidor MCP.")}</p>`;
@@ -93,7 +92,7 @@ $("#mcpAddRea").onclick = async () => {
   const b = $("#mcpAddRea"); b.disabled = true;
   try {
     const r = await post("/api/mcp/preset", { kind: "rea" }); MCP.list = r.servers; renderMcpList(); renderModeBars();
-    toast(t("REA adicionado no modo leve: o Codex usa o REA pelo terminal. Para usar as ferramentas MCP, desmarque \"Modo leve\" e clique em Testar."), 7000);
+    toast(t("REA adicionado como servidor MCP (usa a cópia instalada no motor, sem internet)."), 6000);
   } catch (e) { toast(trText(e.message), 6000); }
   b.disabled = false;
 };

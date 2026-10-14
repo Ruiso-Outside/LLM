@@ -724,6 +724,15 @@ const DICT = {
   "fechar": ["close", "cerrar"],
   "Proteção de VRAM: a placa de vídeo encheu e eu descarreguei {what}.": ["VRAM protection: the graphics card filled up and I unloaded {what}.", "Protección de VRAM: la tarjeta gráfica se llenó y descargué {what}."],
   "Proteção de VRAM: descarregar os modelos se a placa de vídeo encher (evita travar o PC)": ["VRAM protection: unload models if the graphics card fills up (prevents the PC from freezing)", "Protección de VRAM: descargar los modelos si la tarjeta gráfica se llena (evita que el PC se congele)"],
+  "engenharia reversa": ["reverse engineering", "ingeniería inversa"],
+  "O Codex passa a entender programas sem o código-fonte: apps Electron/JavaScript, .exe/.dll, .NET, Go, Rust, pacotes e bancos SQLite. Baixa uma vez (~290 MB, com um Node.js portátil) e depois funciona sem internet, sem instalar nada no Windows.": ["Codex can understand programs without source code: Electron/JavaScript apps, .exe/.dll, .NET, Go, Rust, packages and SQLite databases. Downloads once (~290 MB, with a portable Node.js) and then works offline, without installing anything in Windows.", "El Codex entiende programas sin el código fuente: apps Electron/JavaScript, .exe/.dll, .NET, Go, Rust, paquetes y bases SQLite. Se descarga una vez (~290 MB, con un Node.js portátil) y luego funciona sin internet, sin instalar nada en Windows."],
+  "Reinstalar": ["Reinstall", "Reinstalar"],
+  "Instalar REA {v}": ["Install REA {v}", "Instalar REA {v}"],
+  "Instalando o REA...": ["Installing REA...", "Instalando el REA..."],
+  "Remover o REA do motor?": ["Remove REA from the engine?", "¿Quitar el REA del motor?"],
+  "REA removido": ["REA removed", "REA quitado"],
+  "🔬 Usar o REA (engenharia reversa) quando estiver instalado": ["🔬 Use REA (reverse engineering) when installed", "🔬 Usar el REA (ingeniería inversa) cuando esté instalado"],
+  "REA adicionado como servidor MCP (usa a cópia instalada no motor, sem internet).": ["REA added as an MCP server (uses the copy installed in the engine, offline).", "REA agregado como servidor MCP (usa la copia instalada en el motor, sin internet)."],
 };
 
 function _pick(key) {

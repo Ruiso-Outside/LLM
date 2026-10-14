@@ -33,6 +33,7 @@ import agents
 import kb
 import mcp
 import modelsettings
+import rea
 import catalog
 import media
 import websearch
@@ -82,7 +83,8 @@ DEFAULT_SETTINGS = {
     "quick_model": "",  # modelo da pergunta rapida ("" = o principal)
     "quick_device": "gpu",  # onde roda o modelo da pergunta rapida: gpu | cpu ("auto" antigo = gpu)
     "quick_keep_loaded": True,
-    "vram_guard": True,  # VRAM cheia por ~40 s sem nada gerando: descarrega os modelos para o PC nao travar  # deixa o modelo da pergunta rapida sempre carregado (responde na hora)
+    "vram_guard": True,
+    "rea_codex": True,  # o Codex pode usar o REA (engenharia reversa) instalado no motor, pelo terminal  # VRAM cheia por ~40 s sem nada gerando: descarrega os modelos para o PC nao travar  # deixa o modelo da pergunta rapida sempre carregado (responde na hora)
     "language": "",  # idioma da interface: pt-BR | en | es ("" = o do sistema)
     "reply_language": "auto",  # auto = a IA responde no idioma da pergunta | app = sempre no idioma do app
     "extra_idle_minutes": 10,  # modelos extras (agentes/pergunta rapida) sao descarregados apos X min parados
@@ -288,6 +290,7 @@ def run_task(task, fn):
 
 
 media.configure(ROOT, lambda url, dest, task, base=0: download(url, dest, task, base), get_json)
+rea.configure(ENGINE, lambda url, dest, task, base=0: download(url, dest, task, base), get_json)
 agents.configure(DATA)
 kb.configure(DATA)
 modelsettings.configure(DATA)
@@ -1460,7 +1463,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_backup(q.get("attachments", ["1"])[0] == "1")
             if p == "/api/media":
                 return self.send_json({"whisper": media.whisper_status(), "image": media.image_status(),
-                                       "mmproj": list_mmproj(), "mtp": list_mtp()})
+                                       "mmproj": list_mmproj(), "mtp": list_mtp(), "rea": rea.status()})
             if p.startswith("/api/uploads/"):
                 try:
                     return self.send_file(media.upload_path(p.rsplit("/", 1)[-1]))
@@ -1613,10 +1616,12 @@ class Handler(BaseHTTPRequestHandler):
                     "sd": (("vulkan", "cuda", "cpu"), "Motor de imagem", media.install_sd),
                     "image_preset": (tuple(media.IMAGE_PRESETS), "Modelo de imagem", media.install_image_preset),
                     "embed_model": (("qwen3-embedding",), "Modelo de embeddings", media.install_embed_model),
+                    "rea": (("install",), "REA (engenharia reversa)", lambda task, _v: rea.install(task)),
                 }
                 if what not in jobs or value not in jobs[what][0]:
                     return self.send_json({"error": "opcao invalida"}, 400)
-                t = new_task("engine" if what in ("whisper", "sd") else "model", f"{jobs[what][1]} ({value})")
+                t = new_task("engine" if what in ("whisper", "sd", "rea") else "model",
+                             jobs[what][1] if what == "rea" else f"{jobs[what][1]} ({value})")
                 run_task(t, lambda task: jobs[what][2](task, value))
                 return self.send_json({"id": t["id"]})
             if p == "/api/quick/load":
@@ -1635,6 +1640,12 @@ class Handler(BaseHTTPRequestHandler):
                 if s.get("quick_model") and s["quick_model"] != ENGINE_PROC.model:
                     POOL.stop(s["quick_model"])
                 return self.send_json(POOL.quick_status())
+            if p == "/api/rea/uninstall":
+                srv = mcp.MANAGER.get("rea")
+                if srv:
+                    srv.close()
+                rea.uninstall()
+                return self.send_json(rea.status())
             if p == "/api/models/mtp":
                 mt = b.get("mtp") or ""
                 if mt and mt not in list_mtp():

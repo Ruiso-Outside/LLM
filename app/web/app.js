@@ -999,10 +999,22 @@ function renderEngine() {
     <button class="btn small ${b[id] ? "" : "primary"}" data-install="${id}" ${running ? "disabled" : ""}>${b[id] ? "Atualizar" : "Instalar"}</button></div>`;
   const html = `<p>${g.name ? `GPU detectada: <b>${esc(g.name)}</b> (${(g.vram_mb / 1024).toFixed(0)} GB VRAM)` : "Nenhuma GPU NVIDIA detectada."}</p>
     <div class="engine-card">${box("cuda", "CUDA", "Para placas NVIDIA. O mais rápido.")}${box("vulkan", "Vulkan", "Funciona em NVIDIA, AMD e Intel.")}${box("cpu", "CPU", "Sem GPU. Lento, mas funciona em qualquer PC.")}</div>
-    ${st.engine.error ? `<div class="msg" style="padding:0;max-width:none"><div class="err">${esc(st.engine.error)}</div></div>` : ""}`;
+    ${st.engine.error ? `<div class="msg" style="padding:0;max-width:none"><div class="err">${esc(st.engine.error)}</div></div>` : ""}
+    ${reaBoxHTML(running)}`;
   if ($("#engineInfo").dataset.sig !== html) { $("#engineInfo").innerHTML = html; $("#engineInfo").dataset.sig = html; }
 }
+// REA (engenharia reversa) como componente do motor: instala uma vez e funciona sem internet
+function reaBoxHTML(running) {
+  const r = S.media?.rea; if (!r) return "";
+  return `<div class="rea-box"><div class="rea-head"><b>🔬 REA · ${t("engenharia reversa")}</b>${r.installed ? `<span class="tag fit">✅ ${esc(r.version)} · Node ${esc(r.node)}</span>` : ""}</div>
+    <small class="muted">${t("O Codex passa a entender programas sem o código-fonte: apps Electron/JavaScript, .exe/.dll, .NET, Go, Rust, pacotes e bancos SQLite. Baixa uma vez (~290 MB, com um Node.js portátil) e depois funciona sem internet, sem instalar nada no Windows.")}</small>
+    <div class="row wrap">${r.installed ? `<button class="btn small" data-rea="install" ${running ? "disabled" : ""}>${t("Reinstalar")}</button><button class="btn small danger" data-rea="uninstall">${t("Remover")}</button>`
+      : `<button class="btn small primary" data-rea="install" ${running ? "disabled" : ""}>${t("Instalar REA {v}", { v: esc(r.pinned) })}</button>`}</div></div>`;
+}
 $("#engineInfo").addEventListener("click", async e => {
+  const ra = e.target.dataset.rea;
+  if (ra === "install") { try { await post("/api/media/install", { what: "rea", value: "install" }); toast(t("Instalando o REA...")); } catch (err) { toast(err.message, 5000); } return refreshStatus(); }
+  if (ra === "uninstall") { if (!confirm(t("Remover o REA do motor?"))) return; await post("/api/rea/uninstall"); toast(t("REA removido")); await loadMedia(); return renderEngine(); }
   const b = e.target.dataset.install; if (!b) return;
   try { await post("/api/engine/install", { backend: b }); toast("Baixando motor..."); } catch (err) { toast(err.message, 5000); }
   refreshStatus();
@@ -1022,7 +1034,7 @@ const NUM_FIELDS = ["temperature", "top_p", "top_k", "min_p", "repeat_penalty", 
 const DEFAULTS = { system_prompt: "", temperature: 0.7, top_p: 0.95, top_k: 40, min_p: 0.05, repeat_penalty: 1.0, max_tokens: 0,
   ctx_size: 8192, gpu_layers: 999, cpu_percent: 0, backend: "auto", extra_args: "", search_provider: "duckduckgo",
   search_region: "br-pt", search_results: 4, auto_load: true, agent_confirm_commands: true, agent_confirm_writes: false,
-  agent_max_steps: 40, quick_model: "", quick_device: "gpu", quick_keep_loaded: true, vram_guard: true, reply_language: "auto", auto_summarize: true, use_recommended: true, extra_idle_minutes: 10, whisper_language: "auto", image_steps: 0, image_enhance: true, image_offload: true, image_unload_llm: false };
+  agent_max_steps: 40, quick_model: "", quick_device: "gpu", quick_keep_loaded: true, vram_guard: true, rea_codex: true, reply_language: "auto", auto_summarize: true, use_recommended: true, extra_idle_minutes: 10, whisper_language: "auto", image_steps: 0, image_enhance: true, image_offload: true, image_unload_llm: false };
 function cpuLabel() {
   const pct = +$("#cpuRange").value; const n = S.status?.gpu?.cpu_count || 0;
   $("#cpuLabel").textContent = pct ? t("{pct}% · {n} de {total} threads", { pct, n: Math.max(1, Math.round(n * pct / 100)), total: n }) : t("Automático ({n} threads no PC)", { n });

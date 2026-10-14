@@ -65,14 +65,6 @@ class McpClient(unittest.TestCase):
         mcp.save([dict(pub, allowed=[])])
         self.assertEqual(mcp.MANAGER.toolset(["fake"])[0], [])
 
-    def test_cli_mode_only_for_rea_and_loads_no_tools(self):
-        mcp.save([{"id": "fake", "name": "Fake", "command": FAKE[0], "args": FAKE[1:], "cli_mode": True},
-                  {"id": "rea", "name": "REA", "command": FAKE[0], "args": FAKE[1:], "cli_mode": True}])
-        self.assertFalse(mcp.MANAGER.get("fake").cfg["cli_mode"])
-        self.assertTrue(mcp.MANAGER.get("rea").cfg["cli_mode"])
-        tools, mapping = mcp.MANAGER.toolset(["rea", "fake"])
-        self.assertTrue(mapping and all(k.startswith("mcp__fake__") for k in mapping))
-
     def test_config_change_restarts_server(self):
         srv = mcp.MANAGER.get("fake")
         srv.connect()

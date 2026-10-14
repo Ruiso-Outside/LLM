@@ -59,44 +59,14 @@ REA_WINDOWS = REA_ESSENTIALS + [
 ]
 PROFILES = {"rea": {"essentials": REA_ESSENTIALS, "windows": REA_WINDOWS}}
 
-# Modo terminal do REA: o Codex chama o CLI pelo PowerShell (run_command) e nao carrega nenhuma ferramenta MCP.
-REA_CLI_PROMPT = """REA (engenharia reversa) esta disponivel pelo terminal. Use para entender programas sem o codigo-fonte
-(apps Electron/JavaScript, executaveis .exe/.dll, .NET, Go, Rust, pacotes, bancos SQLite, sites).
-- Comando: npx -y rea-agents@latest <comando> "<caminho absoluto>" --format md --token-limit 3000
-- SEMPRE use --token-limit (sem ele a saida pode ter milhoes de tokens). Para ver mais, repita com --token-offset.
-- App Electron/JS (pasta ou .asar): analyze-javascript-application "<alvo>" --filter-output normalized_result.summary,normalized_result.statistics,normalized_result.limitations
-- Visao geral de qualquer arquivo: inspect-artifact "<arquivo>"  |  extrair pacote: extract-artifact
-- .NET: inspect-managed-artifact e inspect-managed-members  |  Go/Rust: inspect-go-binary, inspect-rust-binary
-- Recursos de .exe/.dll: inspect-pe-resources  |  SQLite: inspect-sqlite-database
-- Ajuda de um comando: npx -y rea-agents@latest <comando> --help
-- Use o REA so em software que o usuario tem ou esta autorizado a analisar. Cite as evidencias e os limites que o REA informar."""
-
-
-def node_version():
-    """Versao do Node.js instalado (tupla) ou None."""
-    try:
-        out = subprocess.run(["node", "--version"], capture_output=True, text=True, timeout=10, creationflags=NO_WINDOW).stdout
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-    m = re.match(r"v(\d+)\.(\d+)", out.strip())
-    return (int(m.group(1)), int(m.group(2))) if m else None
-
-
-def rea_node_ok(v):
-    """O REA pede Node 22.19+, 24.11+ ou 26+."""
-    return bool(v) and (v[0] >= 26 or (v[0] == 24 and v[1] >= 11) or (v[0] == 22 and v[1] >= 19) or v[0] == 25)
-
-
 def preset(kind):
     if kind == "rea":
-        v = node_version()
-        if not v:
-            raise MCPError("O REA precisa do Node.js (22.19 ou mais novo). Instale em nodejs.org e tente de novo.")
-        if not rea_node_ok(v):
-            raise MCPError(f"O REA precisa do Node.js 22.19, 24.11 ou mais novo (você tem {v[0]}.{v[1]}).")
-        return {"id": "rea", "name": "REA (engenharia reversa)", "type": "stdio", "command": "cmd.exe",
-                "args": ["/c", "npx", "-y", "rea-agents@latest", "mcp"], "env": {}, "url": "", "enabled": True,
-                "auto_approve": False, "tools": list(REA_ESSENTIALS), "cli_mode": True}
+        import rea
+        if not rea.installed():
+            raise MCPError("Instale o REA primeiro em Modelos → Motor (baixa uma vez e depois funciona sem internet).")
+        cmd, args = rea.mcp_command()
+        return {"id": "rea", "name": "REA (engenharia reversa)", "type": "stdio", "command": cmd, "args": args,
+                "env": {}, "url": "", "enabled": True, "auto_approve": False, "tools": list(REA_ESSENTIALS)}
     if kind == "roblox":
         bat = roblox_bat()
         if not bat:
@@ -137,9 +107,7 @@ def _clean(s, taken):
     out = {"id": sid, "name": str(s.get("name") or sid)[:60], "type": typ, "enabled": bool(s.get("enabled", True)),
            "auto_approve": bool(s.get("auto_approve")), "command": "", "args": [], "env": {}, "url": "",
            # ferramentas ligadas (None = todas); servidores com muitas ferramentas estouram o contexto do modelo
-           "tools": _allowed(s),
-           # so para o REA: o Codex usa o CLI pelo terminal em vez das ferramentas MCP (nao gasta contexto)
-           "cli_mode": bool(s.get("cli_mode")) if s.get("id") == "rea" or sid == "rea" else False}
+           "tools": _allowed(s)}
     if typ == "http":
         url = str(s.get("url") or "").strip()
         if not re.match(r"^https?://", url):
@@ -460,6 +428,16 @@ def tool_name(sid, tool):
     return name[:64]
 
 
+def _local_rea(cfg):
+    """O REA adicionado com npx (versao 1.14) usa a copia instalada no motor, sem internet."""
+    if cfg.get("id") == "rea" and "npx" in cfg.get("args", []):
+        import rea
+        if rea.installed():
+            cmd, args = rea.mcp_command()
+            return {**cfg, "command": cmd, "args": args}
+    return cfg
+
+
 class Manager:
     def __init__(self):
         self.servers = {}
@@ -468,6 +446,7 @@ class Manager:
     def sync(self, cfgs=None):
         """Aplica a configuracao: fecha servidores removidos ou alterados."""
         cfgs = load() if cfgs is None else cfgs
+        cfgs = [_local_rea(c) for c in cfgs]
         with self.lock:
             new = {}
             for c in cfgs:
@@ -501,7 +480,7 @@ class Manager:
         tools, mapping = [], {}
         for sid in ids:
             srv = self.get(sid)
-            if not srv or srv.cfg.get("cli_mode"):
+            if not srv:
                 continue
             try:
                 fresh = srv.state != "pronto"

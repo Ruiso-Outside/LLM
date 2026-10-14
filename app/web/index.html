@@ -291,6 +291,7 @@
           <div class="checks">
             <label class="check"><input type="checkbox" name="agent_confirm_commands"> Pedir confirmação antes de rodar comandos</label>
             <label class="check"><input type="checkbox" name="agent_confirm_writes"> Pedir confirmação antes de criar ou alterar arquivos</label>
+            <label class="check" title="Precisa do REA instalado em Modelos → Motor. O Codex usa o REA pelo terminal com a saída limitada, sem gastar contexto."><input type="checkbox" name="rea_codex"> 🔬 Usar o REA (engenharia reversa) quando estiver instalado</label>
           </div>
           <label>Máximo de passos por pedido <input name="agent_max_steps" type="number" min="1" max="200" class="input"></label>
         </div></div>
@@ -302,7 +303,7 @@
         <div id="mcpList" class="list mcp-list"></div>
         <div class="row" style="margin:8px 0 6px">
           <button type="button" class="btn" id="mcpAddRoblox">+ Roblox Studio</button>
-          <button type="button" class="btn" id="mcpAddRea" title="Reverse Engineer Anything: o Codex e os agentes inspecionam programas, apps Electron/.NET, executáveis e sites sem o código-fonte. Precisa do Node.js 22.19+.">+ REA (engenharia reversa)</button>
+          <button type="button" class="btn" id="mcpAddRea" title="Reverse Engineer Anything: o Codex e os agentes inspecionam programas, apps Electron/.NET, executáveis e sites sem o código-fonte, pelas ferramentas MCP. Instale o REA antes em Modelos → Motor.">+ REA (MCP)</button>
           <button type="button" class="btn" id="mcpAddCustom">+ Outro servidor</button>
         </div>
         <div id="mcpForm" class="mcp-form" hidden>
