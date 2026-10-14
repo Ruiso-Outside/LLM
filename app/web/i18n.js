@@ -1,5 +1,5 @@
 "use strict";
-// Tradução da interface do LLM Local: Português (original), English e Español.
+// Tradução da interface do Piphin LLM: Português (original), English e Español.
 // - Textos fixos são traduzidos automaticamente (inclusive os que aparecem depois, via MutationObserver).
 // - Textos com valores usam t("Texto {nome}", { nome }).
 // - O conteúdo das conversas, código e o que o usuário digita nunca são traduzidos.

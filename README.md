@@ -1,6 +1,6 @@
-# LLM Local
+# Piphin LLM
 
-Um app seu para rodar modelos de IA no seu PC. Sem conta, sem plano pago, sem telemetria e sem nada sendo enviado para a internet.
+App da **Piphin Studio** para rodar modelos de IA no seu PC. Sem conta, sem plano pago, sem telemetria e sem nada sendo enviado para a internet. (Os arquivos e a pasta do programa ainda se chamam `LLM Local`, para as instalações existentes continuarem se atualizando.)
 
 ## Instalação
 
@@ -8,7 +8,7 @@ Um app seu para rodar modelos de IA no seu PC. Sem conta, sem plano pago, sem te
 2. Extraia numa pasta fixa (ex.: `C:\Programas\LLM Local` ou `G:\LLM\LLM Local`).
 3. Abra o **`LLM Local.exe`**. Na primeira vez, o app oferece criar os atalhos no Menu Iniciar e na Área de Trabalho (dá para recriar depois pelo menu do ícone perto do relógio).
 
-**Por que um .zip e não um instalador?** O **Controle Inteligente de Aplicativos** do Windows bloqueia programas sem assinatura digital, inclusive instaladores. O `LLM Local.exe` é o executável do Electron oficial, sem modificações, que o Windows já reconhece, por isso ele abre normalmente (o arquivo `.exe` mostra o ícone do Electron; os atalhos e a janela usam o do LLM Local). As atualizações também não executam instalador nenhum. Para desinstalar, apague a pasta do app (seus modelos e conversas ficam na pasta de dados escolhida na primeira execução).
+**Por que um .zip e não um instalador?** O **Controle Inteligente de Aplicativos** do Windows bloqueia programas sem assinatura digital, inclusive instaladores. O `LLM Local.exe` é o executável do Electron oficial, sem modificações, que o Windows já reconhece, por isso ele abre normalmente (o arquivo `.exe` mostra o ícone do Electron; os atalhos e a janela usam o do Piphin LLM). As atualizações também não executam instalador nenhum. Para desinstalar, apague a pasta do app (seus modelos e conversas ficam na pasta de dados escolhida na primeira execução).
 
 ### Segundo plano e pergunta rápida
 - Fechar a janela **não encerra** o app: ele continua no ícone perto do relógio. Para sair de verdade, clique com o botão direito no ícone e escolha **Sair**.
@@ -50,7 +50,7 @@ npm run dist
 
 ## Como usar
 
-1. Abra o **LLM Local**.
+1. Abra o **Piphin LLM**.
 2. **Modelos → Motor**: clique em *Instalar* no **CUDA** (para placa NVIDIA). Isso baixa o `llama.cpp` direto do GitHub oficial.
 3. **Modelos → Baixar modelos**: busque um modelo (ex.: `Qwen`, `gemma`). Cada resultado mostra o que o modelo sabe fazer e se cabe na sua placa. Ao abrir um, o arquivo marcado com ⭐ é o de melhor qualidade que cabe na sua GPU.
 

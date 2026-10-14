@@ -21,7 +21,7 @@ from collections import deque
 from pathlib import Path
 
 PROTOCOL = "2025-06-18"
-CLIENT_INFO = {"name": "LLM Local", "version": "1"}
+CLIENT_INFO = {"name": "Piphin LLM", "version": "1"}
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 ID_RE = re.compile(r"^[a-z0-9_]{1,20}$")
 PREFIX = "mcp__"

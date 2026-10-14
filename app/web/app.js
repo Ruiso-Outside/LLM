@@ -434,7 +434,7 @@ function renderMessages() {
   if (!S.chat || !S.chat.messages.length) {
     const st = S.status;
     const noEngine = st && !Object.keys(st.backends).length; const noModel = st && !st.models.length;
-    box.innerHTML = `<div class="empty">${noEngine || noModel ? `<h2>LLM Local</h2><div>Seus modelos, sua máquina. Sem conta, sem limites, sem nada saindo do seu PC.</div>` : ""}
+    box.innerHTML = `<div class="empty">${noEngine || noModel ? `<h2>Piphin LLM</h2><div>Seus modelos, sua máquina. Sem conta, sem limites, sem nada saindo do seu PC.</div>` : ""}
       ${noEngine || noModel ? `<ol class="steps">
         <li>${noEngine ? "" : "✅ "}Instale o motor em <b>Modelos → Motor</b></li>
         <li>${noModel ? "" : "✅ "}Baixe um modelo em <b>Modelos → Baixar modelos</b></li>

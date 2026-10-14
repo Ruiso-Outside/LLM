@@ -74,7 +74,7 @@ KB_TOOL = _fn("search_knowledge", "Procura trechos relevantes na base de conheci
 
 
 def system_prompt(root, has_image_tool):
-    return f"""Voce e o Codex do LLM Local, um engenheiro de software autonomo trabalhando no computador do usuario.
+    return f"""Voce e o Codex do Piphin LLM, um engenheiro de software autonomo trabalhando no computador do usuario.
 
 Ambiente:
 - Sistema: Windows. Comandos rodam no PowerShell (use sintaxe do PowerShell, nao bash).
@@ -112,7 +112,7 @@ def mcp_prompt(servers, has_workspace):
 
 
 def system_prompt_mcp_only():
-    return f"""Voce e o Codex do LLM Local, um agente autonomo trabalhando no computador do usuario.
+    return f"""Voce e o Codex do Piphin LLM, um agente autonomo trabalhando no computador do usuario.
 - Sistema: Windows. Data de hoje: {datetime.now():%d/%m/%Y}.
 - Nao ha pasta de projeto neste pedido; voce so tem as ferramentas externas listadas abaixo.
 Como trabalhar: entenda o pedido, consulte o estado atual antes de alterar, execute em passos sem pedir permissao para

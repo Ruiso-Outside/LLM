@@ -47,7 +47,6 @@ jobs:
         working-directory: desktop
         shell: bash
         run: |
-          node gen-icon.js
           npx electron-builder --win --config electron-builder-nsis.json --publish never
           ls -la dist-nsis
 

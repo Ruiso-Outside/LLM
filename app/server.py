@@ -622,7 +622,7 @@ class EngineProcess:
         if proc is self.proc and getattr(self, "mtp", False):
             # o motor nao aceitou o acelerador MTP (versao antiga ou arquivo incompativel): tenta sem ele
             model_rel, s, device, embed = self._args
-            note = "[LLM Local] O motor falhou com o acelerador MTP; carregando sem ele."
+            note = "[Piphin LLM] O motor falhou com o acelerador MTP; carregando sem ele."
             try:
                 self.start(model_rel, s, device, embed, no_mtp=True)
                 self.log.append(note)
@@ -1331,9 +1331,9 @@ def restore_backup(src, with_settings=False):
         try:
             manifest = json.loads(z.read("manifest.json"))
         except (KeyError, ValueError):
-            raise ValueError("Este arquivo nao e um backup do LLM Local.")
+            raise ValueError("Este arquivo nao e um backup do Piphin LLM.")
         if manifest.get("app") != "LLM Local":
-            raise ValueError("Este arquivo nao e um backup do LLM Local.")
+            raise ValueError("Este arquivo nao e um backup do Piphin LLM.")
         for name in z.namelist():
             m = re.match(r"^chats/([A-Za-z0-9_-]{1,64})\.json$", name)
             if m:
@@ -2318,7 +2318,7 @@ def main():
     try:
         httpd = ThreadingHTTPServer((HOST, PORT), Handler)
     except OSError:
-        sys.exit(f"A porta {PORT} ja esta em uso (o LLM Local ja esta aberto?).")
+        sys.exit(f"A porta {PORT} ja esta em uso (o Piphin LLM ja esta aberto?).")
     httpd.daemon_threads = True
     watch_parent()
     threading.Thread(target=auto_load, daemon=True).start()
