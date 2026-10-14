@@ -1001,7 +1001,7 @@ def list_models():
     infos = load_model_info()
     for p in sorted(MODELS.rglob("*.gguf"), key=lambda x: x.name.lower()):
         rel_parts = p.relative_to(MODELS).parts
-        if is_aux_file(p.relative_to(MODELS).as_posix()) or (len(rel_parts) > 1 and rel_parts[0] in MEDIA_DIRS):
+        if is_aux_file(p.relative_to(MODELS).as_posix(), p.stat().st_size) or (len(rel_parts) > 1 and rel_parts[0] in MEDIA_DIRS):
             continue
         m = SPLIT_RE.match(p.name)
         size = p.stat().st_size
@@ -1048,21 +1048,27 @@ def list_mmproj():
 MTP_RE = re.compile(r"(^|[-_.])(fast)?mtp([-_.]|$)", re.I)
 
 
-def is_mtp(path):
-    """Cabeca MTP (Multi-Token Prediction): acelerador do modelo grande, nao funciona sozinho."""
+MTP_MAX_BYTES = 4 * 1024 ** 3  # cabecas MTP tem de 0,4 a ~1,5 GB; um "-mtp.gguf" maior e um modelo inteiro com MTP embutido
+
+
+def is_mtp(path, size=None):
+    """Cabeca MTP (Multi-Token Prediction): acelerador do modelo grande, nao funciona sozinho.
+    Arquivos grandes com "mtp" no nome sao modelos completos (com o acelerador embutido), nao cabecas."""
+    if size is not None and size > MTP_MAX_BYTES:
+        return False
     p = path.replace("\\", "/").lower()
     return p.startswith("mtp/") or "/mtp/" in p or bool(MTP_RE.search(p.rsplit("/", 1)[-1][:-5]))
 
 
-def is_aux_file(path):
+def is_aux_file(path, size=None):
     """Arquivos .gguf que nao sao modelos de conversa (visao, MTP, matriz de importancia)."""
     name = path.rsplit("/", 1)[-1].lower()
-    return "mmproj" in name or "imatrix" in name or is_mtp(path)
+    return "mmproj" in name or "imatrix" in name or is_mtp(path, size)
 
 
 def pick_mtp(files, model_path=""):
     """Melhor arquivo MTP do repositorio: mesma quantizacao do modelo, senao Q8_0, Q4_0 e o menor."""
-    mtp = [f for f in files if is_mtp(f["path"])]
+    mtp = [f for f in files if is_mtp(f["path"], f.get("size"))]
     if not mtp:
         return None
     q = (catalog.quant_info(model_path.rsplit("/", 1)[-1]) or {}).get("quant", "").lower() if model_path else ""
@@ -1097,7 +1103,8 @@ def mtp_for(model_rel):
 
 
 def list_mtp():
-    return sorted(p.relative_to(MODELS).as_posix() for p in MODELS.rglob("*.gguf") if is_mtp(p.relative_to(MODELS).as_posix()))
+    return sorted(p.relative_to(MODELS).as_posix() for p in MODELS.rglob("*.gguf")
+                  if is_mtp(p.relative_to(MODELS).as_posix(), p.stat().st_size))
 
 
 def hf_tree(repo):
@@ -1107,7 +1114,7 @@ def hf_tree(repo):
 
 
 def hf_files(repo, tree=None):
-    files = [f for f in (tree if tree is not None else hf_tree(repo)) if not is_aux_file(f["path"])]
+    files = [f for f in (tree if tree is not None else hf_tree(repo)) if not is_aux_file(f["path"], f.get("size"))]
     # agrupa arquivos divididos
     groups = {}
     for f in files:

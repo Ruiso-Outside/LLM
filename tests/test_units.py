@@ -159,12 +159,17 @@ class ModelFiles(unittest.TestCase):
         for name in ("gemma-4-12b-it-Q8_0.gguf", "Qwen3.8-27B-Uncensored-HauhauCS-Aggressive-IQ3_XS.gguf", "smtpbot-7b.gguf"):
             self.assertFalse(s.is_mtp(name), name)
         self.assertTrue(s.is_aux_file("imatrix_unsloth.gguf"))
+        # modelo inteiro com MTP embutido (12 GB) nao e cabeca MTP; a cabeca de 0,9 GB e
+        self.assertFalse(s.is_mtp("Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf", 12_100_000_000))
+        self.assertTrue(s.is_mtp("Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf", 900_000_000))
         self.assertTrue(s.is_aux_file("mmproj-BF16.gguf"))
 
     def test_hf_files_hides_aux(self):
         tree = [{"path": p, "size": n} for p, n in [("MTP/mtp-g-Q8_0.gguf", 444), ("g-Q8_0.gguf", 12000), ("mmproj-BF16.gguf", 167),
                                                     ("imatrix_unsloth.gguf", 13), ("g-Q4_K_M.gguf", 6800)]]
         self.assertEqual([f["path"] for f in self.server.hf_files("x/y", tree)], ["g-Q4_K_M.gguf", "g-Q8_0.gguf"])
+        tree = [{"path": "Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf", "size": 12_100_000_000}, {"path": "Qwen3.8-27B-GSQ-RCO-IQ3_S.gguf", "size": 11_800_000_000}]
+        self.assertEqual(len(self.server.hf_files("x/y", tree)), 2)  # os dois sao modelos completos
 
     def test_pick_mtp(self):
         tree = [{"path": p, "size": n} for p, n in [("MTP/mtp-g-BF16.gguf", 822), ("MTP/mtp-g-F16.gguf", 822),
