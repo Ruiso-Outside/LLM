@@ -446,6 +446,29 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(models[0]["info"]["trained"]["base"], "Qwen/Qwen2.5-0.5B-Instruct")
         runs = self.call("/api/train/status")["runs"]
         self.assertEqual(runs[0]["state"], "exported")
+        self.assertTrue(runs[0]["has_adapter"])
+        # continuar a mesma IA com conteudo novo: parte do adaptador anterior e revisa os exemplos antigos
+        ds2 = self.call("/api/train/dataset/create", {"name": "UE5 editor"})
+        for i in range(3):
+            self.call("/api/train/dataset/example", {"id": ds2["id"], "example": {"user": f"nova {i}", "assistant": f"resp {i}"}})
+        self.call("/api/train/dataset/example", {"id": ds2["id"], "example": {"user": "pergunta 0", "assistant": "resposta 0"}})
+        r2 = self.call("/api/train/start", {"name": "ia-teste", "dataset_id": ds2["id"], "parent_run": r["id"], "base_repo": "x/ignorado",
+                                            "lora_r": 4, "epochs": 1, "grad_accum": 1, "free_gpu": False})
+        for _ in range(100):
+            d2 = self.call(f"/api/train/run?id={r2['id']}")
+            if d2["state"] not in ("starting", "loading", "training"):
+                break
+            time.sleep(0.2)
+        self.assertEqual(d2["state"], "done", d2.get("error"))
+        self.assertEqual(d2["base_repo"], "Qwen/Qwen2.5-0.5B-Instruct")  # o modelo base vem da IA anterior
+        self.assertEqual((d2["generation"], d2["parent_name"]), (2, "ia-teste"))
+        self.assertEqual(d2["cfg"]["lora_r"], 16)
+        self.assertEqual((d2["cfg"]["new_examples"], d2["cfg"]["replay_examples"]), (4, 3))  # "pergunta 0" repetida entra uma vez so
+        self.assertEqual(d2["setup"]["train_examples"], 7)
+        self.assertTrue((self.home / "data" / "train" / "runs" / r2["id"] / "parent_adapter" / "adapter_config.json").is_file())
+        with self.assertRaises(urllib.error.HTTPError):  # pasta sem adaptador LoRA
+            self.call("/api/train/start", {"dataset_id": ds2["id"], "parent_adapter": str(self.home)})
+        self.call("/api/train/run/delete", {"id": r2["id"]})
         self.call("/api/train/run/delete", {"id": r["id"]})
         self.assertFalse(any(x["id"] == r["id"] for x in self.call("/api/train/status")["runs"]))
 

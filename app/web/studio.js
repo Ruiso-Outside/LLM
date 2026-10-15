@@ -3,7 +3,7 @@
 // Carregado depois do app.js e do workspace.js.
 
 const ST = { status: null, tab: "dash", run: null, runId: ls("stRun", ""), ds: ls("stDs", ""), exFilter: "", exQ: "", exOffset: 0,
-  examples: null, editing: null, base: "", preset: "balanced", timer: null };
+  examples: null, editing: null, base: "", preset: "balanced", timer: null, from: "new", parent: "", parentFolder: "" };
 const fmtBig = n => n == null ? "—" : n >= 1e9 ? (n / 1e9).toFixed(2) + " B" : n >= 1e6 ? (n / 1e6).toFixed(1) + " M" : n >= 1e3 ? (n / 1e3).toFixed(1) + " k" : String(Math.round(n));
 const fmtGB = b => b == null ? "—" : (b / 2 ** 30).toFixed(2) + " GB";
 const fmtDur = s => { if (s == null || !isFinite(s)) return "—"; s = Math.round(s); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60; return h ? `${h}h ${m}min` : m ? `${m}min ${x}s` : `${x}s`; };
@@ -185,7 +185,7 @@ function exportCardHTML(r) {
   if (!res.adapter_dir && r.state !== "done" && r.state !== "stopped") return "";
   return `<div class="st-sec">${t("Modelo final")}</div><div class="st-card hi">
     <div class="st-grid">${kpi("Loss final", num(res.final_loss), "", "hi")}${kpi("Melhor avaliação", num(res.best_eval))}${kpi("Duração", fmtDur(res.duration_s))}${kpi("Adaptador LoRA", fmtSize(res.adapter_size || 0))}</div>
-    <div class="st-row"><input class="input small-input" id="stExpName" value="${esc(r.name || "minha-ia")}" style="max-width:240px">
+    <div class="st-row"><input class="input small-input" id="stExpName" value="${esc((r.name || "minha-ia") + ((r.generation || 1) > 1 ? "-v" + r.generation : ""))}" style="max-width:240px">
       <select class="input small-input" id="stExpQuant"><option value="Q4_K_M">Q4_K_M (${t("leve, recomendado")})</option><option value="Q5_K_M">Q5_K_M</option><option value="Q6_K">Q6_K</option><option value="Q8_0">Q8_0 (${t("quase sem perda")})</option><option value="F16">F16 (${t("sem quantizar")})</option></select>
       <button class="st-btn" data-st-export>${t("Gerar o modelo (GGUF)")}</button></div>
     <span class="muted small-note">${t("Junta o LoRA ao modelo base, converte para GGUF e quantiza. Usa a RAM (o modelo base em bf16) e leva alguns minutos.")}</span></div>`;
@@ -195,7 +195,7 @@ function exportCardHTML(r) {
 function renderRuns() {
   const runs = ST.status.runs, box = $("#stRuns");
   const html = runs.length ? runs.map(r => `<div class="run-row" data-st-open="${r.id}">
-      <div><b>${esc(r.name || r.id)}</b><small>${esc(r.base_repo || "")}</small></div>
+      <div><b>${esc(r.name || r.id)}${(r.generation || 1) > 1 ? ` <span class="gen-tag">v${r.generation}</span>` : ""}</b><small>${esc(r.base_repo || "")}${r.parent_name ? " · " + esc(t("continua de {n}", { n: r.parent_name })) : ""}</small></div>
       <div><span class="st-state ${r.state}">${t(STATE_LABEL[r.state] || r.state)}</span><small>${r.started ? new Date(r.started * 1000).toLocaleString() : ""}</small></div>
       <div>${num(r.last?.loss)}<small>${t("loss")}</small></div>
       <div>${r.last?.step ? `${r.last.step}/${r.last.total_steps}` : "—"}<small>${t("passos")}</small></div>
@@ -289,16 +289,20 @@ function renderNew() {
     <div class="st-card">
       <div class="grid"><label>${t("Nome da IA")}<input class="input" id="stName" value="${esc(ls("stName", "IA Unreal"))}"></label>
         <label>${t("Conjunto de dados")}<select class="input" id="stDsPick">${dss.map(d => `<option value="${d.id}" ${d.id === ST.ds ? "selected" : ""}>${esc(d.name)} · ${t("{n} aprovados", { n: d.approved })}</option>`).join("") || `<option value="">${t("Crie um conjunto na aba Dados")}</option>`}</select></label></div>
-      <div class="st-sec" style="margin-top:4px">${t("Modelo base")}</div>
+      <div class="st-sec" style="margin-top:4px">${t("Ponto de partida")}</div>
+      <div class="preset-row"><button class="preset ${ST.from === "new" ? "sel" : ""}" data-st-from="new">✨ ${t("Do zero (modelo base)")}</button>
+        <button class="preset ${ST.from === "continue" ? "sel" : ""}" data-st-from="continue">🔁 ${t("Continuar uma IA já treinada")}</button></div>
+      ${ST.from === "continue" ? continueHTML(st) : `
+      <div class="st-sec">${t("Modelo base")}</div>
       <div class="base-cards">${st.base_models.map(b => `<div class="base-card ${b.repo === ST.base ? "sel" : ""}" data-st-base="${esc(b.repo)}"><b>${esc(b.repo.split("/")[1])}</b>
         <small>${esc(b.params)} · ${t("baixa ~{d} GB · VRAM ~{v} GB", { d: b.download_gb, v: b.vram_gb })}</small><small>${esc(t(b.note))}</small></div>`).join("")}</div>
-      <label>${t("Ou outro repositório do Hugging Face (formato safetensors)")}<input class="input" id="stBaseCustom" placeholder="org/modelo" value="${st.base_models.some(b => b.repo === ST.base) ? "" : esc(ST.base)}"></label>
+      <label>${t("Ou outro repositório do Hugging Face (formato safetensors)")}<input class="input" id="stBaseCustom" placeholder="org/modelo" value="${st.base_models.some(b => b.repo === ST.base) ? "" : esc(ST.base)}"></label>`}
       <div class="st-sec">${t("Intensidade")}</div>
       <div class="preset-row">${Object.entries(PRESETS).map(([k, v]) => `<button class="preset ${k === ST.preset ? "sel" : ""}" data-st-preset="${k}">${t(v.label)}</button>`).join("")}</div>
       <details><summary style="cursor:pointer;margin-top:6px">${t("Ajustes avançados")}</summary>
         <div class="grid" style="margin-top:10px">
-          <label>LoRA r <input class="input" id="stR" type="number" min="1" max="256" value="${p.lora_r}"><small class="muted">${t("tamanho do adaptador: maior aprende mais, ocupa mais")}</small></label>
-          <label>LoRA alpha <input class="input" id="stA" type="number" min="1" max="512" value="${p.lora_alpha}"><small class="muted">${t("força do adaptador (normalmente 2×r)")}</small></label>
+          <label>LoRA r <input class="input" id="stR" type="number" min="1" max="256" value="${p.lora_r}" ${ST.from === "continue" ? "disabled" : ""}><small class="muted">${t("tamanho do adaptador: maior aprende mais, ocupa mais")}</small></label>
+          <label>LoRA alpha <input class="input" id="stA" type="number" min="1" max="512" value="${p.lora_alpha}" ${ST.from === "continue" ? "disabled" : ""}><small class="muted">${t("força do adaptador (normalmente 2×r)")}</small></label>
           <label>${t("Épocas")} <input class="input" id="stEp" type="number" min="0.1" max="20" step="0.1" value="${p.epochs}"><small class="muted">${t("quantas vezes passa pelos dados (demais = decora)")}</small></label>
           <label>${t("Taxa de aprendizado")} <input class="input" id="stLr" value="${p.lr}"></label>
           <label>${t("Contexto máximo (tokens)")} <input class="input" id="stLen" type="number" min="256" max="32768" value="${p.max_len}"></label>
@@ -315,9 +319,23 @@ function renderNew() {
     </div>`;
 }
 
+function continueHTML(st) {
+  const done = st.runs.filter(r => r.has_adapter && !["starting", "loading", "training"].includes(r.state));
+  if (!ST.parent && !ST.parentFolder && done[0]) ST.parent = done[0].id;
+  return `<div class="base-cards" style="margin-top:10px">${done.map(r => `<div class="base-card ${!ST.parentFolder && r.id === ST.parent ? "sel" : ""}" data-st-parent="${r.id}">
+      <b>${esc(r.name || r.id)} <span class="gen-tag">v${r.generation || 1}</span></b>
+      <small>${esc((r.base_repo || "").split("/").pop())} · ${esc(r.dataset || "")}</small>
+      <small>${r.started ? new Date(r.started * 1000).toLocaleDateString() : ""} · ${t("loss")} ${num(r.result?.final_loss ?? r.last?.loss)}</small></div>`).join("")
+      || `<p class="muted">${t("Nenhum treino concluído ainda. Treine uma IA do zero primeiro, ou use a pasta de um adaptador LoRA.")}</p>`}</div>
+    <div class="st-row"><button class="st-btn ghost" data-st-pfolder>📂 ${t("Usar a pasta de um adaptador LoRA")}</button>
+      ${ST.parentFolder ? `<span class="base-card sel" style="cursor:default">${esc(ST.parentFolder)}</span>` : ""}</div>
+    <label class="check"><input type="checkbox" id="stReplay" checked> ${t("Revisar também os exemplos dos treinos anteriores (recomendado: evita que a IA esqueça o que já aprendeu)")}</label>
+    <small class="muted">${t("A IA continua com o mesmo modelo base e o mesmo tamanho de adaptador (LoRA r/alpha). Escolha no Conjunto de dados o conteúdo novo. Arquivos .gguf não podem ser treinados de novo: o treino continua a partir do adaptador LoRA salvo na execução.")}</small>`;
+}
+
 // ------------------------------------------------------------------ ações
 $("#studio").addEventListener("click", async e => {
-  const el = e.target.closest("[data-st-go],[data-st-stop],[data-st-kill],[data-st-export],[data-st-use],[data-st-open],[data-st-del],[data-st-install],[data-st-uninstall],[data-st-ds],[data-st-newds],[data-st-dssave],[data-st-dsdel],[data-st-gen],[data-st-genrun],[data-st-addfolder],[data-st-impchats],[data-st-add],[data-st-filter],[data-st-rev],[data-st-edit],[data-st-cancel],[data-st-saveex],[data-st-approveall],[data-st-page],[data-st-base],[data-st-preset],[data-st-start]");
+  const el = e.target.closest("[data-st-go],[data-st-stop],[data-st-kill],[data-st-export],[data-st-use],[data-st-open],[data-st-del],[data-st-install],[data-st-uninstall],[data-st-ds],[data-st-newds],[data-st-dssave],[data-st-dsdel],[data-st-gen],[data-st-genrun],[data-st-addfolder],[data-st-impchats],[data-st-add],[data-st-filter],[data-st-rev],[data-st-edit],[data-st-cancel],[data-st-saveex],[data-st-approveall],[data-st-page],[data-st-base],[data-st-preset],[data-st-start],[data-st-from],[data-st-parent],[data-st-pfolder]");
   if (!el) return;
   const d = el.dataset, did = ST.ds;
   try {
@@ -353,13 +371,28 @@ $("#studio").addEventListener("click", async e => {
     if (d.stApproveall !== undefined) { await post("/api/train/dataset/review", { id: did, ids: (ST.examples?.items || []).filter(x => x.status === "pending").map(x => x.id), status: "approved" }); await refreshStudio(); return renderData(); }
     if (d.stBase) { ST.base = d.stBase; $("#stBaseCustom").value = ""; $$(".base-card").forEach(c => c.classList.toggle("sel", c.dataset.stBase === ST.base)); return; }
     if (d.stPreset) { ST.preset = d.stPreset; return renderNew(); }
+    if (d.stFrom) { ST.from = d.stFrom; return renderNew(); }
+    if (d.stParent) {
+      ST.parent = d.stParent; ST.parentFolder = "";
+      const r = ST.status.runs.find(x => x.id === d.stParent);
+      if (r?.name) $("#stName").value = r.name;  // mesma IA, nova versao
+      const keep = $("#stName").value; renderNew(); $("#stName").value = keep; return;
+    }
+    if (d.stPfolder !== undefined) {
+      if (!desktop) return toast(t("Escolher pastas só funciona no app desktop."));
+      const f = await desktop.chooseFolder?.(); if (!f) return;
+      ST.parentFolder = f; const keep = $("#stName").value; renderNew(); $("#stName").value = keep; return;
+    }
     if (d.stStart !== undefined) {
-      const base = $("#stBaseCustom").value.trim() || ST.base;
-      if (!/^[\w.-]+\/[\w.-]+$/.test(base)) return toast(t("Escolha um modelo base válido (org/modelo)."));
+      const cont = ST.from === "continue";
+      const base = cont ? "" : $("#stBaseCustom").value.trim() || ST.base;
+      if (cont && !ST.parent && !ST.parentFolder) return toast(t("Escolha qual IA continuar treinando."));
+      if (!cont && !/^[\w.-]+\/[\w.-]+$/.test(base)) return toast(t("Escolha um modelo base válido (org/modelo)."));
       lsSet("stName", $("#stName").value);
       const cfg = { name: $("#stName").value, dataset_id: $("#stDsPick").value, base_repo: base, lora_r: +$("#stR").value, lora_alpha: +$("#stA").value,
         epochs: +$("#stEp").value, lr: +$("#stLr").value, max_len: +$("#stLen").value, grad_accum: +$("#stAcc").value, batch_size: +$("#stBs").value,
         lora_dropout: +$("#stDrop").value, eval_every: +$("#stEval").value, seed: +$("#stSeed").value, quant4bit: $("#st4b").checked, free_gpu: $("#stFree").checked };
+      if (cont) Object.assign(cfg, ST.parentFolder ? { parent_adapter: ST.parentFolder } : { parent_run: ST.parent }, { replay: $("#stReplay").checked });
       const r = await post("/api/train/start", cfg);
       ST.runId = r.id; ST.run = null; lsSet("stRun", r.id); toast(t("Treino iniciado")); await refreshStudio(); return stTab("dash");
     }

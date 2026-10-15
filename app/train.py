@@ -452,7 +452,8 @@ class Run:
         return {"id": self.id, "name": self.cfg.get("name"), "base_repo": self.cfg.get("base_repo"), "state": self.state,
                 "started": self.started, "finished": self.finished, "last": self.last, "setup": self.setup,
                 "result": self.result, "export": self.export, "error": self.error, "energy_wh": round(self.energy_wh, 2),
-                "dataset": self.cfg.get("dataset_name")}
+                "dataset": self.cfg.get("dataset_name"), "generation": self.cfg.get("generation", 1),
+                "parent_name": self.cfg.get("parent_name", ""), "has_adapter": (self.dir / "adapter" / "adapter_config.json").is_file()}
 
     def detail(self, since=0):
         return {**self.summary(), "cfg": {k: v for k, v in self.cfg.items() if k != "hf_token"},
@@ -545,25 +546,50 @@ def run_start(cfg):
     meta = ds_meta(cfg["dataset_id"])
     if meta["approved"] < 2:
         raise RuntimeError("O conjunto precisa de pelo menos 2 exemplos aprovados.")
+    parent = _parent_info(cfg)  # continuar uma IA ja treinada: parte do adaptador LoRA dela
     rid = uuid.uuid4().hex[:10]
     d = DATA / "runs" / rid
     d.mkdir(parents=True)
     # copia os exemplos aprovados (com o prompt de sistema do conjunto) para a execucao: o treino fica reprodutivel
     sysmsg = meta.get("system", "")
-    with open(d / "dataset.jsonl", "w", encoding="utf-8") as f:
-        for e in _read_examples(cfg["dataset_id"]):
-            if e.get("status") == "approved":
-                msgs = e["messages"]
-                if sysmsg and not any(m["role"] == "system" for m in msgs):
-                    msgs = [{"role": "system", "content": sysmsg}] + msgs
-                f.write(json.dumps({"messages": msgs}, ensure_ascii=False) + "\n")
-    full = {"name": (cfg.get("name") or "Minha IA")[:60], "base_repo": cfg["base_repo"], "dataset": str(d / "dataset.jsonl"),
+    lines, seen, n_new, n_replay = [], set(), 0, 0
+
+    def push(msgs):
+        key = json.dumps([m for m in msgs if m["role"] != "system"], ensure_ascii=False)
+        if key in seen:
+            return 0
+        seen.add(key)
+        lines.append(json.dumps({"messages": msgs}, ensure_ascii=False))
+        return 1
+    for e in _read_examples(cfg["dataset_id"]):
+        if e.get("status") == "approved":
+            msgs = e["messages"]
+            if sysmsg and not any(m["role"] == "system" for m in msgs):
+                msgs = [{"role": "system", "content": sysmsg}] + msgs
+            n_new += push(msgs)
+    old_ds = parent and parent.get("dataset")
+    if old_ds and cfg.get("replay", True) and Path(old_ds).is_file():
+        # revisa o que a IA ja aprendeu junto com o conteudo novo: sem isso ela tende a esquecer o treino anterior
+        for line in Path(old_ds).read_text("utf-8").splitlines():
+            if line.strip():
+                try:
+                    n_replay += push(json.loads(line)["messages"])
+                except (ValueError, KeyError):
+                    continue
+    (d / "dataset.jsonl").write_text("\n".join(lines) + "\n", "utf-8")
+    if parent:
+        shutil.copytree(parent["adapter"], d / "parent_adapter")  # a execucao nao depende da anterior continuar existindo
+    full = {"name": (cfg.get("name") or "Minha IA")[:60], "base_repo": parent["base_repo"] if parent else cfg["base_repo"],
+            "dataset": str(d / "dataset.jsonl"),
             "dataset_name": meta["name"], "run_dir": str(d), "lora_r": int(cfg.get("lora_r", 16)), "lora_alpha": int(cfg.get("lora_alpha", 32)),
             "lora_dropout": float(cfg.get("lora_dropout", 0.05)), "lr": float(cfg.get("lr", 2e-4)), "epochs": float(cfg.get("epochs", 2)),
             "max_len": int(cfg.get("max_len", 2048)), "batch_size": int(cfg.get("batch_size", 1)), "grad_accum": int(cfg.get("grad_accum", 4)),
             "warmup_ratio": float(cfg.get("warmup_ratio", 0.05)), "eval_ratio": 0.05, "eval_every": int(cfg.get("eval_every", 25)),
             "save_every": int(cfg.get("save_every", 100)), "seed": int(cfg.get("seed", 42)), "quant4bit": bool(cfg.get("quant4bit", True)),
-            "hf_token": cfg.get("hf_token", "")}
+            "hf_token": cfg.get("hf_token", ""), "new_examples": n_new, "replay_examples": n_replay}
+    if parent:
+        full.update(parent_adapter=str(d / "parent_adapter"), parent_run=parent.get("run", ""), parent_name=parent["name"],
+                    generation=parent["generation"] + 1, lora_r=parent["lora_r"], lora_alpha=parent["lora_alpha"])
     (d / "config.json").write_text(json.dumps(full, ensure_ascii=False, indent=1), "utf-8")
     if cfg.get("free_gpu", True):
         _hooks.get("free_gpu", lambda: None)()  # o treino precisa da VRAM toda
@@ -571,6 +597,31 @@ def run_start(cfg):
     RUNS[rid] = run
     run.spawn("train")
     return run.summary()
+
+
+def _parent_info(cfg):
+    """De onde continuar: uma execucao anterior (parent_run) ou uma pasta com um adaptador LoRA (parent_adapter)."""
+    rid, folder = cfg.get("parent_run") or "", cfg.get("parent_adapter") or ""
+    if rid:
+        d = DATA / "runs" / rid
+        if not ID_RE.match(rid) or not (d / "adapter" / "adapter_config.json").is_file():
+            raise RuntimeError("Essa execução não tem um modelo treinado para continuar.")
+        pc = json.loads((d / "config.json").read_text("utf-8"))
+        return {"run": rid, "adapter": d / "adapter", "dataset": pc.get("dataset"), "base_repo": pc["base_repo"],
+                "name": pc.get("name", rid), "generation": int(pc.get("generation", 1)),
+                "lora_r": int(pc.get("lora_r", 16)), "lora_alpha": int(pc.get("lora_alpha", 32))}
+    if folder:
+        f = Path(folder)
+        if not (f / "adapter_config.json").is_file():
+            raise RuntimeError("A pasta precisa ter um adaptador LoRA (adapter_config.json + adapter_model.safetensors). "
+                               "Um arquivo .gguf não pode ser treinado de novo: use a pasta do adaptador.")
+        ac = json.loads((f / "adapter_config.json").read_text("utf-8"))
+        base = cfg.get("base_repo") or ac.get("base_model_name_or_path") or ""
+        if not base:
+            raise RuntimeError("O adaptador não diz qual é o modelo base: informe o repositório do modelo base.")
+        return {"adapter": f, "dataset": None, "base_repo": base, "name": f.name, "generation": 1,
+                "lora_r": int(ac.get("r", 16)), "lora_alpha": int(ac.get("lora_alpha", 32))}
+    return None
 
 
 def run_stop(rid, force=False):
@@ -606,8 +657,9 @@ def runs_list():
             continue
         try:
             j = json.loads((d / "run.json").read_text("utf-8"))
-            out.append({k: j.get(k) for k in ("id", "name", "base_repo", "state", "started", "finished", "last", "setup",
-                                              "result", "export", "error", "energy_wh", "dataset")})
+            out.append({**{k: j.get(k) for k in ("id", "name", "base_repo", "state", "started", "finished", "last", "setup",
+                                                 "result", "export", "error", "energy_wh", "dataset", "generation", "parent_name")},
+                        "has_adapter": (d / "adapter" / "adapter_config.json").is_file()})
         except (OSError, ValueError):
             continue
     return sorted(out, key=lambda r: r.get("started") or 0, reverse=True)

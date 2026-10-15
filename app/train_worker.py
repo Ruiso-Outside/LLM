@@ -73,6 +73,10 @@ def fake_train(cfg):
     run = Path(cfg["run_dir"])
     n = len(load_examples(cfg["dataset"]))
     steps = max(4, math.ceil(n * cfg.get("epochs", 1) / (cfg.get("batch_size", 1) * cfg.get("grad_accum", 4))))
+    if cfg.get("parent_adapter"):
+        if not (Path(cfg["parent_adapter"]) / "adapter_config.json").is_file():
+            raise RuntimeError("adaptador anterior não encontrado")
+        emit({"type": "info", "phase": "model", "msg": f"Continuando o treino de {cfg.get('parent_name')}..."})
     emit({"type": "setup", "total_params": 4_022_468_096, "trainable_params": 33_030_144, "trainable_pct": 0.82,
           "lora_r": cfg["lora_r"], "lora_alpha": cfg["lora_alpha"], "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj"],
           "train_examples": n, "eval_examples": 1, "train_tokens": n * 300, "total_steps": steps, "quant": "4-bit NF4",
@@ -147,9 +151,16 @@ def train(cfg):
         model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
     else:
         model.gradient_checkpointing_enable()
-    lcfg = LoraConfig(r=int(cfg["lora_r"]), lora_alpha=int(cfg["lora_alpha"]), lora_dropout=float(cfg.get("lora_dropout", 0.05)),
-                      target_modules=cfg.get("target_modules") or "all-linear", bias="none", task_type="CAUSAL_LM")
-    model = get_peft_model(model, lcfg)
+    if cfg.get("parent_adapter"):
+        # continua de onde a IA parou: o mesmo adaptador LoRA segue aprendendo com o conteudo novo
+        from peft import PeftModel
+        emit({"type": "info", "phase": "model", "msg": f"Continuando o treino de {cfg.get('parent_name') or 'uma IA já treinada'}..."})
+        model = PeftModel.from_pretrained(model, cfg["parent_adapter"], is_trainable=True)
+        lcfg = model.peft_config["default"]
+    else:
+        lcfg = LoraConfig(r=int(cfg["lora_r"]), lora_alpha=int(cfg["lora_alpha"]), lora_dropout=float(cfg.get("lora_dropout", 0.05)),
+                          target_modules=cfg.get("target_modules") or "all-linear", bias="none", task_type="CAUSAL_LM")
+        model = get_peft_model(model, lcfg)
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     total = sum(p.numel() * (2 if getattr(p, "quant_type", None) else 1) for p in model.parameters())  # 4 bits guardam 2 valores por byte
     bs, accum, epochs = int(cfg.get("batch_size", 1)), int(cfg.get("grad_accum", 4)), float(cfg.get("epochs", 2))
@@ -158,7 +169,7 @@ def train(cfg):
     targets = sorted(lcfg.target_modules) if isinstance(lcfg.target_modules, (set, list)) else [str(lcfg.target_modules)]
     emit({"type": "setup", "total_params": total, "trainable_params": trainable, "trainable_pct": round(trainable / total * 100, 3),
           "lora_r": lcfg.r, "lora_alpha": lcfg.lora_alpha, "target_modules": targets, "train_examples": len(train_set),
-          "eval_examples": len(eval_set), "train_tokens": train_tokens, "total_steps": total_steps,
+          "eval_examples": len(eval_set), "train_tokens": train_tokens, "total_steps": total_steps, "continued": bool(cfg.get("parent_adapter")),
           "quant": "4-bit NF4 (QLoRA)" if quant else "sem quantização", "compute_dtype": str(compute).replace("torch.", ""),
           "device": torch.cuda.get_device_name(0), "vram_total": torch.cuda.get_device_properties(0).total_memory, "max_len": max_len})
 
