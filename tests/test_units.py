@@ -172,6 +172,13 @@ class ModelFiles(unittest.TestCase):
         tree = [{"path": "Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf", "size": 12_100_000_000}, {"path": "Qwen3.8-27B-GSQ-RCO-IQ3_S.gguf", "size": 11_800_000_000}]
         self.assertEqual(len(self.server.hf_files("x/y", tree)), 2)  # os dois sao modelos completos
 
+    def test_draft_base_for(self):
+        import train
+        self.assertEqual(train.draft_base_for("Qwen/Qwen2.5-Coder-7B-Instruct"), "Qwen/Qwen2.5-Coder-0.5B-Instruct")
+        self.assertEqual(train.draft_base_for("Qwen/Qwen3-8B"), "Qwen/Qwen3-0.6B")
+        self.assertEqual(train.draft_base_for("Qwen/Qwen2.5-Coder-0.5B-Instruct"), "")   # ja e o menor
+        self.assertEqual(train.draft_base_for("org/desconhecido"), "")
+
     def test_pick_mtp(self):
         tree = [{"path": p, "size": n} for p, n in [("MTP/mtp-g-BF16.gguf", 822), ("MTP/mtp-g-F16.gguf", 822),
                                                     ("MTP/mtp-g-Q8_0.gguf", 444), ("mtp-g.gguf", 444), ("MTP/mtp-g-Q4_0.gguf", 300)]]

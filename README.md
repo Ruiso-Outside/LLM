@@ -160,6 +160,8 @@ Quando o contexto passa de ~80%, o app **resume a parte antiga da conversa** e c
 
 Alguns repositórios trazem arquivos `mtp-…gguf` (ou `…-FastMTP…`) de algumas centenas de MB. **Eles não são modelos sozinhos**: são um acelerador (Multi-Token Prediction) que adivinha os próximos tokens para o modelo grande conferir, deixando as respostas mais rápidas. Por isso eles não aparecem como modelos para baixar: ao baixar o modelo, marque **⚡ Incluir acelerador MTP**. Em **Meus modelos** dá para escolher ou tirar o acelerador de cada modelo. Se o motor não aceitar o arquivo, o modelo é carregado sem ele (aparece ⚠ no topo).
 
+Outros aceleradores em **Meus modelos**: **⚡ N-gram** (sem arquivo nenhum; reaproveita trechos que já apareceram no texto e acelera muito edições e reescritas de código, ~+40% nos testes) e **modelo rascunho** (um modelo bem menor da mesma família, como o Qwen2.5-Coder-0.5B para um Qwen2.5-Coder-7B, inclusive o acelerador treinado no Estúdio).
+
 ## Estúdio de treino 🧪 (treine a sua própria IA)
 
 O botão **🧪 Treino** no trilho abre uma tela própria para fazer *fine-tuning* (LoRA / QLoRA) de um modelo pequeno com os seus exemplos, por exemplo uma IA dedicada a Unreal Engine 5 e C++.
@@ -168,7 +170,8 @@ O botão **🧪 Treino** no trilho abre uma tela própria para fazer *fine-tunin
 3. **Nova execução:** escolha o modelo base (Qwen2.5-Coder 1.5B/3B/7B, Qwen3 1.7B/4B/8B ou qualquer repositório do Hugging Face), a intensidade (Rápido / Equilibrado / Qualidade) e, se quiser, os ajustes avançados (LoRA r e alpha, épocas, taxa de aprendizado, contexto, acúmulo de gradiente, 4 bits).
 4. **Painel ao vivo:** passo, época, loss de treino e de avaliação, perplexidade, taxa de aprendizado, norma do gradiente, tempo restante, parâmetros totais e treináveis, LoRA r/α, camadas adaptadas, precisão de cálculo, tamanho dos pesos do adaptador, exemplos e tokens, velocidade, VRAM do treino (atual, pico e reservada), VRAM, uso, temperatura, consumo (W), energia gasta (Wh) e clock da GPU, com gráficos.
 5. **Continuar treinando:** em *Nova execução → Continuar uma IA já treinada*, escolha um treino anterior (ou a pasta de um adaptador LoRA) e um conjunto com o conteúdo novo. O treino parte do adaptador da IA anterior, com o mesmo modelo base, e por padrão revisa também os exemplos dos treinos anteriores para a IA não esquecer o que já aprendeu. Cada rodada vira uma nova versão (v2, v3...). Arquivos `.gguf` não podem ser treinados de novo: o treino continua a partir do adaptador salvo na execução.
-6. **Modelo final:** junta o LoRA ao modelo base, converte para GGUF e quantiza (Q4_K_M a F16). O resultado aparece em **Meus modelos** (pasta `models/treinados`) e pode virar o modelo do modo Codex com um clique; pela API local, ele também chega ao Visual Studio.
+6. **Acelerador da sua IA:** no painel de uma execução concluída, *⚡ Criar acelerador* treina um modelo pequeno da mesma família (ex.: Qwen2.5-Coder-0.5B para uma IA baseada no 7B) com os mesmos exemplos. Ao gerar o GGUF dele, ele é ligado sozinho como acelerador (decodificação especulativa) do modelo de origem: o pequeno escreve um rascunho e o grande confere, com a mesma qualidade.
+7. **Modelo final:** junta o LoRA ao modelo base, converte para GGUF e quantiza (Q4_K_M a F16). O resultado aparece em **Meus modelos** (pasta `models/treinados`) e pode virar o modelo do modo Codex com um clique; pela API local, ele também chega ao Visual Studio.
 
 Dica: a IA fica leve por causa do **modelo base pequeno**; o fine-tuning a especializa. Para os *fatos* (APIs, documentação), combine com uma base de conhecimento. A qualidade depende principalmente dos exemplos: revise os gerados antes de treinar.
 

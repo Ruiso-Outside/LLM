@@ -42,7 +42,7 @@ function renderInspector() {
   if (!$("#app").classList.contains("insp-open") || !S.status) return;
   const st = S.status, e = st.engine, g = liveGpu(st), m = st.memory || {};
   const engines = [];
-  if (e.state !== "stopped") engines.push({ name: modelName() || e.model, device: e.device || "gpu", state: e.state, main: true, mtp: e.mtp });
+  if (e.state !== "stopped") engines.push({ name: modelName() || e.model, device: e.device || "gpu", state: e.state, main: true, mtp: e.mtp, accel: e.accel });
   for (const x of st.extras || []) if (x.state === "ready" || x.state === "loading")
     engines.push({ name: x.name, device: x.device, state: x.state, model: x.model, quick: st.quick?.model === x.model });
   const tot = S.chat ? chatTotals(S.chat) : null, nctx = e.n_ctx || st.settings.ctx_size;
@@ -54,7 +54,7 @@ function renderInspector() {
     </section>
     <section class="insp-sec"><h5>${t("Modelos carregados")}</h5>
       ${engines.length ? engines.map(x => `<div class="eng ${x.state}"><span class="eng-dot"></span><div class="eng-name"><b title="${esc(x.name)}">${esc(x.name)}</b>
-        <small class="muted">${x.main ? t("principal") : x.quick ? t("pergunta rápida") : t("extra")} · ${esc((x.device || "gpu").toUpperCase())}${x.mtp ? " · ⚡ MTP" : ""}${x.state === "loading" ? " · " + t("carregando...") : ""}</small></div>
+        <small class="muted">${x.main ? t("principal") : x.quick ? t("pergunta rápida") : t("extra")} · ${esc((x.device || "gpu").toUpperCase())}${x.mtp ? " · ⚡ " + accelLabel(x.accel) : ""}${x.state === "loading" ? " · " + t("carregando...") : ""}</small></div>
         <button class="icon-btn" title="${esc(t("Descarregar"))}" ${x.main ? "data-unload-main" : `data-unload-extra="${esc(x.model)}"`}>⏏</button></div>`).join("")
         : `<p class="muted small-note">${t("Nenhum modelo carregado.")}</p>`}
     </section>

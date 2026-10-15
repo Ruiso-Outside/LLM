@@ -102,7 +102,7 @@ class H(BaseHTTPRequestHandler):
                         "timings": t})
         else:
             tools_out = " | ".join(m["content"] for m in msgs if m["role"] == "tool")
-            info = f"[{model}] mtp={'sim' if '-md' in args else 'nao'} ngl={args[args.index('-ngl') + 1] if '-ngl' in args else '-'} temp={req.get('temperature')} tools={len(req.get('tools') or [])} resultados=<{tools_out}>"
+            info = f"[{model}] mtp={'sim' if '-md' in args else 'nao'} spec={args[args.index('--spec-type') + 1] if '--spec-type' in args else '-'} ngl={args[args.index('-ngl') + 1] if '-ngl' in args else '-'} temp={req.get('temperature')} tools={len(req.get('tools') or [])} resultados=<{tools_out}>"
             for w in info.split(" "):
                 self.chunk({"choices": [{"delta": {"content": w + " "}}], "timings": t})
         self.wfile.write(b"data: [DONE]\n\n")

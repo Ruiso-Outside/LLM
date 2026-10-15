@@ -244,8 +244,27 @@ class ServerTest(unittest.TestCase):
             self.call("/api/models/mtp", {"model": "gemma-3-4b-it-Q4_K_M.gguf", "mtp": "mtp/gemma__quebrado-mtp.gguf"})
             e = load_and_wait()
             self.assertEqual((e["state"], e["mtp"], e["mtp_error"]), ("ready", False, True))
+            # n-gram: sem arquivo, so o tipo de decodificacao especulativa
+            self.call("/api/models/mtp", {"model": "gemma-3-4b-it-Q4_K_M.gguf", "mtp": "ngram"})
+            self.assertEqual(next(m for m in self.call("/api/status")["models"] if m["path"].startswith("gemma"))["mtp"], "ngram")
+            e = load_and_wait()
+            self.assertEqual((e["state"], e["mtp"], e["accel"]), ("ready", True, "ngram"))
+            self.assertIn("spec=ngram-map-k", self.text_of(self.sse("/api/chat", {"messages": [{"role": "user", "content": "oi"}]})))
+            # modelo rascunho: outro modelo de conversa menor; um maior que o principal e recusado
+            with self.assertRaises(urllib.error.HTTPError):
+                self.call("/api/models/mtp", {"model": "gemma-3-4b-it-Q4_K_M.gguf", "mtp": "Qwen3-8B-Q4_K_M.gguf"})
+            self.call("/api/models/mtp", {"model": "Qwen3-8B-Q4_K_M.gguf", "mtp": "gemma-3-4b-it-Q4_K_M.gguf"})
+            self.call("/api/load", {"model": "Qwen3-8B-Q4_K_M.gguf"})
+            for _ in range(100):
+                e = self.call("/api/status")["engine"]
+                if e["state"] in ("ready", "error"):
+                    break
+                time.sleep(0.2)
+            self.assertEqual((e["state"], e["accel"]), ("ready", "draft"))
+            self.assertIn("spec=draft-simple", self.text_of(self.sse("/api/chat", {"messages": [{"role": "user", "content": "oi"}]})))
         finally:
             self.call("/api/models/mtp", {"model": "gemma-3-4b-it-Q4_K_M.gguf", "mtp": ""})
+            self.call("/api/models/mtp", {"model": "Qwen3-8B-Q4_K_M.gguf", "mtp": ""})
             self.call("/api/load", {"model": "Qwen3-8B-Q4_K_M.gguf"})
             for _ in range(100):
                 if self.call("/api/status")["engine"]["state"] == "ready":
@@ -468,6 +487,30 @@ class ServerTest(unittest.TestCase):
         self.assertTrue((self.home / "data" / "train" / "runs" / r2["id"] / "parent_adapter" / "adapter_config.json").is_file())
         with self.assertRaises(urllib.error.HTTPError):  # pasta sem adaptador LoRA
             self.call("/api/train/start", {"dataset_id": ds2["id"], "parent_adapter": str(self.home)})
+        # acelerador: modelo pequeno da mesma familia treinado com os mesmos exemplos, ligado ao modelo ao exportar
+        with self.assertRaises(urllib.error.HTTPError):   # a base ja e a menor da familia
+            self.call("/api/train/start", {"draft_for": r["id"], "free_gpu": False})
+        r3 = self.call("/api/train/start", {"draft_for": r["id"], "base_repo": "Qwen/Qwen2.5-0.5B-Instruct", "epochs": 1,
+                                            "grad_accum": 1, "free_gpu": False})
+        for _ in range(100):
+            d3 = self.call(f"/api/train/run?id={r3['id']}")
+            if d3["state"] not in ("starting", "loading", "training"):
+                break
+            time.sleep(0.2)
+        self.assertEqual((d3["state"], d3["draft_for"], d3["name"]), ("done", r["id"], "ia-teste acelerador"))
+        self.assertEqual(d3["setup"]["train_examples"], 4)          # os mesmos exemplos da IA de origem
+        with self.assertRaises(urllib.error.HTTPError):   # acelerador de acelerador nao
+            self.call("/api/train/start", {"draft_for": r3["id"], "base_repo": "x/y", "free_gpu": False})
+        self.call("/api/train/export", {"id": r3["id"], "name": "IA Unreal acelerador", "quant": "Q8_0"})
+        for _ in range(100):
+            if self.call(f"/api/train/run?id={r3['id']}")["state"] != "exporting":
+                break
+            time.sleep(0.2)
+        models = {m["path"]: m for m in self.call("/api/status")["models"]}
+        self.assertEqual(models["treinados/IA-Unreal-Q4_K_M.gguf"]["mtp"], "treinados/IA-Unreal-acelerador-Q8_0.gguf")
+        self.assertEqual(models["treinados/IA-Unreal-acelerador-Q8_0.gguf"]["info"]["trained"]["draft_for"], r["id"])
+        self.call("/api/models/mtp", {"model": "treinados/IA-Unreal-Q4_K_M.gguf", "mtp": ""})
+        self.call("/api/train/run/delete", {"id": r3["id"]})
         self.call("/api/train/run/delete", {"id": r2["id"]})
         self.call("/api/train/run/delete", {"id": r["id"]})
         self.assertFalse(any(x["id"] == r["id"] for x in self.call("/api/train/status")["runs"]))

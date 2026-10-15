@@ -536,7 +536,8 @@ class EngineProcess:
         self.error = ""
         self.n_ctx = 0
         self.modalities = {}
-        self.mtp = self.mtp_error = False  # acelerador MTP em uso / recusado pelo motor
+        self.mtp = self.mtp_error = False  # acelerador em uso / recusado pelo motor
+        self.accel = ""  # tipo do acelerador em uso: mtp, draft ou ngram
         self.log = deque(maxlen=400)
         self.lock = threading.Lock()
         self.job = _job_object()
@@ -588,9 +589,10 @@ class EngineProcess:
         mm = mmproj_for(model_rel)
         if mm:
             cmd += ["--mmproj", str(mm)]
-        mt = None if (embed or on_cpu or no_mtp) else mtp_for(model_rel)
-        if mt:  # decodificacao especulativa: a cabeca MTP adivinha os proximos tokens e o modelo confere
-            cmd += ["--spec-type", "draft-mtp", "-md", str(mt), "-ngld", "all"]
+        kind, mt = ("", None) if (embed or no_mtp) else accel_for(model_rel)
+        if on_cpu and kind != "ngram":
+            kind, mt = "", None  # rascunho e MTP precisam da GPU; o n-gram funciona em qualquer lugar
+        cmd += accel_args(kind, mt)  # decodificacao especulativa
         threads = cpu_threads(s)
         if threads:
             cmd += ["-t", str(threads), "-tb", str(threads)]
@@ -608,7 +610,7 @@ class EngineProcess:
                 pass
         with self.lock:
             self.proc, self.model, self.backend, self.state, self.error = proc, model_rel, backend, "loading", ""
-            self.mtp = bool(mt)
+            self.mtp, self.accel = bool(kind), kind
             self.device = "cpu" if on_cpu or backend == "cpu" or int(s["gpu_layers"]) == 0 else "gpu"
         threading.Thread(target=self._read_output, args=(proc,), daemon=True).start()
         threading.Thread(target=self._wait_ready, args=(proc,), daemon=True).start()
@@ -631,7 +633,7 @@ class EngineProcess:
         if proc is self.proc and getattr(self, "mtp", False):
             # o motor nao aceitou o acelerador MTP (versao antiga ou arquivo incompativel): tenta sem ele
             model_rel, s, device, embed = self._args
-            note = "[Piphin LLM] O motor falhou com o acelerador MTP; carregando sem ele."
+            note = "[Piphin LLM] O motor falhou com o acelerador; carregando sem ele."
             try:
                 self.start(model_rel, s, device, embed, no_mtp=True)
                 self.log.append(note)
@@ -658,7 +660,7 @@ class EngineProcess:
         if self.state == "ready" and self.proc and self.proc.poll() is not None:
             self.state, self.error = "error", "O motor fechou inesperadamente (veja o log)."
         return {"state": self.state, "model": self.model, "backend": self.backend, "error": self.error,
-                "port": self.port, "n_ctx": self.n_ctx, "mtp": self.mtp, "mtp_error": self.mtp_error,
+                "port": self.port, "n_ctx": self.n_ctx, "mtp": self.mtp, "mtp_error": self.mtp_error, "accel": self.accel,
                 "vision": self.state == "ready" and self.modalities.get("vision", False),
                 "audio": self.state == "ready" and self.modalities.get("audio", False)}
 
@@ -1029,7 +1031,7 @@ def list_models():
         info = infos.get(rel) or {"repo": "", **catalog.model_caps({"id": p.name})}
         out.append({"name": p.stem if not m else m.group(1), "path": rel, "size": size,
                     "mmproj": mm.get(rel, "") if (MODELS / mm.get(rel, "_")).is_file() else "",
-                    "mtp": mtps.get(rel, "") if (MODELS / mtps.get(rel, "_")).is_file() else "",
+                    "mtp": mtps.get(rel, "") if mtps.get(rel) == ACCEL_NGRAM or (MODELS / mtps.get(rel, "_")).is_file() else "",
                     "custom": bool(modelsettings.get(rel)),
                     "info": info, "quant": catalog.quant_info(p.name)})
     return out
@@ -1112,10 +1114,45 @@ def set_mtp(model_rel, mtp_rel):
     MTP_FILE.write_text(json.dumps(m, indent=1), "utf-8")
 
 
+ACCEL_NGRAM = "ngram"  # acelerador sem modelo extra: reaproveita trechos que ja apareceram no texto
+
+
 def mtp_for(model_rel):
+    """Arquivo do acelerador (cabeca MTP ou modelo rascunho) ligado ao modelo, se houver."""
     rel = load_mtp_map().get(model_rel)
-    p = (MODELS / rel).resolve() if rel else None
-    return p if p and p.is_file() and MODELS.resolve() in p.parents else None
+    if not rel or rel == ACCEL_NGRAM:
+        return None
+    p = (MODELS / rel).resolve()
+    return p if p.is_file() and MODELS.resolve() in p.parents else None
+
+
+def accel_for(model_rel):
+    """(tipo, arquivo) do acelerador: mtp (cabeca MTP), draft (modelo rascunho pequeno da mesma familia) ou ngram."""
+    if load_mtp_map().get(model_rel) == ACCEL_NGRAM:
+        return "ngram", None
+    p = mtp_for(model_rel)
+    if not p:
+        return "", None
+    rel = p.relative_to(MODELS.resolve()).as_posix()
+    return ("mtp" if is_mtp(rel, p.stat().st_size) else "draft"), p
+
+
+def accel_args(kind, path):
+    if kind == "mtp":  # a cabeca MTP adivinha os proximos tokens e o modelo confere
+        return ["--spec-type", "draft-mtp", "-md", str(path), "-ngld", "all"]
+    if kind == "draft":  # um modelo pequeno do mesmo vocabulario escreve um rascunho e o grande confere de uma vez
+        return ["--spec-type", "draft-simple", "-md", str(path), "-ngld", "all", "--spec-draft-n-max", "8"]
+    if kind == "ngram":  # sem modelo extra: bom quando a resposta repete o pedido (editar codigo, reescrever)
+        return ["--spec-type", "ngram-map-k"]
+    return []
+
+
+def valid_accel(model_rel, value):
+    """Aceita: vazio, n-gram, uma cabeca MTP ou outro modelo de conversa (rascunho) menor que o principal."""
+    if not value or value == ACCEL_NGRAM or value in list_mtp():
+        return True
+    models = {m["path"]: m["size"] for m in list_models()}
+    return value in models and value != model_rel and models[value] < models.get(model_rel, 0)
 
 
 def list_mtp():
@@ -1699,8 +1736,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(rea.status())
             if p == "/api/models/mtp":
                 mt = b.get("mtp") or ""
-                if mt and mt not in list_mtp():
-                    return self.send_json({"error": "acelerador MTP inválido"}, 400)
+                if not valid_accel(b.get("model", ""), mt):
+                    return self.send_json({"error": "acelerador inválido: use um MTP, o n-gram ou um modelo menor da mesma família"}, 400)
                 set_mtp(b.get("model", ""), mt)
                 return self.send_json({"ok": True})
             if p == "/api/models/mmproj":
@@ -2414,8 +2451,39 @@ def train_on_model(path, run):
     """Modelo exportado: registra as informacoes para aparecer em Meus modelos com a etiqueta de treinado."""
     rel = Path(path).relative_to(MODELS).as_posix()
     info = {"repo": run.cfg.get("base_repo", ""), **catalog.model_caps({"id": run.cfg.get("base_repo", "")}),
-            "trained": {"run": run.id, "dataset": run.cfg.get("dataset_name"), "base": run.cfg.get("base_repo")}}
+            "trained": {"run": run.id, "dataset": run.cfg.get("dataset_name"), "base": run.cfg.get("base_repo"),
+                        "draft_for": run.cfg.get("draft_for", "")}}
     save_model_info(rel, info)
+    try:
+        link_trained_accel(run, rel)
+    except (OSError, ValueError) as e:
+        diag_log(f"acelerador treinado: {e}")
+
+
+def _run_export_rel(run_id):
+    """Modelo .gguf exportado por uma execucao do Estudio (relativo a models), ou ''."""
+    f = DATA / "train" / "runs" / run_id / "run.json"
+    out = (json.loads(f.read_text("utf-8")).get("export") or {}).get("out_path", "") if f.is_file() else ""
+    p = Path(out) if out else None
+    return p.resolve().relative_to(MODELS.resolve()).as_posix() if p and p.is_file() and MODELS.resolve() in p.resolve().parents else ""
+
+
+def link_trained_accel(run, rel):
+    """Acelerador treinado (rascunho) exportado: liga ao modelo da execucao de origem; e o contrario."""
+    parent = run.cfg.get("draft_for")
+    if parent:
+        target = _run_export_rel(parent)
+        if target:
+            set_mtp(target, rel)
+        return
+    runs = DATA / "train" / "runs"
+    for d in runs.iterdir() if runs.is_dir() else []:
+        try:
+            cfg = json.loads((d / "config.json").read_text("utf-8"))
+        except (OSError, ValueError):
+            continue
+        if cfg.get("draft_for") == run.id and _run_export_rel(d.name):
+            set_mtp(rel, _run_export_rel(d.name))
 
 
 def configure_train():

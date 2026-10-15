@@ -80,7 +80,7 @@ function renderTopbar() {
   const name = modelName() || e.model;
   const caps = (e.vision ? " · " + t("👁 visão") : "") + (e.audio ? " · 🎧 " + t("Áudio").toLowerCase() : "");
   const map = { stopped: [t("Nenhum modelo carregado"), ""], loading: [t("Carregando {name}...", { name }), "loading"],
-                ready: [(e.mtp_error ? "⚠ " : "") + "● " + name + (e.backend ? ` · ${e.backend.toUpperCase()}` : "") + (e.mtp ? " · ⚡ MTP" : "") + caps, "ready"], error: [t("Erro no motor (clique)"), "error"] };
+                ready: [(e.mtp_error ? "⚠ " : "") + "● " + name + (e.backend ? ` · ${e.backend.toUpperCase()}` : "") + (e.mtp ? " · ⚡ " + accelLabel(e.accel) : "") + caps, "ready"], error: [t("Erro no motor (clique)"), "error"] };
   const extras = (st.extras || []).filter(x => x.state === "ready" || x.state === "loading");
   pill.textContent = map[e.state][0] + (extras.length ? ` · +${extras.length} extra${extras.length > 1 ? "s" : ""}` : "");
   if (e.state === "stopped" && extras.length) { pill.textContent = t("● {n} modelo(s) extra(s)", { n: extras.length }); pill.className = "pill ready"; }
@@ -916,6 +916,8 @@ $("#quickCard").addEventListener("click", async e => {
   refreshStatus();
 });
 
+function accelLabel(kind) { return { ngram: "N-gram", draft: t("Rascunho"), mtp: "MTP" }[kind] || "MTP"; }
+
 function renderLocalModels() {
   renderMemBar(); renderQuickCard();
   const st = S.status; const mms = S.media?.mmproj || []; const mtps = S.media?.mtp || [];
@@ -924,13 +926,18 @@ function renderLocalModels() {
     const extra = (st.extras || []).find(x => x.model === m.path && (x.state === "ready" || x.state === "loading"));
     const vis = mms.length ? `<select class="input small-input" data-mm="${esc(m.path)}" title="Arquivo de visão (mmproj): permite o modelo ver imagens">
         <option value="">Sem visão</option>${mms.map(x => `<option value="${esc(x)}" ${x === m.mmproj ? "selected" : ""}>👁 ${esc(baseName(x))}</option>`).join("")}</select>` : "";
-    const acc = mtps.length ? `<select class="input small-input" data-mtp="${esc(m.path)}" title="${esc(t("Acelerador MTP: o modelo gera vários tokens de uma vez (mais rápido). Use o MTP do mesmo modelo."))}">
-        <option value="">${esc(t("Sem acelerador"))}</option>${mtps.map(x => `<option value="${esc(x)}" ${x === m.mtp ? "selected" : ""}>⚡ ${esc(baseName(x))}</option>`).join("")}</select>` : "";
+    // rascunhos possíveis: modelos de conversa bem menores (o motor recusa se o vocabulário for diferente e carrega sem)
+    const drafts = st.models.filter(x => x.path !== m.path && x.size < m.size * 0.35);
+    const acc = `<select class="input small-input" data-mtp="${esc(m.path)}" title="${esc(t("Acelerador: o modelo gera vários tokens por vez. N-gram não precisa de arquivo e acelera edições de código; MTP e modelo rascunho precisam ser da mesma família do modelo."))}">
+        <option value="">${esc(t("Sem acelerador"))}</option>
+        <option value="ngram" ${m.mtp === "ngram" ? "selected" : ""}>⚡ ${esc(t("N-gram (sem arquivo, bom para código)"))}</option>
+        ${mtps.length ? `<optgroup label="MTP">${mtps.map(x => `<option value="${esc(x)}" ${x === m.mtp ? "selected" : ""}>⚡ ${esc(baseName(x))}</option>`).join("")}</optgroup>` : ""}
+        ${drafts.length ? `<optgroup label="${esc(t("Modelo rascunho (mesma família)"))}">${drafts.map(x => `<option value="${esc(x.path)}" ${x.path === m.mtp ? "selected" : ""}>⚡ ${esc(x.name)}${x.info?.trained?.draft_for ? " ★" : ""}</option>`).join("")}</optgroup>` : ""}</select>`;
     const visionNoFile = (m.info?.caps || []).some(c => c.key === "vision") && !m.mmproj;
     return `<div class="model-card ${on ? "loaded" : ""}">
       <div class="mc-head"><span class="mc-name" title="${esc(m.path)}">${esc(m.name)}</span>
         <div class="mc-status">${on ? '<span class="tag on">● carregado</span>' : ""}${extra ? `<span class="tag on" title="Carregado como modelo extra (agentes/pergunta rápida)">extra · ${(extra.device || "gpu").toUpperCase()}${extra.state === "loading" ? "…" : ""}</span>` : ""}${fitTag(m.size)}<span class="meta">${fmtSize(m.size)}</span></div></div>
-      <div class="mc-tags">${capsHTML(m.info, true)}${m.info?.params ? `<span class="meta-pill">🧩 ${esc(m.info.params)}</span>` : ""}${m.quant?.quant ? `<span class="meta-pill" title="${esc(m.quant.tip)}">${esc(m.quant.quant)} ${starsHTML(m.quant)}</span>` : ""}${m.mmproj ? '<span class="tag vis">👁 visão</span>' : ""}${m.mtp ? `<span class="tag neon" title="${esc(t("Acelerador MTP ativo"))}">⚡ MTP</span>` : ""}${m.custom ? '<span class="tag on" title="Este modelo tem ajustes próprios">⚙ ajustes próprios</span>' : ""}
+      <div class="mc-tags">${capsHTML(m.info, true)}${m.info?.params ? `<span class="meta-pill">🧩 ${esc(m.info.params)}</span>` : ""}${m.quant?.quant ? `<span class="meta-pill" title="${esc(m.quant.tip)}">${esc(m.quant.quant)} ${starsHTML(m.quant)}</span>` : ""}${m.mmproj ? '<span class="tag vis">👁 visão</span>' : ""}${m.mtp ? `<span class="tag neon" title="${esc(t("Acelerador ativo"))}">⚡ ${m.mtp === "ngram" ? "N-gram" : (S.media?.mtp || []).includes(m.mtp) ? "MTP" : t("Rascunho")}</span>` : ""}${m.info?.trained?.draft_for ? `<span class="tag" title="${esc(t("Acelerador treinado no Estúdio: já fica ligado ao modelo de origem"))}">★ ${t("acelerador")}</span>` : ""}${m.custom ? '<span class="tag on" title="Este modelo tem ajustes próprios">⚙ ajustes próprios</span>' : ""}
         ${visionNoFile ? '<span class="warn-pill" title="Este modelo tem visão, mas o arquivo mmproj não foi baixado. Baixe de novo com Incluir visão ou escolha o arquivo ao lado.">👁 sem arquivo de visão</span>' : ""}</div>
       <div class="mc-actions">${vis}${acc}<span class="spacer"></span>
         ${extra ? `<button class="btn small" data-unload-extra="${esc(m.path)}">Descarregar</button>` : ""}<button class="btn small" data-msettings="${esc(m.path)}" title="Ajustes deste modelo (contexto, temperatura...)">⚙️</button>

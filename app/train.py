@@ -34,6 +34,26 @@ BASE_MODELS = [
     {"repo": "Qwen/Qwen3-8B", "params": "8B", "download_gb": 16.4, "vram_gb": 11, "note": "o mais capaz que cabe com folga em 16 GB"},
 ]
 
+# acelerador (modelo rascunho) de cada familia: o menor modelo com o MESMO vocabulario do modelo treinado
+DRAFT_BASES = [
+    ("qwen/qwen2.5-coder-", "Qwen/Qwen2.5-Coder-0.5B-Instruct"),
+    ("qwen/qwen2.5-", "Qwen/Qwen2.5-0.5B-Instruct"),
+    ("qwen/qwen3-", "Qwen/Qwen3-0.6B"),
+    ("meta-llama/llama-3.2-", "meta-llama/Llama-3.2-1B-Instruct"),
+    ("meta-llama/llama-3.1-", "meta-llama/Llama-3.2-1B-Instruct"),
+    ("google/gemma-3-", "google/gemma-3-1b-it"),
+]
+
+
+def draft_base_for(base_repo):
+    """Modelo pequeno da mesma familia para servir de acelerador, ou '' se nao houver um conhecido."""
+    low = (base_repo or "").lower()
+    for prefix, draft in DRAFT_BASES:
+        if low.startswith(prefix):
+            return "" if low == draft.lower() else draft
+    return ""
+
+
 ENGINE = DATA = MODELS = None
 _hooks = {}
 RUNS = {}  # id -> Run (execucoes desta sessao)
@@ -453,7 +473,8 @@ class Run:
                 "started": self.started, "finished": self.finished, "last": self.last, "setup": self.setup,
                 "result": self.result, "export": self.export, "error": self.error, "energy_wh": round(self.energy_wh, 2),
                 "dataset": self.cfg.get("dataset_name"), "generation": self.cfg.get("generation", 1),
-                "parent_name": self.cfg.get("parent_name", ""), "has_adapter": (self.dir / "adapter" / "adapter_config.json").is_file()}
+                "parent_name": self.cfg.get("parent_name", ""), "has_adapter": (self.dir / "adapter" / "adapter_config.json").is_file(),
+                "draft_for": self.cfg.get("draft_for", ""), "draft_base": "" if self.cfg.get("draft_for") else draft_base_for(self.cfg.get("base_repo", ""))}
 
     def detail(self, since=0):
         return {**self.summary(), "cfg": {k: v for k, v in self.cfg.items() if k != "hf_token"},
@@ -543,6 +564,8 @@ def run_start(cfg):
         raise RuntimeError("Já existe um treino rodando. Espere terminar ou pare antes.")
     if not env_status()["installed"] and not os.environ.get("PIPHIN_TRAIN_FAKE"):
         raise RuntimeError("Instale o ambiente de treino primeiro (aba Ambiente).")
+    if cfg.get("draft_for"):
+        return _draft_start(cfg)
     meta = ds_meta(cfg["dataset_id"])
     if meta["approved"] < 2:
         raise RuntimeError("O conjunto precisa de pelo menos 2 exemplos aprovados.")
@@ -593,6 +616,43 @@ def run_start(cfg):
     (d / "config.json").write_text(json.dumps(full, ensure_ascii=False, indent=1), "utf-8")
     if cfg.get("free_gpu", True):
         _hooks.get("free_gpu", lambda: None)()  # o treino precisa da VRAM toda
+    run = Run(rid, full)
+    RUNS[rid] = run
+    run.spawn("train")
+    return run.summary()
+
+
+def _draft_start(cfg):
+    """Acelerador da IA treinada: um modelo pequeno da mesma familia treinado com os MESMOS exemplos.
+    Quanto mais parecido ele "pensa" com o modelo grande, mais rascunhos o grande aceita e mais rapido fica."""
+    src = cfg["draft_for"]
+    sd = DATA / "runs" / src
+    if not ID_RE.match(src or "") or not (sd / "dataset.jsonl").is_file():
+        raise RuntimeError("Execução de origem não encontrada.")
+    pc = json.loads((sd / "config.json").read_text("utf-8"))
+    if pc.get("draft_for"):
+        raise RuntimeError("Essa execução já é um acelerador.")
+    base = cfg.get("base_repo") or draft_base_for(pc["base_repo"])
+    if not base:
+        raise RuntimeError(f"Não conheço um modelo pequeno da mesma família de {pc['base_repo']}. "
+                           "Informe o repositório do modelo pequeno (mesmo vocabulário).")
+    rid = uuid.uuid4().hex[:10]
+    d = DATA / "runs" / rid
+    d.mkdir(parents=True)
+    shutil.copyfile(sd / "dataset.jsonl", d / "dataset.jsonl")
+    n = sum(1 for line in (d / "dataset.jsonl").read_text("utf-8").splitlines() if line.strip())
+    name = (pc.get("name") or "Minha IA")[:48] + " acelerador"
+    full = {"name": name, "base_repo": base, "dataset": str(d / "dataset.jsonl"), "dataset_name": pc.get("dataset_name", ""),
+            "run_dir": str(d), "lora_r": int(cfg.get("lora_r", 32)), "lora_alpha": int(cfg.get("lora_alpha", 64)),
+            "lora_dropout": float(cfg.get("lora_dropout", 0.05)), "lr": float(cfg.get("lr", 2e-4)), "epochs": float(cfg.get("epochs", 3)),
+            "max_len": int(cfg.get("max_len", pc.get("max_len", 2048))), "batch_size": int(cfg.get("batch_size", 1)),
+            "grad_accum": int(cfg.get("grad_accum", 4)), "warmup_ratio": 0.05, "eval_ratio": 0.05, "eval_every": int(cfg.get("eval_every", 25)),
+            "save_every": 100, "seed": int(cfg.get("seed", 42)), "quant4bit": bool(cfg.get("quant4bit", True)), "hf_token": cfg.get("hf_token", ""),
+            "new_examples": n, "replay_examples": 0, "draft_for": src, "parent_name": pc.get("name", src),
+            "target_base": pc["base_repo"], "generation": int(pc.get("generation", 1))}
+    (d / "config.json").write_text(json.dumps(full, ensure_ascii=False, indent=1), "utf-8")
+    if cfg.get("free_gpu", True):
+        _hooks.get("free_gpu", lambda: None)()
     run = Run(rid, full)
     RUNS[rid] = run
     run.spawn("train")
@@ -659,7 +719,9 @@ def runs_list():
             j = json.loads((d / "run.json").read_text("utf-8"))
             out.append({**{k: j.get(k) for k in ("id", "name", "base_repo", "state", "started", "finished", "last", "setup",
                                                  "result", "export", "error", "energy_wh", "dataset", "generation", "parent_name")},
-                        "has_adapter": (d / "adapter" / "adapter_config.json").is_file()})
+                        "has_adapter": (d / "adapter" / "adapter_config.json").is_file(),
+                        "draft_for": (j.get("cfg") or {}).get("draft_for", ""),
+                        "draft_base": "" if (j.get("cfg") or {}).get("draft_for") else draft_base_for(j.get("base_repo", ""))})
         except (OSError, ValueError):
             continue
     return sorted(out, key=lambda r: r.get("started") or 0, reverse=True)
