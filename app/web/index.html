@@ -21,6 +21,7 @@
     <div class="rail-group">
       <button data-open="kbModal" title="Bases de conhecimento: seus documentos para o Chat, o Codex e os agentes"><span class="ri">📚</span><span class="rl">Bases</span></button>
       <button data-open="modelsModal" title="Modelos, motor e mídia"><span class="ri">🧠</span><span class="rl">Modelos</span></button>
+      <button id="studioBtn" title="Estúdio de treino: treine a sua própria IA (fine-tuning LoRA)"><span class="ri">🧪</span><span class="rl">Treino</span></button>
     </div>
     <div class="spacer"></div>
     <div class="rail-group">
@@ -87,6 +88,28 @@
       <div id="hint" class="hint"></div>
     </footer>
   </main>
+  <section id="studio" hidden>
+    <header class="st-head">
+      <div class="st-title"><span class="st-logo">🧪</span><div><b>Estúdio de treino</b><small>Fine-tuning LoRA / QLoRA dos seus próprios modelos</small></div></div>
+      <nav class="st-tabs">
+        <button data-st-tab="dash" class="on">📈 Painel</button>
+        <button data-st-tab="data">🗂️ Dados</button>
+        <button data-st-tab="new">🚀 Nova execução</button>
+        <button data-st-tab="runs">🧾 Execuções</button>
+        <button data-st-tab="env">⚙️ Ambiente</button>
+      </nav>
+      <div id="stGpu" class="st-gpu"></div>
+      <button class="icon-btn" id="studioClose" title="Voltar ao chat">✕</button>
+    </header>
+    <div id="stTask" class="st-task" hidden></div>
+    <div class="st-body">
+      <div class="st-pane on" data-st-pane="dash"><div id="stDash"></div></div>
+      <div class="st-pane" data-st-pane="data"><div id="stData"></div></div>
+      <div class="st-pane" data-st-pane="new"><div id="stNew"></div></div>
+      <div class="st-pane" data-st-pane="runs"><div id="stRuns"></div></div>
+      <div class="st-pane" data-st-pane="env"><div id="stEnv"></div></div>
+    </div>
+  </section>
   <aside id="inspector">
     <div class="insp-head"><b>Sistema</b><span class="spacer"></span><button class="icon-btn" id="closeInspector" title="Fechar (Ctrl+I)">✕</button></div>
     <div id="inspBody" class="insp-body"></div>
@@ -504,5 +527,6 @@
 <script src="mcp.js"></script>
 <script src="app.js"></script>
 <script src="workspace.js"></script>
+<script src="studio.js"></script>
 </body>
 </html>

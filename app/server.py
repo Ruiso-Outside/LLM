@@ -33,6 +33,7 @@ import agents
 import kb
 import mcp
 import modelsettings
+import train
 import gateway
 import rea
 import catalog
@@ -1451,6 +1452,26 @@ class Handler(BaseHTTPRequestHandler):
                                        "models": list_models(), "tasks": public_tasks(),
                                        "settings": masked(load_settings()), "chats": list_chats(),
                                        "stats": load_stats()})
+            if p == "/api/train/status":
+                act = train.active()
+                return self.send_json({"env": train.env_status(), "datasets": train.ds_list(), "runs": train.runs_list(),
+                                       "active": act.id if act else "", "base_models": train.BASE_MODELS, "gpu": train.gpu_live()})
+            if p == "/api/train/examples":
+                return self.send_json(train.ds_examples(q.get("id", [""])[0], q.get("status", [""])[0], int(q.get("offset", ["0"])[0]),
+                                                        int(q.get("limit", ["50"])[0]), q.get("q", [""])[0]))
+            if p == "/api/train/run":
+                try:
+                    return self.send_json(train.run_get(q.get("id", [""])[0], int(q.get("since", ["0"])[0])))
+                except ValueError as e:
+                    return self.send_json({"error": str(e)}, 404)
+            if p == "/api/train/export_dataset":
+                data = train.ds_export_jsonl(q.get("id", [""])[0]).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/jsonl; charset=utf-8")
+                self.send_header("Content-Disposition", 'attachment; filename="dataset.jsonl"')
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                return self.wfile.write(data)
             if p == "/api/integration":
                 return self.send_json(gateway.GATEWAY.status())
             if p == "/api/diag":
@@ -1664,6 +1685,8 @@ class Handler(BaseHTTPRequestHandler):
                 if s.get("quick_model") and s["quick_model"] != ENGINE_PROC.model:
                     POOL.stop(s["quick_model"])
                 return self.send_json(POOL.quick_status())
+            if p.startswith("/api/train/"):
+                return self.train_post(p, b)
             if p == "/api/integration/key":
                 import secrets
                 save_settings({"api_key": "pk-" + secrets.token_urlsafe(24)})
@@ -2145,6 +2168,59 @@ class Handler(BaseHTTPRequestHandler):
                                          for i, h in enumerate(hits, 1))
         return search, meta.get("name", "")
 
+    def train_post(self, p, b):
+        try:
+            if p == "/api/train/install":
+                t = new_task("engine", "Ambiente de treino (Python + PyTorch CUDA)")
+                run_task(t, train.install)
+                return self.send_json({"id": t["id"]})
+            if p == "/api/train/uninstall":
+                train.uninstall()
+                return self.send_json(train.env_status())
+            if p == "/api/train/dataset/create":
+                return self.send_json(train.ds_create(b.get("name", ""), b.get("system", "")))
+            if p == "/api/train/dataset/update":
+                return self.send_json(train.ds_update(b.get("id", ""), b.get("name"), b.get("system")))
+            if p == "/api/train/dataset/delete":
+                train.ds_delete(b.get("id", ""))
+                return self.send_json({"ok": True})
+            if p == "/api/train/dataset/example":
+                return self.send_json(train.ds_save_example(b.get("id", ""), b.get("example") or {}))
+            if p == "/api/train/dataset/review":
+                return self.send_json(train.ds_review(b.get("id", ""), b.get("ids") or [], b.get("status", "")))
+            if p == "/api/train/dataset/import_chats":
+                ids = b.get("chat_ids") or [c["id"] for c in list_chats()]
+                chats = []
+                for cid in ids:
+                    f = CHATS / f"{cid}.json"
+                    if ID_RE.match(cid) and f.exists():
+                        chats.append(json.loads(f.read_text("utf-8")))
+                return self.send_json({"added": train.ds_import_chats(b.get("id", ""), chats)})
+            if p == "/api/train/dataset/import_jsonl":
+                return self.send_json({"added": train.ds_import_jsonl(b.get("id", ""), b.get("text", ""))})
+            if p == "/api/train/dataset/generate":
+                folders = [f for f in b.get("folders") or [] if Path(f).is_dir()]
+                if not folders:
+                    return self.send_json({"error": "Escolha pelo menos uma pasta."}, 400)
+                did = b.get("id", "")
+                t = new_task("model", f"Gerando exemplos de treino ({train.ds_meta(did)['name']})")
+                run_task(t, lambda task: train.ds_generate(task, did, folders, int(b.get("per_chunk") or 3), int(b.get("max_chunks") or 40),
+                                                           b.get("topic") or "Unreal Engine 5 e C++", b.get("extra", "")))
+                return self.send_json({"id": t["id"]})
+            if p == "/api/train/start":
+                b.setdefault("hf_token", load_settings().get("hf_token", ""))
+                return self.send_json(train.run_start(b))
+            if p == "/api/train/stop":
+                return self.send_json(train.run_stop(b.get("id", ""), bool(b.get("force"))))
+            if p == "/api/train/export":
+                return self.send_json(train.run_export(b.get("id", ""), b.get("name", ""), b.get("quant", "Q4_K_M")))
+            if p == "/api/train/run/delete":
+                train.run_delete(b.get("id", ""))
+                return self.send_json({"ok": True})
+            return self.send_json({"error": "rota desconhecida"}, 404)
+        except (ValueError, RuntimeError, OSError, KeyError) as e:
+            return self.send_json({"error": str(e)}, 400)
+
     def save_tool_image(self, data, mime):
         """Guarda uma imagem devolvida por uma ferramenta MCP (ex.: print da tela) e devolve o id do arquivo."""
         ext = {"image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif"}.get(mime, "png")
@@ -2301,6 +2377,53 @@ class Handler(BaseHTTPRequestHandler):
                 lease.__exit__(None, None, None)
 
 
+# ---------------------------------------------------------------- estudio de treino
+
+def train_chat(prompt):
+    """Pergunta ao modelo carregado (usado para gerar exemplos de treino)."""
+    with POOL.use("", load_settings()) as eng:
+        req = urllib.request.Request(f"http://127.0.0.1:{eng.port}/v1/chat/completions", headers={"Content-Type": "application/json"},
+                                     data=json.dumps({"messages": [{"role": "user", "content": prompt}], "stream": False,
+                                                      "temperature": 0.7, "max_tokens": 3000,
+                                                      "chat_template_kwargs": {"enable_thinking": False}}).encode("utf-8"))
+        with urllib.request.urlopen(req, timeout=900) as r:
+            data = json.loads(r.read().decode("utf-8"))
+    add_stats(data.get("timings"))
+    return data["choices"][0]["message"].get("content") or ""
+
+
+def train_free_gpu():
+    POOL.stop()
+    ENGINE_PROC.stop()
+
+
+def train_llama_dir():
+    b = installed_backends()
+    for k in ("cuda", "vulkan", "cpu"):
+        if k in b:
+            return str(Path(b[k]["exe"]).parent)
+    return ""
+
+
+def train_engine_version():
+    b = installed_backends()
+    return next((b[k]["version"] for k in ("cuda", "vulkan", "cpu") if k in b), "")
+
+
+def train_on_model(path, run):
+    """Modelo exportado: registra as informacoes para aparecer em Meus modelos com a etiqueta de treinado."""
+    rel = Path(path).relative_to(MODELS).as_posix()
+    info = {"repo": run.cfg.get("base_repo", ""), **catalog.model_caps({"id": run.cfg.get("base_repo", "")}),
+            "trained": {"run": run.id, "dataset": run.cfg.get("dataset_name"), "base": run.cfg.get("base_repo")}}
+    save_model_info(rel, info)
+
+
+def configure_train():
+    train.configure(ENGINE, DATA, MODELS, download=lambda url, dest, task: download(url, dest, task), get_json=get_json,
+                    llama_dir=train_llama_dir, engine_version=train_engine_version, chat=train_chat, free_gpu=train_free_gpu,
+                    diag=diag_log, on_model=train_on_model)
+
+
 def watch_parent():
     """Encerra o servidor quando o app desktop que o abriu fecha (mesmo se fechar a forca)."""
     pid = int(os.environ.get("LLM_PARENT_PID") or 0)
@@ -2353,6 +2476,7 @@ def main():
     threading.Thread(target=auto_load, daemon=True).start()
     threading.Thread(target=cleanup_checkpoints, daemon=True).start()
     threading.Thread(target=diag_sampler, daemon=True).start()
+    configure_train()
     gateway.GATEWAY.configure(sys.modules[__name__])
     gateway.GATEWAY.apply()
     print(f"Servidor em {url} | API OpenAI do motor: http://127.0.0.1:{ENGINE_PORT}/v1", flush=True)

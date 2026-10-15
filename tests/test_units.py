@@ -10,6 +10,7 @@ import agents  # noqa: E402
 import catalog  # noqa: E402
 import kb  # noqa: E402
 import mcp  # noqa: E402
+import train  # noqa: E402
 import modelsettings  # noqa: E402
 
 
@@ -214,6 +215,69 @@ class VramGuard(unittest.TestCase):
         self.assertFalse(cpu.stopped)  # so libera a GPU
         self.assertIn("a", s.DIAG["guard"]["what"])
         s.POOL.extra = {}
+
+
+class TrainDatasets(TempDirCase):
+    def setUp(self):
+        super().setUp()
+        train.configure(self.tmp / "engine", self.tmp / "data", self.tmp / "models")
+
+    def test_dataset_lifecycle(self):
+        d = train.ds_create("UE5", "Você é especialista em Unreal.")
+        train.ds_save_example(d["id"], {"user": "O que é UCLASS?", "assistant": "Registra a classe na reflexão."})
+        with self.assertRaises(ValueError):
+            train.ds_save_example(d["id"], {"user": "", "assistant": "x"})
+        added = train.ds_import_jsonl(d["id"], "\n".join([
+            '{"messages": [{"role": "user", "content": "a"}, {"role": "assistant", "content": "b"}]}',
+            '{"instruction": "Explique", "input": "UPROPERTY", "output": "Expoe variaveis"}',
+            '{"prompt": "so pergunta"}']))
+        self.assertEqual(added, 2)
+        m = train.ds_meta(d["id"])
+        self.assertEqual((m["n"], m["approved"], m["pending"]), (3, 3, 0))
+        items = train.ds_examples(d["id"])["items"]
+        train.ds_review(d["id"], [items[0]["id"]], "rejected")
+        self.assertEqual(train.ds_meta(d["id"])["approved"], 2)
+        train.ds_review(d["id"], [items[1]["id"]], "delete")
+        self.assertEqual(train.ds_meta(d["id"])["n"], 2)
+        self.assertEqual(len(train.ds_export_jsonl(d["id"]).splitlines()), 1)  # so os aprovados
+        self.assertEqual(train.ds_examples(d["id"], q="Expoe")["total"], 1)
+
+    def test_import_chats(self):
+        d = train.ds_create("chats")
+        n = train.ds_import_chats(d["id"], [{"title": "c1", "messages": [
+            {"role": "user", "content": "oi"}, {"role": "assistant", "content": "<think>hmm</think>Olá!"},
+            {"role": "user", "content": "gere imagem"}, {"role": "assistant", "mode": "image", "content": ""},
+            {"role": "user", "content": "erro?"}, {"role": "assistant", "content": "x", "error": "falhou"}]}])
+        self.assertEqual(n, 1)
+        ex = train.ds_examples(d["id"])["items"][0]
+        self.assertEqual(ex["messages"][-1]["content"], "Olá!")  # sem o raciocinio
+
+    def test_parse_generated_pairs(self):
+        text = '<think>vou pensar</think>Claro! [{"pergunta": "P1", "resposta": "R1"}, {"question": "P2", "answer": "R2"}, {"pergunta": ""}] fim'
+        self.assertEqual(train._parse_pairs(text), [("P1", "R1"), ("P2", "R2")])
+        self.assertEqual(train._parse_pairs("sem json"), [])
+
+    def test_source_chunks_skip_build_dirs(self):
+        src = self.tmp / "proj"
+        (src / "Source").mkdir(parents=True)
+        (src / "Intermediate").mkdir()
+        (src / "Source" / "Ator.cpp").write_text("// codigo\n" + "void AAtor::BeginPlay() { Super::BeginPlay(); }\n" * 40, "utf-8")
+        (src / "Intermediate" / "Gerado.cpp").write_text("x" * 5000, "utf-8")
+        chunks = train._source_chunks([str(src)], 10)
+        self.assertTrue(chunks and all("Intermediate" not in f for f, _ in chunks))
+
+    def test_generate_with_model(self):
+        d = train.ds_create("gerar")
+        src = self.tmp / "src"
+        src.mkdir()
+        (src / "a.h").write_text("UCLASS() class AMeu : public AActor { GENERATED_BODY() };\n" * 20, "utf-8")
+        train.configure(self.tmp / "engine", self.tmp / "data", self.tmp / "models",
+                        chat=lambda prompt: '[{"pergunta": "O que e AMeu?", "resposta": "Um ator."}]')
+        task = {"cancel": False}
+        train.ds_generate(task, d["id"], [str(src)], per_chunk=1, max_chunks=2)
+        m = train.ds_meta(d["id"])
+        self.assertGreaterEqual(m["pending"], 1)  # gerados entram como pendentes para revisar
+        self.assertEqual(m["approved"], 0)
 
 
 class McpHelpers(TempDirCase):

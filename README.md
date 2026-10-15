@@ -160,6 +160,17 @@ Quando o contexto passa de ~80%, o app **resume a parte antiga da conversa** e c
 
 Alguns repositórios trazem arquivos `mtp-…gguf` (ou `…-FastMTP…`) de algumas centenas de MB. **Eles não são modelos sozinhos**: são um acelerador (Multi-Token Prediction) que adivinha os próximos tokens para o modelo grande conferir, deixando as respostas mais rápidas. Por isso eles não aparecem como modelos para baixar: ao baixar o modelo, marque **⚡ Incluir acelerador MTP**. Em **Meus modelos** dá para escolher ou tirar o acelerador de cada modelo. Se o motor não aceitar o arquivo, o modelo é carregado sem ele (aparece ⚠ no topo).
 
+## Estúdio de treino 🧪 (treine a sua própria IA)
+
+O botão **🧪 Treino** no trilho abre uma tela própria para fazer *fine-tuning* (LoRA / QLoRA) de um modelo pequeno com os seus exemplos, por exemplo uma IA dedicada a Unreal Engine 5 e C++.
+1. **Ambiente:** instala uma vez, dentro do app (`engine/train`, ~4,5 GB): Python 3.12 portátil, PyTorch com CUDA, transformers, peft, bitsandbytes e os conversores do llama.cpp na mesma versão do motor. Não precisa de nada instalado no Windows.
+2. **Dados:** crie um conjunto e adicione exemplos (pedido + resposta ideal): importe as suas conversas, importe JSONL, escreva à mão ou **gere a partir de pastas** (ex.: a pasta `Source` do projeto da Unreal). O modelo carregado no topo cria perguntas e respostas a partir dos arquivos, e elas entram como *pendentes* para você revisar. Uma instrução de sistema do conjunto entra em todos os exemplos.
+3. **Nova execução:** escolha o modelo base (Qwen2.5-Coder 1.5B/3B/7B, Qwen3 1.7B/4B/8B ou qualquer repositório do Hugging Face), a intensidade (Rápido / Equilibrado / Qualidade) e, se quiser, os ajustes avançados (LoRA r e alpha, épocas, taxa de aprendizado, contexto, acúmulo de gradiente, 4 bits).
+4. **Painel ao vivo:** passo, época, loss de treino e de avaliação, perplexidade, taxa de aprendizado, norma do gradiente, tempo restante, parâmetros totais e treináveis, LoRA r/α, camadas adaptadas, precisão de cálculo, tamanho dos pesos do adaptador, exemplos e tokens, velocidade, VRAM do treino (atual, pico e reservada), VRAM, uso, temperatura, consumo (W), energia gasta (Wh) e clock da GPU, com gráficos.
+5. **Modelo final:** junta o LoRA ao modelo base, converte para GGUF e quantiza (Q4_K_M a F16). O resultado aparece em **Meus modelos** (pasta `models/treinados`) e pode virar o modelo do modo Codex com um clique; pela API local, ele também chega ao Visual Studio.
+
+Dica: a IA fica leve por causa do **modelo base pequeno**; o fine-tuning a especializa. Para os *fatos* (APIs, documentação), combine com uma base de conhecimento. A qualidade depende principalmente dos exemplos: revise os gerados antes de treinar.
+
 ## Integrações: Visual Studio, VS Code, Unreal Engine 🔗
 
 Em **Configurações → Integrações → Ligar a API local**, o Piphin LLM vira um servidor de IA para outros programas do seu PC. A API é compatível com o **Ollama** (`/api/tags`, `/api/chat`, `/api/generate`...) e com a **OpenAI** (`/v1/chat/completions`, `/v1/models`...), na porta **11434** (a do Ollama, onde as IDEs já procuram).
@@ -249,6 +260,8 @@ Em **Configurações → Idioma** escolha a língua do app: **Português (Brasil
 | `app/agent.py` | Codex: ferramentas, limite de pasta e confirmações |
 | `app/catalog.py` | Etiquetas dos modelos (capacidades, tamanho, qualidade dos arquivos) |
 | `app/agents.py` | Agentes personalizados, grupos e o validador com novas tentativas |
+| `app/train.py` | Estúdio de treino: ambiente, conjuntos de dados, execuções e exportação |
+| `app/train_worker.py` | Treino LoRA/QLoRA e exportação para GGUF (roda no Python do treino) |
 | `app/gateway.py` | API local compatível com Ollama e OpenAI para outros programas |
 | `app/rea.py` | REA no motor: instala o Node.js portátil e o rea-agents e monta as instruções do Codex |
 | `app/mcp.py` | Cliente MCP: conecta o Codex e os agentes a programas como o Roblox Studio |

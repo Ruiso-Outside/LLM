@@ -41,7 +41,7 @@ class ServerTest(unittest.TestCase):
         (cls.ws / "app" / "readme.txt").write_text("Projeto - versao 1\n", "utf-8")
         cls.port = free_port()
         cls.base = f"http://127.0.0.1:{cls.port}"
-        env = dict(os.environ, LLM_HOME=str(cls.home), LLM_PORT=str(cls.port), PYTHONIOENCODING="utf-8")
+        env = dict(os.environ, LLM_HOME=str(cls.home), LLM_PORT=str(cls.port), PYTHONIOENCODING="utf-8", PIPHIN_TRAIN_FAKE="1")
         env.pop("LLM_PARENT_PID", None)
         cls.proc = subprocess.Popen([sys.executable, str(TESTS / "run_server.py")], env=env,
                                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
@@ -407,6 +407,47 @@ class ServerTest(unittest.TestCase):
                 req("/api/version")
         finally:
             self.call("/api/settings", {"api_enabled": False, "api_require_key": False}, "PUT")
+
+    def test_18_training_studio_fake(self):
+        st = self.call("/api/train/status")
+        self.assertFalse(st["env"]["installed"])
+        self.assertTrue(st["base_models"])
+        ds = self.call("/api/train/dataset/create", {"name": "UE5", "system": "Especialista em Unreal."})
+        for i in range(4):
+            self.call("/api/train/dataset/example", {"id": ds["id"], "example": {"user": f"pergunta {i}", "assistant": f"resposta {i}"}})
+        r = self.call("/api/train/start", {"name": "ia-teste", "dataset_id": ds["id"], "base_repo": "Qwen/Qwen2.5-0.5B-Instruct",
+                                           "epochs": 2, "grad_accum": 1, "eval_every": 2, "free_gpu": False})
+        with self.assertRaises(urllib.error.HTTPError):  # um treino por vez
+            self.call("/api/train/start", {"dataset_id": ds["id"], "base_repo": "x/y"})
+        for _ in range(100):
+            d = self.call(f"/api/train/run?id={r['id']}")
+            if d["state"] not in ("starting", "loading", "training"):
+                break
+            time.sleep(0.2)
+        self.assertEqual(d["state"], "done")
+        self.assertEqual(d["setup"]["train_examples"], 4)
+        self.assertGreater(d["setup"]["trainable_params"], 0)
+        self.assertTrue(d["steps"] and d["evals"])
+        self.assertLess(d["steps"][-1]["loss"], d["steps"][0]["loss"])  # o erro cai
+        self.assertGreater(d["result"]["adapter_size"], 0)
+        # o dataset da execucao leva a instrucao de sistema do conjunto
+        run_ds = (self.home / "data" / "train" / "runs" / r["id"] / "dataset.jsonl").read_text("utf-8").splitlines()
+        self.assertEqual(json.loads(run_ds[0])["messages"][0]["role"], "system")
+        # exportar gera o GGUF em models/treinados e ele aparece em Meus modelos
+        self.call("/api/train/export", {"id": r["id"], "name": "IA Unreal", "quant": "Q4_K_M"})
+        for _ in range(100):
+            d = self.call(f"/api/train/run?id={r['id']}")
+            if d["state"] != "exporting":
+                break
+            time.sleep(0.2)
+        self.assertEqual(d["state"], "exported")
+        models = [m for m in self.call("/api/status")["models"] if m["path"].startswith("treinados/")]
+        self.assertEqual([m["path"] for m in models], ["treinados/IA-Unreal-Q4_K_M.gguf"])
+        self.assertEqual(models[0]["info"]["trained"]["base"], "Qwen/Qwen2.5-0.5B-Instruct")
+        runs = self.call("/api/train/status")["runs"]
+        self.assertEqual(runs[0]["state"], "exported")
+        self.call("/api/train/run/delete", {"id": r["id"]})
+        self.assertFalse(any(x["id"] == r["id"] for x in self.call("/api/train/status")["runs"]))
 
     def test_12_summarize_and_backup(self):
         r = self.call("/api/summarize", {"messages": [{"role": "user", "content": "a"}, {"role": "assistant", "content": "b"}]})
