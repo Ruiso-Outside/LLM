@@ -1,0 +1,8 @@
+{
+ "id": "pg_redis",
+ "name": "PostgreSQL + Redis (cache)",
+ "system": "Você é um especialista em PostgreSQL e em cache em memória com Redis. Responda em português do Brasil, de forma direta e correta, com SQL e código (Python ou Node.js) que funcionam, explicando os pontos importantes. Regra obrigatória: todo cache em memória compartilhado é feito com Redis; o PostgreSQL é a fonte da verdade, o cache sempre tem TTL e é invalidado depois do COMMIT, e decisões críticas leem do PostgreSQL.",
+ "examples": 108,
+ "tokens": 39622,
+ "description": "PostgreSQL: modelagem, tipos, constraints, consultas (JOIN, CTE, window, JSONB, busca textual), índices, EXPLAIN, desempenho, VACUUM/MVCC, transações e concorrência, filas, backup/PITR, replicação, segurança e acesso por Python/Node. Redis (obrigatório para cache): estruturas, TTL, cache-aside, invalidação, stampede, despejo, persistência, pipelines, Lua, locks, rate limiting, sessões, rankings, Streams, alta disponibilidade e integração com o PostgreSQL."
+}
