@@ -93,6 +93,45 @@ function renderTopbar() {
   updateHint();
 }
 
+// ------------------------------------------------------------------ integrações (API local compatível com Ollama/OpenAI)
+async function loadIntegration() {
+  let g; try { g = await api("/api/integration"); } catch { return; }
+  const base = `http://127.0.0.1:${g.port}`, key = g.require_key ? g.key : "";
+  const copy = (txt, label) => `<button type="button" class="btn small" data-copy="${esc(txt)}">${esc(label || t("Copiar"))}</button>`;
+  $("#apiStatus").innerHTML = (g.running ? `<div class="api-on">● ${t("Rodando em")} <code>${esc(base)}</code> ${copy(base)}</div>`
+      : g.error ? `<div class="warn-box">${esc(trText(g.error))}</div>` : `<div class="muted">${t("Desligada. Marque \"Ligar a API local\" e salve.")}</div>`)
+    + (g.require_key ? `<div class="api-key"><span>${t("Chave")}:</span><code>${esc(g.key || "—")}</code>${g.key ? copy(g.key) : ""}<button type="button" class="btn small" id="apiNewKey">${t("Gerar nova")}</button></div>` : "")
+    + `<div class="muted small-note">${t("Modelos disponíveis")}: ${g.models.map(m => `<code>${esc(m)}</code>`).join(" ")}</div>`;
+  const ex = JSON.stringify({ model: "piphin-codex", messages: [{ role: "user", content: "Explique este código C++ da Unreal" }] });
+  $("#apiGuides").innerHTML = `
+    <details open><summary>🟣 Visual Studio (Copilot Chat)</summary>
+      <ol><li>${t("Abra o Copilot Chat, escolha o modo Agent e, no seletor de modelo, clique em Manage models.")}</li>
+      <li>${t("Escolha Ollama. O endereço é preenchido sozinho:")} <code>${esc(base)}/v1</code> ${copy(base + "/v1")}</li>
+      <li>${t("Escolha um modelo da lista (ex.: piphin-codex, que usa o modelo do modo Codex).")}</li></ol>
+      <p class="muted small-note">${t("Disponível nas versões novas do Visual Studio (2026 / 18.x). O Visual Studio 2022 só aceita OpenAI, Anthropic e Google como modelo próprio; nele, use o VS Code ou uma extensão compatível com OpenAI.")}</p></details>
+    <details><summary>🔵 VS Code (Copilot Chat)</summary>
+      <ol><li>${t("No Copilot Chat, abra o seletor de modelo → Manage Models e escolha Ollama.")}</li>
+      <li>${t("Se pedir o endereço, use")} <code>${esc(base)}</code> ${copy(base)}</li></ol>
+      <p class="muted small-note">${t("No modo Agente, só aparecem modelos que suportam ferramentas (o Piphin LLM informa isso). As sugestões automáticas enquanto você digita continuam sendo do Copilot.")}</p></details>
+    <details><summary>🧩 ${t("Outras ferramentas (formato OpenAI)")}</summary>
+      <p>${t("Endereço base")}: <code>${esc(base)}/v1</code> ${copy(base + "/v1")} · ${t("modelo")}: <code>piphin-codex</code>${key ? ` · ${t("chave")}: <code>${esc(key)}</code>` : ""}</p></details>
+    <details><summary>🎮 Unreal Engine 5 (C++ / Blueprint)</summary>
+      <p>${t("Faça um POST HTTP (módulo HTTP do C++ ou um plugin de requisições no Blueprint) para:")}</p>
+      <pre class="tool-out">POST ${esc(base)}/v1/chat/completions
+Content-Type: application/json${key ? `\nAuthorization: Bearer ${esc(key)}` : ""}
+
+${esc(ex)}</pre>${copy(`curl ${base}/v1/chat/completions -H "Content-Type: application/json"${key ? ` -H "Authorization: Bearer ${key}"` : ""} -d '${ex}'`, t("Copiar como curl"))}
+      <p class="muted small-note">${t("Dica: o Codex do Piphin LLM também trabalha direto nos arquivos C++ do projeto da Unreal (a pasta Source). Libere a pasta do projeto no modo Codex.")}</p></details>`;
+}
+document.addEventListener("click", async e => {
+  const c = e.target.closest("[data-copy]");
+  if (c) { await navigator.clipboard.writeText(c.dataset.copy); toast(t("Copiado")); return; }
+  if (e.target.id === "apiNewKey") {
+    if (!confirm(t("Gerar uma chave nova? Os programas que usam a chave atual vão precisar da nova."))) return;
+    await post("/api/integration/key"); loadIntegration();
+  }
+});
+
 // ------------------------------------------------------------------ modelo de cada modo
 const modeModel = mode => {
   const m = S.status?.settings?.mode_models?.[mode] || "";
@@ -1107,11 +1146,11 @@ async function loadLog() {
 
 // ------------------------------------------------------------------ configurações
 const NUM_FIELDS = ["temperature", "top_p", "top_k", "min_p", "repeat_penalty", "max_tokens", "ctx_size", "gpu_layers", "cpu_percent",
-  "search_results", "agent_max_steps", "image_steps", "extra_idle_minutes"];
+  "search_results", "agent_max_steps", "image_steps", "extra_idle_minutes", "api_port"];
 const DEFAULTS = { system_prompt: "", temperature: 0.7, top_p: 0.95, top_k: 40, min_p: 0.05, repeat_penalty: 1.0, max_tokens: 0,
   ctx_size: 8192, gpu_layers: 999, cpu_percent: 0, backend: "auto", extra_args: "", search_provider: "duckduckgo",
   search_region: "br-pt", search_results: 4, auto_load: true, agent_confirm_commands: true, agent_confirm_writes: false,
-  agent_max_steps: 40, quick_model: "", quick_device: "gpu", quick_keep_loaded: true, vram_guard: true, rea_codex: true, mode_switch: true, reply_language: "auto", auto_summarize: true, use_recommended: true, extra_idle_minutes: 10, whisper_language: "auto", image_steps: 0, image_enhance: true, image_offload: true, image_unload_llm: false };
+  agent_max_steps: 40, quick_model: "", quick_device: "gpu", quick_keep_loaded: true, vram_guard: true, rea_codex: true, mode_switch: true, api_enabled: false, api_port: 11434, api_require_key: false, reply_language: "auto", auto_summarize: true, use_recommended: true, extra_idle_minutes: 10, whisper_language: "auto", image_steps: 0, image_enhance: true, image_offload: true, image_unload_llm: false };
 function cpuLabel() {
   const pct = +$("#cpuRange").value; const n = S.status?.gpu?.cpu_count || 0;
   $("#cpuLabel").textContent = pct ? t("{pct}% · {n} de {total} threads", { pct, n: Math.max(1, Math.round(n * pct / 100)), total: n }) : t("Automático ({n} threads no PC)", { n });
@@ -1128,7 +1167,7 @@ function fillSettings(src = S.status.settings) {
   const f = $("#settingsForm");
   for (const el of f.elements) if (el.name && src[el.name] !== undefined) { if (el.type === "checkbox") el.checked = !!src[el.name]; else el.value = src[el.name]; }
   S.wsEdit = [...(S.status.settings.workspaces || [])]; renderWorkspaceList(); cpuLabel(); loadMcp(); loadMedia();
-  fillModeModels();
+  fillModeModels(); loadIntegration();
   showProviderFields(); renderStatsSummary();
 }
 function renderWorkspaceList() {

@@ -167,6 +167,7 @@
         <button type="button" class="set-tab" data-set-tab="mcp"><span>🔌</span> Ferramentas MCP</button>
         <button type="button" class="set-tab" data-set-tab="media"><span>🎨</span> Áudio e imagem</button>
         <button type="button" class="set-tab" data-set-tab="web"><span>🌐</span> Pesquisa na web</button>
+        <button type="button" class="set-tab" data-set-tab="api"><span>🔗</span> Integrações</button>
       </nav>
       <div class="set-body">
         <section class="set-pane active" data-set-pane="general">
@@ -369,6 +370,21 @@
           <p data-prov="google" class="full muted small-note">Crie em <a href="https://programmablesearchengine.google.com/" target="_blank" rel="noopener">programmablesearchengine.google.com</a> (marque "Pesquisar em toda a Web") e gere a chave em <a href="https://console.cloud.google.com/apis/library/customsearch.googleapis.com" target="_blank" rel="noopener">Google Cloud → Custom Search API</a>. A cota grátis é de 100 pesquisas por dia.</p>
           <label data-prov="searxng" class="full">Endereço do SearXNG <input name="searxng_url" class="input" placeholder="http://localhost:8080"></label>
         </div></div>
+        </section>
+        <section class="set-pane" data-set-pane="api">
+          <div class="set-title"><h3>Integrações</h3><p class="muted">Use os modelos do Piphin LLM em outros programas: Visual Studio, VS Code, Unreal Engine, scripts...</p></div>
+          <div class="set-group"><h4>API local</h4>
+            <p class="muted small-note">Uma API compatível com o <b>Ollama</b> e com a <b>OpenAI</b>, só para programas do próprio PC (páginas da web são bloqueadas). Os modelos carregam sob demanda.</p>
+            <div class="grid">
+              <label class="check full"><input type="checkbox" name="api_enabled"> Ligar a API local</label>
+              <label>Porta <input name="api_port" type="number" min="1024" max="65535" class="input"><small class="muted">11434 é a porta do Ollama: as IDEs já procuram nela. Se o Ollama estiver instalado e aberto, use outra.</small></label>
+              <label class="check"><input type="checkbox" name="api_require_key"> Exigir chave de API</label>
+            </div>
+            <div id="apiStatus" class="api-status"></div>
+          </div>
+          <div class="set-group"><h4>Como conectar</h4>
+            <div id="apiGuides" class="api-guides"></div>
+          </div>
         </section>
       </div>
       <div class="set-foot">

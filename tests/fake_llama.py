@@ -40,6 +40,8 @@ def plan(req, msgs):
         steps = [("write_file", {"path": "app/hello.py", "content": "print('ola')\n"}),
                  ("edit_file", {"path": "app/readme.txt", "old_text": "versao 1", "new_text": "versao 2"})]
         return steps[n_tools] if n_tools < len(steps) else None
+    if names and n_tools == 0:  # cliente externo (API local) oferecendo uma ferramenta qualquer
+        return (names[0], {"cidade": "Recife"})
     return None
 
 
@@ -69,11 +71,25 @@ class H(BaseHTTPRequestHandler):
         if self.path.endswith("/embeddings"):
             inputs = req["input"] if isinstance(req["input"], list) else [req["input"]]
             return self.send({"data": [{"index": i, "embedding": embed(t)} for i, t in enumerate(inputs)]})
+        if self.path in ("/infill", "/completion"):  # rotas nativas: completar codigo (com prefixo e sufixo)
+            text = f"<{self.path[1:]} prefixo={req.get('input_prefix', req.get('prompt', ''))!r} sufixo={req.get('input_suffix', '')!r}>"
+            if not req.get("stream"):
+                return self.send({"content": text, "stop": True, "timings": {"predicted_n": 3, "prompt_n": 5}})
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.end_headers()
+            for w in text.split(" "):
+                self.chunk({"content": w + " ", "stop": False})
+            self.chunk({"content": "", "stop": True, "timings": {"predicted_n": 3, "prompt_n": 5}})
+            return
         msgs = req["messages"]
         last = msgs[-1]["content"] if isinstance(msgs[-1]["content"], str) else json.dumps(msgs[-1]["content"])
         if not req.get("stream"):
             text = "- Resumo de teste." if "Resuma a conversa" in last else "consulta teste"
-            return self.send({"choices": [{"message": {"content": text}}], "timings": {"predicted_n": 5}})
+            if "tools" in req and not any(m["role"] == "tool" for m in msgs):  # cliente externo pedindo ferramenta
+                tc = {"id": "c0", "type": "function", "function": {"name": req["tools"][0]["function"]["name"], "arguments": '{"cidade": "Recife"}'}}
+                return self.send({"choices": [{"message": {"content": "", "tool_calls": [tc]}, "finish_reason": "tool_calls"}]})
+            return self.send({"choices": [{"message": {"content": text}, "finish_reason": "stop"}], "timings": {"predicted_n": 5}})
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.end_headers()

@@ -342,6 +342,72 @@ class ServerTest(unittest.TestCase):
             self.call("/api/load", {"model": main})
             wait_main(main)
 
+    def test_17_local_api_ollama_and_openai(self):
+        port = free_port() + 7
+        api = f"http://127.0.0.1:{port}"
+
+        def req(path, body=None, headers=None, method=None):
+            r = urllib.request.Request(api + path, data=None if body is None else json.dumps(body).encode(),
+                                       headers={"Content-Type": "application/json", **(headers or {})},
+                                       method=method or ("POST" if body is not None else "GET"))
+            return urllib.request.urlopen(r, timeout=60)
+
+        def lines(resp):
+            return [json.loads(l) for l in resp.read().decode("utf-8").splitlines() if l.strip()]
+        try:
+            st = self.call("/api/settings", {"api_enabled": True, "api_port": port}, "PUT")
+            self.assertTrue(st["api_enabled"])
+            for _ in range(50):
+                if self.call("/api/integration")["running"]:
+                    break
+                time.sleep(0.1)
+            self.assertEqual(req("/").read().decode(), "Ollama is running")
+            self.assertIn("version", json.loads(req("/api/version").read()))
+            tags = [m["name"] for m in json.loads(req("/api/tags").read())["models"]]
+            self.assertIn("qwen3-8b-q4_k_m:latest", tags)
+            self.assertIn("piphin-codex:latest", tags)
+            show = json.loads(req("/api/show", {"model": "qwen3-8b-q4_k_m:latest"}).read())
+            self.assertIn("tools", show["capabilities"])  # o modo Agente das IDEs exige ferramentas
+            # Ollama /api/chat em streaming (NDJSON)
+            out = lines(req("/api/chat", {"model": "qwen3-8b-q4_k_m", "messages": [{"role": "user", "content": "oi"}]}))
+            self.assertFalse(out[0]["done"])
+            self.assertTrue(out[-1]["done"])
+            self.assertIn("[Qwen3-8B-Q4_K_M]", "".join(o["message"]["content"] for o in out))
+            # sem streaming e com ferramenta: devolve tool_calls com argumentos como objeto
+            tools = [{"type": "function", "function": {"name": "clima", "parameters": {"type": "object", "properties": {"cidade": {"type": "string"}}}}}]
+            out = lines(req("/api/chat", {"model": "qwen3-8b-q4_k_m", "stream": False, "tools": tools,
+                                          "messages": [{"role": "user", "content": "clima?"}]}))
+            self.assertEqual(out[-1]["message"]["tool_calls"][0]["function"], {"name": "clima", "arguments": {"cidade": "Recife"}})
+            # /api/generate com sufixo = completar no meio do codigo (rota /infill do motor)
+            out = lines(req("/api/generate", {"model": "qwen3-8b-q4_k_m", "prompt": "int soma(", "suffix": "}"}))
+            self.assertIn("infill", "".join(o.get("response", "") for o in out))
+            # OpenAI /v1
+            ids = [m["id"] for m in json.loads(req("/v1/models").read())["data"]]
+            self.assertIn("piphin-chat", ids)
+            r = json.loads(req("/v1/chat/completions", {"model": "piphin-chat", "messages": [{"role": "user", "content": "oi"}]}).read())
+            self.assertEqual(r["choices"][0]["message"]["content"], "consulta teste")
+            sse = req("/v1/chat/completions", {"model": "piphin-chat", "stream": True, "messages": [{"role": "user", "content": "oi"}]}).read().decode()
+            self.assertIn("data: [DONE]", sse)
+            # paginas da web sao bloqueadas
+            with self.assertRaises(urllib.error.HTTPError) as cm:
+                req("/api/tags", headers={"Origin": "https://site-malicioso.com"})
+            self.assertEqual(cm.exception.code, 403)
+            # chave obrigatoria
+            st = self.call("/api/settings", {"api_require_key": True}, "PUT")
+            key = self.call("/api/integration")["key"]
+            self.assertTrue(key.startswith("pk-"))
+            with self.assertRaises(urllib.error.HTTPError) as cm:
+                req("/v1/models")
+            self.assertEqual(cm.exception.code, 401)
+            self.assertEqual(req("/v1/models", headers={"Authorization": f"Bearer {key}"}).status, 200)
+            # desligar fecha a porta
+            self.call("/api/settings", {"api_enabled": False, "api_require_key": False}, "PUT")
+            time.sleep(0.5)
+            with self.assertRaises((urllib.error.URLError, OSError)):
+                req("/api/version")
+        finally:
+            self.call("/api/settings", {"api_enabled": False, "api_require_key": False}, "PUT")
+
     def test_12_summarize_and_backup(self):
         r = self.call("/api/summarize", {"messages": [{"role": "user", "content": "a"}, {"role": "assistant", "content": "b"}]})
         self.assertIn("Resumo", r["summary"])

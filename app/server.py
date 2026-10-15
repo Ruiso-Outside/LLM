@@ -33,6 +33,7 @@ import agents
 import kb
 import mcp
 import modelsettings
+import gateway
 import rea
 import catalog
 import media
@@ -86,7 +87,12 @@ DEFAULT_SETTINGS = {
     "vram_guard": True,
     "rea_codex": True,
     "mode_models": {},  # modelo predefinido de cada modo: {"chat": ..., "codex": ..., "agents": ...} ("" = o carregado)
-    "mode_switch": True,  # ao entrar num modo, descarrega a IA ativa e carrega o modelo predefinido dele  # o Codex pode usar o REA (engenharia reversa) instalado no motor, pelo terminal  # VRAM cheia por ~40 s sem nada gerando: descarrega os modelos para o PC nao travar  # deixa o modelo da pergunta rapida sempre carregado (responde na hora)
+    "mode_switch": True,
+    # API local para outros programas (Visual Studio, VS Code, Unreal...): compativel com Ollama e OpenAI
+    "api_enabled": False,
+    "api_port": 11434,  # a porta do Ollama: as IDEs ja procuram nela
+    "api_require_key": False,
+    "api_key": "",  # ao entrar num modo, descarrega a IA ativa e carrega o modelo predefinido dele  # o Codex pode usar o REA (engenharia reversa) instalado no motor, pelo terminal  # VRAM cheia por ~40 s sem nada gerando: descarrega os modelos para o PC nao travar  # deixa o modelo da pergunta rapida sempre carregado (responde na hora)
     "language": "",  # idioma da interface: pt-BR | en | es ("" = o do sistema)
     "reply_language": "auto",  # auto = a IA responde no idioma da pergunta | app = sempre no idioma do app
     "extra_idle_minutes": 10,  # modelos extras (agentes/pergunta rapida) sao descarregados apos X min parados
@@ -112,7 +118,7 @@ DEFAULT_SETTINGS = {
     "image_enhance": True,
     "image_unload_llm": False,
 }
-SECRETS = ("hf_token", "google_api_key")
+SECRETS = ("hf_token", "google_api_key", "api_key")
 
 _settings_lock = threading.Lock()
 
@@ -1445,6 +1451,8 @@ class Handler(BaseHTTPRequestHandler):
                                        "models": list_models(), "tasks": public_tasks(),
                                        "settings": masked(load_settings()), "chats": list_chats(),
                                        "stats": load_stats()})
+            if p == "/api/integration":
+                return self.send_json(gateway.GATEWAY.status())
             if p == "/api/diag":
                 return self.send_json(diag_snapshot())
             if p == "/api/log":
@@ -1656,6 +1664,10 @@ class Handler(BaseHTTPRequestHandler):
                 if s.get("quick_model") and s["quick_model"] != ENGINE_PROC.model:
                     POOL.stop(s["quick_model"])
                 return self.send_json(POOL.quick_status())
+            if p == "/api/integration/key":
+                import secrets
+                save_settings({"api_key": "pk-" + secrets.token_urlsafe(24)})
+                return self.send_json(gateway.GATEWAY.status())
             if p == "/api/rea/uninstall":
                 srv = mcp.MANAGER.get("rea")
                 if srv:
@@ -1762,7 +1774,13 @@ class Handler(BaseHTTPRequestHandler):
                     b.pop(k)
             if "workspaces" in b:
                 b["workspaces"] = sorted({str(Path(w).resolve()) for w in b["workspaces"] if w and Path(w).is_dir()})
-            return self.send_json(masked(save_settings(b)))
+            if b.get("api_require_key") and not load_settings().get("api_key"):
+                import secrets
+                b["api_key"] = "pk-" + secrets.token_urlsafe(24)
+            saved = save_settings(b)
+            if any(k.startswith("api_") for k in b):
+                gateway.GATEWAY.apply()  # liga, desliga ou muda a porta da API local
+            return self.send_json(masked(saved))
         if p.startswith("/api/chats/"):
             cid = p.rsplit("/", 1)[-1]
             if not ID_RE.match(cid):
@@ -2335,12 +2353,15 @@ def main():
     threading.Thread(target=auto_load, daemon=True).start()
     threading.Thread(target=cleanup_checkpoints, daemon=True).start()
     threading.Thread(target=diag_sampler, daemon=True).start()
+    gateway.GATEWAY.configure(sys.modules[__name__])
+    gateway.GATEWAY.apply()
     print(f"Servidor em {url} | API OpenAI do motor: http://127.0.0.1:{ENGINE_PORT}/v1", flush=True)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        gateway.GATEWAY.stop()
         mcp.MANAGER.stop()
         POOL.stop()
         ENGINE_PROC.stop()

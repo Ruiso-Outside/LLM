@@ -1,7 +1,7 @@
 {
   "name": "llm-local",
   "productName": "LLM Local",
-  "version": "1.18.0",
+  "version": "1.19.0",
   "description": "Piphin LLM: IA local no seu PC, sem conta e sem restrições (Piphin Studio)",
   "main": "main.js",
   "author": "Piphin Studio",

@@ -698,3 +698,13 @@ body[data-mode="agents"] { --mode: #f59e0b; --mode2: #fcd34d; --mode-soft: #f59e
 img.logo { display: block; width: 34px; height: 34px; border-radius: 50%; object-fit: cover; background: none;
   box-shadow: 0 0 0 1px #ec489966, 0 0 16px #ec489955; }
 .rail-logo img.logo { width: 38px; height: 38px; }
+
+/* integrações */
+.api-status { display: flex; flex-direction: column; gap: 8px; }
+.api-on { color: var(--ok); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.api-key { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+.api-key code, .api-on code { user-select: all; }
+.api-guides details { border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; background: #0d0f17; margin-bottom: 8px; }
+.api-guides summary { cursor: pointer; font-weight: 600; }
+.api-guides ol { margin: 8px 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+.api-guides p { margin: 6px 0; }

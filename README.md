@@ -160,6 +160,16 @@ Quando o contexto passa de ~80%, o app **resume a parte antiga da conversa** e c
 
 Alguns repositórios trazem arquivos `mtp-…gguf` (ou `…-FastMTP…`) de algumas centenas de MB. **Eles não são modelos sozinhos**: são um acelerador (Multi-Token Prediction) que adivinha os próximos tokens para o modelo grande conferir, deixando as respostas mais rápidas. Por isso eles não aparecem como modelos para baixar: ao baixar o modelo, marque **⚡ Incluir acelerador MTP**. Em **Meus modelos** dá para escolher ou tirar o acelerador de cada modelo. Se o motor não aceitar o arquivo, o modelo é carregado sem ele (aparece ⚠ no topo).
 
+## Integrações: Visual Studio, VS Code, Unreal Engine 🔗
+
+Em **Configurações → Integrações → Ligar a API local**, o Piphin LLM vira um servidor de IA para outros programas do seu PC. A API é compatível com o **Ollama** (`/api/tags`, `/api/chat`, `/api/generate`...) e com a **OpenAI** (`/v1/chat/completions`, `/v1/models`...), na porta **11434** (a do Ollama, onde as IDEs já procuram).
+- **Visual Studio** (versões novas, 2026 / 18.x): Copilot Chat → modo Agent → seletor de modelo → *Manage models* → **Ollama** (o endereço `http://127.0.0.1:11434/v1` é preenchido sozinho). O Visual Studio 2022 só aceita OpenAI, Anthropic e Google como modelo próprio.
+- **VS Code**: Copilot Chat → *Manage Models* → **Ollama**.
+- **Unreal Engine 5 e outros**: POST para `http://127.0.0.1:11434/v1/chat/completions` no formato da OpenAI (módulo HTTP do C++ ou um plugin de requisições no Blueprint).
+- **Modelos**: `piphin-chat`, `piphin-codex` e `piphin-agentes` usam o modelo de cada modo; os modelos baixados também aparecem pelo nome. Eles carregam sob demanda.
+- **Segurança**: só aceita programas do próprio PC, bloqueia páginas da web e pode exigir uma chave (`Authorization: Bearer <chave>`). Desligada por padrão. Se o Ollama de verdade estiver instalado e aberto, troque a porta.
+- Dica: para mexer no código C++ do projeto da Unreal, o Codex do Piphin LLM também trabalha direto na pasta `Source` do projeto.
+
 ## Modelo de cada modo 🔁
 
 Em **Configurações → Modelo e motor → Modelo de cada modo**, escolha um modelo para o **Chat**, o **Codex** e os **Agentes**, e o modelo de imagem. Ao entrar num modo, a IA que estiver ativa é descarregada (inclusive os modelos extras; o da pergunta rápida marcado como "manter carregado" fica) e o modelo daquele modo é carregado enquanto você escreve. Se você enviar antes de ele terminar, o app espera o modelo certo. Para imagens, dá para descarregar a IA de texto enquanto gera (ela volta depois).
@@ -239,6 +249,7 @@ Em **Configurações → Idioma** escolha a língua do app: **Português (Brasil
 | `app/agent.py` | Codex: ferramentas, limite de pasta e confirmações |
 | `app/catalog.py` | Etiquetas dos modelos (capacidades, tamanho, qualidade dos arquivos) |
 | `app/agents.py` | Agentes personalizados, grupos e o validador com novas tentativas |
+| `app/gateway.py` | API local compatível com Ollama e OpenAI para outros programas |
 | `app/rea.py` | REA no motor: instala o Node.js portátil e o rea-agents e monta as instruções do Codex |
 | `app/mcp.py` | Cliente MCP: conecta o Codex e os agentes a programas como o Roblox Studio |
 | `app/kb.py` | Bases de conhecimento: índice, trechos e busca por embeddings |
