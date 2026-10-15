@@ -93,6 +93,47 @@ function renderTopbar() {
   updateHint();
 }
 
+// ------------------------------------------------------------------ modelo de cada modo
+const modeModel = mode => {
+  const m = S.status?.settings?.mode_models?.[mode] || "";
+  return m && S.status.models.some(x => x.path === m) ? m : "";
+};
+function fillModeModels() {
+  const mm = S.status.settings.mode_models || {};
+  const opts = sel => `<option value="">${esc(t("O que estiver carregado"))}</option>` + S.status.models.map(m =>
+    `<option value="${esc(m.path)}" ${m.path === sel ? "selected" : ""}>${esc(m.name)} (${fmtSize(m.size)})</option>`).join("");
+  $("#mmChat").innerHTML = opts(mm.chat); $("#mmCodex").innerHTML = opts(mm.codex); $("#mmAgents").innerHTML = opts(mm.agents);
+  const presets = S.media?.image?.presets || {}, cur = S.status.settings.image_preset;
+  $("#mmImage").innerHTML = Object.entries(presets).map(([k, p]) => `<option value="${k}" ${k === cur ? "selected" : ""}>${esc(p.name)}${p.installed ? "" : " " + t("(não baixado)")}</option>`).join("")
+    || `<option value="${esc(cur || "")}">${esc(cur || "—")}</option>`;
+}
+// troca para o modelo predefinido do modo (descarrega a IA ativa e os extras); com wait, espera ficar pronto
+let modeSwitching = null;
+async function ensureModeModel(mode, wait = false) {
+  const st = S.status; const want = modeModel(mode);
+  if (!st || !want || !st.settings.mode_switch) return true;
+  const e = st.engine;
+  if (e.model !== want || (e.state !== "ready" && e.state !== "loading")) {
+    if (S.generating) return true;
+    if (modeSwitching !== want) {
+      modeSwitching = want;
+      const name = (st.models.find(m => m.path === want) || {}).name || want;
+      toast(t("Trocando para {name} (modelo do modo {mode})", { name, mode: t({ chat: "Chat", codex: "Codex", agents: "Agentes" }[mode] || mode) }), 3500);
+      try { await post("/api/load", { model: want, free_extras: true }); $("#modelSelect").value = want; } catch (err) { modeSwitching = null; toast(err.message, 5000); return false; }
+    }
+  }
+  if (!wait) { refreshStatus(); return true; }
+  for (let i = 0; i < 1200; i++) { // até 10 minutos
+    const s = S.status = await api("/api/status");
+    if (s.engine.model === want && s.engine.state === "ready") { modeSwitching = null; renderTopbar(); return true; }
+    if (s.engine.state === "error" || (s.engine.state === "stopped" && i > 4)) { modeSwitching = null; renderTopbar(); toast(t("Não foi possível carregar o modelo do modo."), 5000); return false; }
+    if (i === 0) toast(t("Aguardando o modelo do modo carregar..."), 3000);
+    renderTopbar();
+    await new Promise(r => setTimeout(r, 500));
+  }
+  return false;
+}
+
 function updateHint() {
   const st = S.status; if (!st) return;
   let h = "";
@@ -137,6 +178,7 @@ function setMode(mode) {
   if (mode === "image" && S.attachments.length) { S.attachments = []; renderAttachTray(); }
   renderModeBars(); updateHint();
   if (typeof applyModeTheme === "function") applyModeTheme();
+  if (mode !== "image") ensureModeModel(mode);
   if (!S.chat?.messages.length) renderMessages(); // a tela inicial muda com o modo
 }
 $("#modes").onclick = e => { const b = e.target.closest("[data-mode]"); if (b && !S.generating) setMode(b.dataset.mode); };
@@ -597,6 +639,7 @@ async function send() {
   const atts = S.attachments.filter(a => a.status === "ready").flatMap(a => a.atts);
   if (!text && !atts.length) return;
   const mode = S.mode;
+  if (mode !== "image" && !(await ensureModeModel(mode, true))) return;
   if (mode !== "image" && S.status?.engine.state !== "ready")
     return toast(S.status?.engine.state === "loading" ? "Aguarde o modelo terminar de carregar." : "Carregue um modelo primeiro (botão Carregar no topo).");
   if (mode === "codex" && !S.workspace) return addWorkspace();
@@ -1068,7 +1111,7 @@ const NUM_FIELDS = ["temperature", "top_p", "top_k", "min_p", "repeat_penalty", 
 const DEFAULTS = { system_prompt: "", temperature: 0.7, top_p: 0.95, top_k: 40, min_p: 0.05, repeat_penalty: 1.0, max_tokens: 0,
   ctx_size: 8192, gpu_layers: 999, cpu_percent: 0, backend: "auto", extra_args: "", search_provider: "duckduckgo",
   search_region: "br-pt", search_results: 4, auto_load: true, agent_confirm_commands: true, agent_confirm_writes: false,
-  agent_max_steps: 40, quick_model: "", quick_device: "gpu", quick_keep_loaded: true, vram_guard: true, rea_codex: true, reply_language: "auto", auto_summarize: true, use_recommended: true, extra_idle_minutes: 10, whisper_language: "auto", image_steps: 0, image_enhance: true, image_offload: true, image_unload_llm: false };
+  agent_max_steps: 40, quick_model: "", quick_device: "gpu", quick_keep_loaded: true, vram_guard: true, rea_codex: true, mode_switch: true, reply_language: "auto", auto_summarize: true, use_recommended: true, extra_idle_minutes: 10, whisper_language: "auto", image_steps: 0, image_enhance: true, image_offload: true, image_unload_llm: false };
 function cpuLabel() {
   const pct = +$("#cpuRange").value; const n = S.status?.gpu?.cpu_count || 0;
   $("#cpuLabel").textContent = pct ? t("{pct}% · {n} de {total} threads", { pct, n: Math.max(1, Math.round(n * pct / 100)), total: n }) : t("Automático ({n} threads no PC)", { n });
@@ -1085,6 +1128,7 @@ function fillSettings(src = S.status.settings) {
   const f = $("#settingsForm");
   for (const el of f.elements) if (el.name && src[el.name] !== undefined) { if (el.type === "checkbox") el.checked = !!src[el.name]; else el.value = src[el.name]; }
   S.wsEdit = [...(S.status.settings.workspaces || [])]; renderWorkspaceList(); cpuLabel(); loadMcp(); loadMedia();
+  fillModeModels();
   showProviderFields(); renderStatsSummary();
 }
 function renderWorkspaceList() {
@@ -1190,7 +1234,7 @@ $("#settingsForm").addEventListener("invalid", e => {
 }, true);
 $("#settingsForm").onsubmit = async e => {
   e.preventDefault();
-  const data = { workspaces: S.wsEdit };
+  const data = { workspaces: S.wsEdit, mode_models: { chat: $("#mmChat").value, codex: $("#mmCodex").value, agents: $("#mmAgents").value } };
   for (const el of e.target.elements) if (el.name) data[el.name] = el.type === "checkbox" ? el.checked : NUM_FIELDS.includes(el.name) ? Number(el.value) : el.value;
   try {
     const old = S.status.settings;

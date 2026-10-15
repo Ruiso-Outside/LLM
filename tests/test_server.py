@@ -304,6 +304,44 @@ class ServerTest(unittest.TestCase):
         ev = self.sse("/api/agent", {"chat_id": "teste-kb2", "workspace": str(self.ws), "messages": [{"role": "user", "content": "oi"}]})
         self.assertNotIn("search_knowledge", [e["agent"].get("name") for e in ev if e.get("agent", {}).get("type") == "tool_start"])
 
+    def test_16_mode_models_switch(self):
+        quick, main = "gemma-3-4b-it-Q4_K_M.gguf", "Qwen3-8B-Q4_K_M.gguf"
+
+        def wait_main(model):
+            for _ in range(100):
+                e = self.call("/api/status")["engine"]
+                if e["model"] == model and e["state"] == "ready":
+                    return e
+                time.sleep(0.2)
+            self.fail("modelo principal nao ficou pronto")
+
+        def extras():
+            return {x["model"] for x in self.call("/api/status")["extras"] if x["state"] in ("ready", "loading")}
+        try:
+            s = self.call("/api/settings", {"mode_models": {"chat": main, "codex": quick, "agents": ""}, "mode_switch": True}, "PUT")
+            self.assertEqual(s["mode_models"]["codex"], quick)
+            # modelo extra que nao e o da pergunta rapida mantida: sai na troca de modo
+            self.call("/api/settings", {"quick_model": "", "quick_keep_loaded": False}, "PUT")
+            self.sse("/api/chat", {"messages": [{"role": "user", "content": "oi"}], "model": quick, "device": "gpu"})
+            self.assertIn(quick, extras())
+            self.call("/api/load", {"model": main, "free_extras": True})
+            wait_main(main)
+            self.assertEqual(extras(), set())
+            # o da pergunta rapida marcado como "manter carregado" fica
+            self.call("/api/quick/load", {"quick_model": quick, "quick_device": "gpu", "quick_keep_loaded": True})
+            for _ in range(100):
+                if quick in extras():
+                    break
+                time.sleep(0.2)
+            self.call("/api/load", {"model": main, "free_extras": True})
+            wait_main(main)
+            self.assertEqual(extras(), {quick})
+        finally:
+            self.call("/api/settings", {"mode_models": {}, "quick_model": "", "quick_keep_loaded": True}, "PUT")
+            self.call("/api/unload", {"extra": "all"})
+            self.call("/api/load", {"model": main})
+            wait_main(main)
+
     def test_12_summarize_and_backup(self):
         r = self.call("/api/summarize", {"messages": [{"role": "user", "content": "a"}, {"role": "assistant", "content": "b"}]})
         self.assertIn("Resumo", r["summary"])

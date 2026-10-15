@@ -250,6 +250,18 @@
         </section>
         <section class="set-pane" data-set-pane="engine">
           <div class="set-title"><h3>Modelo e motor</h3><p class="muted">Aplicado ao carregar um modelo.</p></div>
+          <div class="set-group"><h4>Modelo de cada modo</h4>
+          <p class="muted small-note">Ao entrar num modo, a IA que estiver ativa é descarregada e o modelo escolhido aqui é carregado. "O que estiver carregado" mantém o modelo atual.</p>
+          <div class="grid">
+            <label>💬 Chat <select class="input" id="mmChat"></select></label>
+            <label>🛠️ Codex <select class="input" id="mmCodex"></select></label>
+            <label>👥 Agentes <select class="input" id="mmAgents"></select><small class="muted">Agentes com modelo próprio continuam usando o deles.</small></label>
+            <label>🎨 Imagem <select class="input" name="image_preset" id="mmImage"></select></label>
+            <div class="checks full">
+              <label class="check"><input type="checkbox" name="mode_switch"> Trocar o modelo automaticamente ao mudar de modo</label>
+              <label class="check"><input type="checkbox" name="image_unload_llm"> Ao gerar imagens, descarregar a IA de texto (libera a GPU toda; ela volta depois)</label>
+            </div>
+          </div></div>
           <div class="set-group"><h4>Carregamento</h4>
           <div class="grid">
           <label>Contexto (tokens) <input name="ctx_size" type="number" step="any" min="512" max="1048576" class="input"></label>
@@ -331,7 +343,6 @@
           <div class="checks full">
             <label class="check"><input type="checkbox" name="image_enhance"> Melhorar a descrição da imagem com o modelo de texto (recomendado)</label>
             <label class="check"><input type="checkbox" name="image_offload"> Economizar VRAM ao gerar imagens (um pouco mais lento)</label>
-            <label class="check"><input type="checkbox" name="image_unload_llm"> Descarregar o modelo de texto enquanto gera imagens (libera a GPU toda)</label>
           </div>
         </div></div>
         </section>

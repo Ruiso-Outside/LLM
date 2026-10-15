@@ -84,7 +84,9 @@ DEFAULT_SETTINGS = {
     "quick_device": "gpu",  # onde roda o modelo da pergunta rapida: gpu | cpu ("auto" antigo = gpu)
     "quick_keep_loaded": True,
     "vram_guard": True,
-    "rea_codex": True,  # o Codex pode usar o REA (engenharia reversa) instalado no motor, pelo terminal  # VRAM cheia por ~40 s sem nada gerando: descarrega os modelos para o PC nao travar  # deixa o modelo da pergunta rapida sempre carregado (responde na hora)
+    "rea_codex": True,
+    "mode_models": {},  # modelo predefinido de cada modo: {"chat": ..., "codex": ..., "agents": ...} ("" = o carregado)
+    "mode_switch": True,  # ao entrar num modo, descarrega a IA ativa e carrega o modelo predefinido dele  # o Codex pode usar o REA (engenharia reversa) instalado no motor, pelo terminal  # VRAM cheia por ~40 s sem nada gerando: descarrega os modelos para o PC nao travar  # deixa o modelo da pergunta rapida sempre carregado (responde na hora)
     "language": "",  # idioma da interface: pt-BR | en | es ("" = o do sistema)
     "reply_language": "auto",  # auto = a IA responde no idioma da pergunta | app = sempre no idioma do app
     "extra_idle_minutes": 10,  # modelos extras (agentes/pergunta rapida) sao descarregados apos X min parados
@@ -806,6 +808,13 @@ class EnginePool:
     def release(self, eng):
         eng.busy = max(0, eng.busy - 1)
         eng.last_used = time.time()
+
+    def stop_except(self, keep_model=""):
+        with self.lock:
+            for key in [k for k in list(self.extra) if k[0] != keep_model and self.extra[k].busy == 0]:
+                e = self.extra.pop(key, None)
+                if e:
+                    e.stop()
 
     def stop_device(self, device):
         with self.lock:
@@ -1669,6 +1678,8 @@ class Handler(BaseHTTPRequestHandler):
                 s = load_settings()
                 s.update({k: v for k, v in b.items() if k in DEFAULT_SETTINGS})
                 save_settings({"last_model": b.get("model", "")})
+                if b.get("free_extras"):  # troca de modo: libera tambem os extras (menos o da pergunta rapida mantido)
+                    POOL.stop_except(POOL.kept_model())
                 ENGINE_PROC.start(b.get("model", ""), s)
                 return self.send_json({"ok": True})
             if p == "/api/unload":

@@ -760,6 +760,15 @@ const DICT = {
   "Escreva um texto sobre energia solar": ["Write a text about solar energy", "Escribe un texto sobre energía solar"],
   "Planeje e programe uma calculadora": ["Plan and code a calculator", "Planea y programa una calculadora"],
   "Imagem": ["Image", "Imagen"],
+  "Modelo de cada modo": ["Model for each mode", "Modelo de cada modo"],
+  "Ao entrar num modo, a IA que estiver ativa é descarregada e o modelo escolhido aqui é carregado. \"O que estiver carregado\" mantém o modelo atual.": ["When you enter a mode, the active AI is unloaded and the model chosen here is loaded. \"Whatever is loaded\" keeps the current model.", "Al entrar en un modo, la IA activa se descarga y se carga el modelo elegido aquí. \"Lo que esté cargado\" mantiene el modelo actual."],
+  "O que estiver carregado": ["Whatever is loaded", "Lo que esté cargado"],
+  "Agentes com modelo próprio continuam usando o deles.": ["Agents with their own model keep using it.", "Los agentes con modelo propio siguen usando el suyo."],
+  "Trocar o modelo automaticamente ao mudar de modo": ["Switch the model automatically when changing mode", "Cambiar el modelo automáticamente al cambiar de modo"],
+  "Ao gerar imagens, descarregar a IA de texto (libera a GPU toda; ela volta depois)": ["When generating images, unload the text AI (frees the whole GPU; it comes back afterwards)", "Al generar imágenes, descargar la IA de texto (libera toda la GPU; vuelve después)"],
+  "Trocando para {name} (modelo do modo {mode})": ["Switching to {name} ({mode} mode model)", "Cambiando a {name} (modelo del modo {mode})"],
+  "Aguardando o modelo do modo carregar...": ["Waiting for the mode's model to load...", "Esperando a que cargue el modelo del modo..."],
+  "Não foi possível carregar o modelo do modo.": ["Couldn't load the mode's model.", "No se pudo cargar el modelo del modo."],
 };
 
 function _pick(key) {
