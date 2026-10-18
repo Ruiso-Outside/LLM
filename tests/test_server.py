@@ -497,7 +497,7 @@ class ServerTest(unittest.TestCase):
             if d3["state"] not in ("starting", "loading", "training"):
                 break
             time.sleep(0.2)
-        self.assertEqual((d3["state"], d3["draft_for"], d3["name"]), ("done", r["id"], "ia-teste acelerador"))
+        self.assertEqual((d3["state"], d3["draft_for"], d3["name"]), ("done", r["id"], "ia-teste draft"))
         self.assertEqual(d3["setup"]["train_examples"], 4)          # os mesmos exemplos da IA de origem
         with self.assertRaises(urllib.error.HTTPError):   # acelerador de acelerador nao
             self.call("/api/train/start", {"draft_for": r3["id"], "base_repo": "x/y", "free_gpu": False})

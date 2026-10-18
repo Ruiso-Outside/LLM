@@ -51,7 +51,7 @@ npm run dist
 ## Como usar
 
 1. Abra o **Piphin LLM**.
-2. **Modelos → Motor**: clique em *Instalar* no **CUDA** (para placa NVIDIA). Isso baixa o `llama.cpp` direto do GitHub oficial.
+2. **Modelos → Runtime**: clique em *Instalar* no **CUDA** (para placa NVIDIA). Isso baixa o `llama.cpp` direto do GitHub oficial.
 3. **Modelos → Baixar modelos**: busque um modelo (ex.: `Qwen`, `gemma`). Cada resultado mostra o que o modelo sabe fazer e se cabe na sua placa. Ao abrir um, o arquivo marcado com ⭐ é o de melhor qualidade que cabe na sua GPU.
 
    | Ícone | Significado |
@@ -101,7 +101,7 @@ Clique no 📎, arraste arquivos para a janela ou cole (Ctrl+V). O app prepara c
 | Áudio | É transcrito pelo Whisper. Modelos que entendem áudio recebem o som direto |
 | Vídeo | O app extrai alguns quadros (para modelos com visão) e transcreve o áudio |
 
-**Visão:** para o modelo enxergar imagens, ele precisa de um arquivo de visão (*mmproj*). Ao baixar um modelo com visão (Gemma 3, Qwen2.5-VL, Qwen3-VL...), deixe marcado **"Incluir visão"**. Para modelos já baixados, escolha o arquivo em **Modelos → Meus modelos**. O topo mostra `👁 visão` quando o modelo carregado enxerga.
+**Visão:** para o modelo enxergar imagens, ele precisa de um projetor de visão (*mmproj*). Ao baixar um modelo com visão (Gemma 3, Qwen2.5-VL, Qwen3-VL...), deixe marcado **"Incluir visão"**. Para modelos já baixados, escolha o arquivo em **Modelos → Meus modelos**. O topo mostra `👁 visão` quando o modelo carregado enxerga.
 
 ### 🛠️ Codex (agente de programação)
 O modelo cria e edita projetos de software sozinho, **somente** dentro das pastas que você liberar (escolha no seletor ao lado dos modos, ou em Configurações → Codex).
@@ -110,7 +110,7 @@ O modelo cria e edita projetos de software sozinho, **somente** dentro das pasta
 - Caminhos fora da pasta liberada são bloqueados.
 - Funciona melhor com modelos bons em programação e em "tool calling", como Qwen3, Qwen3-Coder ou Devstral, e com contexto de 32k ou mais.
 
-**Base de conhecimento no Codex:** escolha a base no 📚 da barra do Codex. O Codex ganha a ferramenta *search_knowledge* e consulta seus documentos (specs, documentação, código de referência) quantas vezes precisar enquanto trabalha, citando os trechos como [D1], [D2].
+**RAG no Codex:** escolha a base no 📚 da barra do Codex. O Codex ganha a ferramenta *search_knowledge* e consulta seus documentos (specs, documentação, código de referência) quantas vezes precisar enquanto trabalha, citando os trechos como [D1], [D2].
 
 **Desfazer o que o Codex fez:** antes de alterar um arquivo, o Codex guarda a versão original. Na resposta aparecem **🔍 Ver alterações** (as diferenças, linha por linha) e **↩ Desfazer alterações** (tudo volta a ficar como antes do pedido; arquivos criados são removidos). Comandos executados não são desfeitos. Os pontos de restauração ficam 30 dias.
 
@@ -124,7 +124,7 @@ O Codex e os agentes podem controlar outros programas que falam **MCP** (Model C
 
 ### 🔬 REA (engenharia reversa)
 O [REA](https://github.com/morluto/rea) faz parte do motor: o Codex passa a entender programas sem o código-fonte (apps Electron/JavaScript, `.exe`/`.dll`, .NET, Go, Rust, pacotes, SQLite).
-- **Instalar:** Configurações → **Codex** → **Instalar REA** (ou o indicador 🔬 na barra do modo Codex, ou Modelos → Motor). Baixa uma vez (~290 MB: um Node.js portátil oficial, conferido por SHA-256, e o `rea-agents` numa versão fixa) para `engine/rea`. Depois **funciona sem internet** e sem nada instalado no Windows.
+- **Instalar:** Configurações → **Codex** → **Instalar REA** (ou o indicador 🔬 na barra do modo Codex, ou Modelos → Runtime). Baixa uma vez (~290 MB: um Node.js portátil oficial, conferido por SHA-256, e o `rea-agents` numa versão fixa) para `engine/rea`. Depois **funciona sem internet** e sem nada instalado no Windows.
 - **No Codex:** com uma pasta de projeto, o Codex usa o REA pelo terminal com a saída limitada (`--token-limit`), sem gastar contexto com as 207 ferramentas dele. Dá para desligar em Configurações → Codex.
 - **Como ferramentas MCP (opcional):** Configurações → Ferramentas MCP → **+ REA (MCP)** usa a mesma cópia local. O perfil **Essenciais** liga 8 ferramentas (~4,4 mil tokens) e **Windows completo**, 18. Em cada servidor MCP dá para ligar e desligar ferramentas uma a uma.
 
@@ -144,33 +144,33 @@ Crie agentes com uma **função** própria e junte vários num **grupo** que tra
 - **Um modelo por agente:** cada agente pode usar um modelo diferente (ex.: um leve e rápido para criar, um mais forte para validar). Os modelos diferentes do principal são carregados **ao mesmo tempo**, cada um no seu motor. Em **Onde rodar** você escolhe **GPU** (mais rápido), **CPU** (usa a RAM e não disputa a GPU, ótimo para modelos leves) ou **Automático** (GPU se couber, senão CPU). Se faltar memória, os extras usados há mais tempo são descarregados. Em Modelos → Meus modelos aparece quanto de VRAM e de RAM os modelos estão usando. Extras parados também são descarregados depois de alguns minutos (Configurações → Carregamento do modelo).
 - Para usar, escolha o modo **👥 Agentes** e selecione um grupo ou um agente sozinho. Agentes e grupos entram no backup.
 
-## Bases de conhecimento 📚
+## RAG 📚 (Retrieval-Augmented Generation)
 
 A IA responde com base nos **seus documentos**, sem mandar nada para fora do PC.
-1. Abra **Conhecimento** na barra lateral e baixe o modelo de embeddings (Qwen3-Embedding 0.6B, ~610 MB, multilíngue).
+1. Abra **RAG** na barra lateral e baixe o modelo de embeddings (Qwen3-Embedding 0.6B, ~610 MB, multilíngue).
 2. Crie uma base escolhendo uma ou mais pastas e clique em **Indexar**. Lê texto, código, Markdown, PDF, Word, Excel e PowerPoint. Depois, **Atualizar índice** só processa o que mudou.
 3. No chat (ou no modo 👥 Agentes), escolha a base no **📚** ao lado do 🌐 Web. A resposta cita os trechos como [D1], [D2]; clique para ver o arquivo.
-4. Cada agente também pode ter uma base própria (campo *Base de conhecimento* no editor de agentes).
+4. Cada agente também pode ter uma base própria (campo *Base RAG* no editor de agentes).
 
 ## Conversas longas
 
 Quando o contexto passa de ~80%, o app **resume a parte antiga da conversa** e continua dali, sem estourar o limite (Configurações → *Resumir a conversa antiga...*). O resumo aparece num divisor recolhível na conversa.
 
-## Acelerador MTP ⚡
+## Speculative decoding ⚡ (MTP, draft model e n-gram)
 
 Alguns repositórios trazem arquivos `mtp-…gguf` (ou `…-FastMTP…`) de algumas centenas de MB. **Eles não são modelos sozinhos**: são um acelerador (Multi-Token Prediction) que adivinha os próximos tokens para o modelo grande conferir, deixando as respostas mais rápidas. Por isso eles não aparecem como modelos para baixar: ao baixar o modelo, marque **⚡ Incluir acelerador MTP**. Em **Meus modelos** dá para escolher ou tirar o acelerador de cada modelo. Se o motor não aceitar o arquivo, o modelo é carregado sem ele (aparece ⚠ no topo).
 
-Outros aceleradores em **Meus modelos**: **⚡ N-gram** (sem arquivo nenhum; reaproveita trechos que já apareceram no texto e acelera muito edições e reescritas de código, ~+40% nos testes) e **modelo rascunho** (um modelo bem menor da mesma família, como o Qwen2.5-Coder-0.5B para um Qwen2.5-Coder-7B, inclusive o acelerador treinado no Estúdio).
+Outros tipos de speculative decoding em **Meus modelos**: **⚡ N-gram** (sem arquivo nenhum; reaproveita trechos que já apareceram no texto e acelera muito edições e reescritas de código, ~+40% nos testes) e **draft model** (um modelo bem menor da mesma família, como o Qwen2.5-Coder-0.5B para um Qwen2.5-Coder-7B, inclusive o draft model treinado no Fine-tuning).
 
-## Estúdio de treino 🧪 (treine a sua própria IA)
+## Fine-tuning 🧪 (treine a sua própria IA)
 
 O botão **🧪 Treino** no trilho abre uma tela própria para fazer *fine-tuning* (LoRA / QLoRA) de um modelo pequeno com os seus exemplos, por exemplo uma IA dedicada a Unreal Engine 5 e C++.
 1. **Ambiente:** instala uma vez, dentro do app (`engine/train`, ~4,5 GB): Python 3.12 portátil, PyTorch com CUDA, transformers, peft, bitsandbytes e os conversores do llama.cpp na mesma versão do motor. Não precisa de nada instalado no Windows.
-2. **Dados:** crie um conjunto e adicione exemplos (pedido + resposta ideal): importe as suas conversas, importe JSONL, escreva à mão ou **gere a partir de pastas** (ex.: a pasta `Source` do projeto da Unreal). O modelo carregado no topo cria perguntas e respostas a partir dos arquivos, e elas entram como *pendentes* para você revisar. Uma instrução de sistema do conjunto entra em todos os exemplos.
-3. **Nova execução:** escolha o modelo base (Qwen2.5-Coder 1.5B/3B/7B, Qwen3 1.7B/4B/8B ou qualquer repositório do Hugging Face), a intensidade (Rápido / Equilibrado / Qualidade) e, se quiser, os ajustes avançados (LoRA r e alpha, épocas, taxa de aprendizado, contexto, acúmulo de gradiente, 4 bits).
+2. **Dados:** crie um dataset e adicione exemplos (pedido + resposta ideal): importe as suas conversas, importe JSONL, escreva à mão ou **gere a partir de pastas** (ex.: a pasta `Source` do projeto da Unreal). O modelo carregado no topo cria perguntas e respostas a partir dos arquivos, e elas entram como *pendentes* para você revisar. Uma instrução de sistema do conjunto entra em todos os exemplos.
+3. **Nova run:** escolha o modelo base (Qwen2.5-Coder 1.5B/3B/7B, Qwen3 1.7B/4B/8B ou qualquer repositório do Hugging Face), a intensidade (Rápido / Equilibrado / Qualidade) e, se quiser, os ajustes avançados (LoRA r e alpha, épocas, taxa de aprendizado, contexto, acúmulo de gradiente, 4 bits).
 4. **Painel ao vivo:** passo, época, loss de treino e de avaliação, perplexidade, taxa de aprendizado, norma do gradiente, tempo restante, parâmetros totais e treináveis, LoRA r/α, camadas adaptadas, precisão de cálculo, tamanho dos pesos do adaptador, exemplos e tokens, velocidade, VRAM do treino (atual, pico e reservada), VRAM, uso, temperatura, consumo (W), energia gasta (Wh) e clock da GPU, com gráficos.
-5. **Continuar treinando:** em *Nova execução → Continuar uma IA já treinada*, escolha um treino anterior (ou a pasta de um adaptador LoRA) e um conjunto com o conteúdo novo. O treino parte do adaptador da IA anterior, com o mesmo modelo base, e por padrão revisa também os exemplos dos treinos anteriores para a IA não esquecer o que já aprendeu. Cada rodada vira uma nova versão (v2, v3...). Arquivos `.gguf` não podem ser treinados de novo: o treino continua a partir do adaptador salvo na execução.
-6. **Acelerador da sua IA:** no painel de uma execução concluída, *⚡ Criar acelerador* treina um modelo pequeno da mesma família (ex.: Qwen2.5-Coder-0.5B para uma IA baseada no 7B) com os mesmos exemplos. Ao gerar o GGUF dele, ele é ligado sozinho como acelerador (decodificação especulativa) do modelo de origem: o pequeno escreve um rascunho e o grande confere, com a mesma qualidade.
+5. **Continuar treinando:** em *Nova run → Continuar uma IA já treinada*, escolha um treino anterior (ou a pasta de um adaptador LoRA) e um conjunto com o conteúdo novo. O treino parte do adaptador da IA anterior, com o mesmo modelo base, e por padrão revisa também os exemplos dos treinos anteriores para a IA não esquecer o que já aprendeu. Cada rodada vira uma nova versão (v2, v3...). Arquivos `.gguf` não podem ser treinados de novo: o treino continua a partir do adaptador salvo na execução.
+6. **Draft model da sua IA (speculative decoding):** no painel de uma run concluída, *⚡ Treinar draft model* treina um modelo pequeno da mesma família (ex.: Qwen2.5-Coder-0.5B para uma IA baseada no 7B) com os mesmos exemplos. Ao gerar o GGUF dele, ele é ligado sozinho como draft model do modelo de origem: o pequeno escreve um rascunho e o grande confere, com a mesma qualidade.
 7. **Modelo final:** junta o LoRA ao modelo base, converte para GGUF e quantiza (Q4_K_M a F16). O resultado aparece em **Meus modelos** (pasta `models/treinados`) e pode virar o modelo do modo Codex com um clique; pela API local, ele também chega ao Visual Studio.
 
 Dica: a IA fica leve por causa do **modelo base pequeno**; o fine-tuning a especializa. Para os *fatos* (APIs, documentação), combine com uma base de conhecimento. A qualidade depende principalmente dos exemplos: revise os gerados antes de treinar.
@@ -264,12 +264,12 @@ Em **Configurações → Idioma** escolha a língua do app: **Português (Brasil
 | `app/agent.py` | Codex: ferramentas, limite de pasta e confirmações |
 | `app/catalog.py` | Etiquetas dos modelos (capacidades, tamanho, qualidade dos arquivos) |
 | `app/agents.py` | Agentes personalizados, grupos e o validador com novas tentativas |
-| `app/train.py` | Estúdio de treino: ambiente, conjuntos de dados, execuções e exportação |
+| `app/train.py` | Fine-tuning: ambiente, datasets, runs e exportação |
 | `app/train_worker.py` | Treino LoRA/QLoRA e exportação para GGUF (roda no Python do treino) |
 | `app/gateway.py` | API local compatível com Ollama e OpenAI para outros programas |
 | `app/rea.py` | REA no motor: instala o Node.js portátil e o rea-agents e monta as instruções do Codex |
 | `app/mcp.py` | Cliente MCP: conecta o Codex e os agentes a programas como o Roblox Studio |
-| `app/kb.py` | Bases de conhecimento: índice, trechos e busca por embeddings |
+| `app/kb.py` | RAG: índice vetorial, chunks e busca por embeddings |
 | `app/modelsettings.py` | Ajustes por modelo e amostragem recomendada por família |
 | `app/media.py` | Whisper, stable-diffusion.cpp, anexos e extração de texto de documentos |
 | `app/web/i18n.js` | Traduções da interface (PT-BR, EN, ES) |

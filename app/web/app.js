@@ -80,7 +80,7 @@ function renderTopbar() {
   const name = modelName() || e.model;
   const caps = (e.vision ? " · " + t("👁 visão") : "") + (e.audio ? " · 🎧 " + t("Áudio").toLowerCase() : "");
   const map = { stopped: [t("Nenhum modelo carregado"), ""], loading: [t("Carregando {name}...", { name }), "loading"],
-                ready: [(e.mtp_error ? "⚠ " : "") + "● " + name + (e.backend ? ` · ${e.backend.toUpperCase()}` : "") + (e.mtp ? " · ⚡ " + accelLabel(e.accel) : "") + caps, "ready"], error: [t("Erro no motor (clique)"), "error"] };
+                ready: [(e.mtp_error ? "⚠ " : "") + "● " + name + (e.backend ? ` · ${e.backend.toUpperCase()}` : "") + (e.mtp ? " · ⚡ " + accelLabel(e.accel) : "") + caps, "ready"], error: [t("Erro no runtime (clique)"), "error"] };
   const extras = (st.extras || []).filter(x => x.state === "ready" || x.state === "loading");
   pill.textContent = map[e.state][0] + (extras.length ? ` · +${extras.length} extra${extras.length > 1 ? "s" : ""}` : "");
   if (e.state === "stopped" && extras.length) { pill.textContent = t("● {n} modelo(s) extra(s)", { n: extras.length }); pill.className = "pill ready"; }
@@ -178,9 +178,9 @@ function updateHint() {
   let h = "";
   if (S.mode === "image") {
     const im = S.media?.image;
-    if (!im?.installed) h = "Para gerar imagens, instale o motor em Modelos → Mídia.";
+    if (!im?.installed) h = "Para gerar imagens, instale o runtime em Modelos → Mídia.";
     else if (!Object.values(im.presets).some(p => p.installed)) h = "Baixe um modelo de imagem em Modelos → Mídia.";
-  } else if (!Object.keys(st.backends).length) h = "Primeiro passo: abra Modelos → Motor e instale o motor.";
+  } else if (!Object.keys(st.backends).length) h = "Primeiro passo: abra Modelos → Runtime e instale o runtime.";
   else if (!st.models.length) h = "Baixe um modelo em Modelos → Baixar modelos.";
   else if (st.engine.state !== "ready") h = st.engine.state === "loading" ? "Carregando modelo na memória..." : "Selecione um modelo e clique em Carregar.";
   else if (S.mode === "codex" && !S.workspace) h = t("Escolha ou adicione uma pasta para o Codex trabalhar.");
@@ -517,7 +517,7 @@ function renderMessages() {
     const noEngine = st && !Object.keys(st.backends).length; const noModel = st && !st.models.length;
     box.innerHTML = `<div class="empty">${noEngine || noModel ? `<h2>Piphin LLM</h2><div>Seus modelos, sua máquina. Sem conta, sem limites, sem nada saindo do seu PC.</div>` : ""}
       ${noEngine || noModel ? `<ol class="steps">
-        <li>${noEngine ? "" : "✅ "}Instale o motor em <b>Modelos → Motor</b></li>
+        <li>${noEngine ? "" : "✅ "}Instale o runtime em <b>Modelos → Runtime</b></li>
         <li>${noModel ? "" : "✅ "}Baixe um modelo em <b>Modelos → Baixar modelos</b></li>
         <li>Selecione o modelo no topo e clique em <b>Carregar</b></li></ol>` : modeHeroHTML()}</div>`;
     return;
@@ -685,7 +685,7 @@ async function send() {
   if (mode === "agents" && !currentAgentSel().group && !currentAgentSel().agent) { openModal("agentsModal"); return toast("Crie ou escolha um agente ou grupo."); }
   if (mode === "image") {
     const im = S.media?.image;
-    if (!im?.installed || !im.presets[S.status.settings.image_preset]?.installed) { openModal("modelsModal"); switchTab("tabMedia"); return toast("Instale o motor e um modelo de imagem primeiro."); }
+    if (!im?.installed || !im.presets[S.status.settings.image_preset]?.installed) { openModal("modelsModal"); switchTab("tabMedia"); return toast("Instale o runtime e um modelo de imagem primeiro."); }
   }
   if (!S.chat) S.chat = { id: uid(), title: (mode === "image" ? "🎨 " : mode === "codex" ? "🛠️ " : mode === "agents" ? "👥 " : "") + (text || atts[0]?.name || "Anexo").slice(0, 60).replace(/\s+/g, " "), created: Date.now() / 1000, messages: [] };
   S.chat.messages.push({ role: "user", content: text, ...(atts.length ? { attachments: atts } : {}) });
@@ -916,7 +916,7 @@ $("#quickCard").addEventListener("click", async e => {
   refreshStatus();
 });
 
-function accelLabel(kind) { return { ngram: "N-gram", draft: t("Rascunho"), mtp: "MTP" }[kind] || "MTP"; }
+function accelLabel(kind) { return { ngram: "N-gram", draft: "Draft", mtp: "MTP" }[kind] || "MTP"; }
 
 function renderLocalModels() {
   renderMemBar(); renderQuickCard();
@@ -924,23 +924,23 @@ function renderLocalModels() {
   const html = st.models.length ? st.models.map(m => {
     const on = st.engine.model === m.path && st.engine.state === "ready";
     const extra = (st.extras || []).find(x => x.model === m.path && (x.state === "ready" || x.state === "loading"));
-    const vis = mms.length ? `<select class="input small-input" data-mm="${esc(m.path)}" title="Arquivo de visão (mmproj): permite o modelo ver imagens">
+    const vis = mms.length ? `<select class="input small-input" data-mm="${esc(m.path)}" title="Projetor de visão (mmproj): permite o modelo ver imagens">
         <option value="">Sem visão</option>${mms.map(x => `<option value="${esc(x)}" ${x === m.mmproj ? "selected" : ""}>👁 ${esc(baseName(x))}</option>`).join("")}</select>` : "";
     // rascunhos possíveis: modelos de conversa bem menores (o motor recusa se o vocabulário for diferente e carrega sem)
     const drafts = st.models.filter(x => x.path !== m.path && x.size < m.size * 0.35);
-    const acc = `<select class="input small-input" data-mtp="${esc(m.path)}" title="${esc(t("Acelerador: o modelo gera vários tokens por vez. N-gram não precisa de arquivo e acelera edições de código; MTP e modelo rascunho precisam ser da mesma família do modelo."))}">
-        <option value="">${esc(t("Sem acelerador"))}</option>
+    const acc = `<select class="input small-input" data-mtp="${esc(m.path)}" title="${esc(t("Speculative decoding: um rascunho propõe vários tokens e o modelo confere de uma vez (mais rápido, mesma qualidade). N-gram não precisa de arquivo e acelera edições de código; MTP e draft model precisam ser da mesma família do modelo."))}">
+        <option value="">${esc(t("Speculative decoding: desligado"))}</option>
         <option value="ngram" ${m.mtp === "ngram" ? "selected" : ""}>⚡ ${esc(t("N-gram (sem arquivo, bom para código)"))}</option>
         ${mtps.length ? `<optgroup label="MTP">${mtps.map(x => `<option value="${esc(x)}" ${x === m.mtp ? "selected" : ""}>⚡ ${esc(baseName(x))}</option>`).join("")}</optgroup>` : ""}
-        ${drafts.length ? `<optgroup label="${esc(t("Modelo rascunho (mesma família)"))}">${drafts.map(x => `<option value="${esc(x.path)}" ${x.path === m.mtp ? "selected" : ""}>⚡ ${esc(x.name)}${x.info?.trained?.draft_for ? " ★" : ""}</option>`).join("")}</optgroup>` : ""}</select>`;
+        ${drafts.length ? `<optgroup label="${esc(t("Draft model (mesma família)"))}">${drafts.map(x => `<option value="${esc(x.path)}" ${x.path === m.mtp ? "selected" : ""}>⚡ ${esc(x.name)}${x.info?.trained?.draft_for ? " ★" : ""}</option>`).join("")}</optgroup>` : ""}</select>`;
     const visionNoFile = (m.info?.caps || []).some(c => c.key === "vision") && !m.mmproj;
     return `<div class="model-card ${on ? "loaded" : ""}">
       <div class="mc-head"><span class="mc-name" title="${esc(m.path)}">${esc(m.name)}</span>
         <div class="mc-status">${on ? '<span class="tag on">● carregado</span>' : ""}${extra ? `<span class="tag on" title="Carregado como modelo extra (agentes/pergunta rápida)">extra · ${(extra.device || "gpu").toUpperCase()}${extra.state === "loading" ? "…" : ""}</span>` : ""}${fitTag(m.size)}<span class="meta">${fmtSize(m.size)}</span></div></div>
-      <div class="mc-tags">${capsHTML(m.info, true)}${m.info?.params ? `<span class="meta-pill">🧩 ${esc(m.info.params)}</span>` : ""}${m.quant?.quant ? `<span class="meta-pill" title="${esc(m.quant.tip)}">${esc(m.quant.quant)} ${starsHTML(m.quant)}</span>` : ""}${m.mmproj ? '<span class="tag vis">👁 visão</span>' : ""}${m.mtp ? `<span class="tag neon" title="${esc(t("Acelerador ativo"))}">⚡ ${m.mtp === "ngram" ? "N-gram" : (S.media?.mtp || []).includes(m.mtp) ? "MTP" : t("Rascunho")}</span>` : ""}${m.info?.trained?.draft_for ? `<span class="tag" title="${esc(t("Acelerador treinado no Estúdio: já fica ligado ao modelo de origem"))}">★ ${t("acelerador")}</span>` : ""}${m.custom ? '<span class="tag on" title="Este modelo tem ajustes próprios">⚙ ajustes próprios</span>' : ""}
-        ${visionNoFile ? '<span class="warn-pill" title="Este modelo tem visão, mas o arquivo mmproj não foi baixado. Baixe de novo com Incluir visão ou escolha o arquivo ao lado.">👁 sem arquivo de visão</span>' : ""}</div>
+      <div class="mc-tags">${capsHTML(m.info, true)}${m.info?.params ? `<span class="meta-pill">🧩 ${esc(m.info.params)}</span>` : ""}${m.quant?.quant ? `<span class="meta-pill" title="${esc(m.quant.tip)}">${esc(m.quant.quant)} ${starsHTML(m.quant)}</span>` : ""}${m.mmproj ? '<span class="tag vis">👁 visão</span>' : ""}${m.mtp ? `<span class="tag neon" title="${esc(t("Speculative decoding ativo"))}">⚡ ${m.mtp === "ngram" ? "N-gram" : (S.media?.mtp || []).includes(m.mtp) ? "MTP" : "Draft"}</span>` : ""}${m.info?.trained?.draft_for ? `<span class="tag" title="${esc(t("Draft model treinado no Fine-tuning: já fica ligado ao modelo de origem"))}">★ draft model</span>` : ""}${m.custom ? '<span class="tag on" title="Este modelo tem parâmetros próprios">⚙ parâmetros próprios</span>' : ""}
+        ${visionNoFile ? '<span class="warn-pill" title="Este modelo tem visão, mas o arquivo mmproj não foi baixado. Baixe de novo com Incluir visão ou escolha o arquivo ao lado.">👁 sem projetor de visão (mmproj)</span>' : ""}</div>
       <div class="mc-actions">${vis}${acc}<span class="spacer"></span>
-        ${extra ? `<button class="btn small" data-unload-extra="${esc(m.path)}">Descarregar</button>` : ""}<button class="btn small" data-msettings="${esc(m.path)}" title="Ajustes deste modelo (contexto, temperatura...)">⚙️</button>
+        ${extra ? `<button class="btn small" data-unload-extra="${esc(m.path)}">Descarregar</button>` : ""}<button class="btn small" data-msettings="${esc(m.path)}" title="Parâmetros deste modelo (contexto, temperatura...)">⚙️</button>
         <button class="btn small primary" data-load="${esc(m.path)}">${on ? "Recarregar" : "Carregar"}</button>
         <button class="btn small danger" data-del="${esc(m.path)}">Excluir</button></div></div>`;
   }).join("") : '<p class="muted">Nenhum modelo ainda. Vá na aba <b>Baixar modelos</b>.</p>';
@@ -960,7 +960,7 @@ $("#localModels").addEventListener("change", async e => {
   const mt = e.target.dataset.mtp;
   if (mt !== undefined) {
     await post("/api/models/mtp", { model: mt, mtp: e.target.value });
-    toast(S.status.engine.model === mt ? "Recarregue o modelo para aplicar." : t("Acelerador configurado."));
+    toast(S.status.engine.model === mt ? "Recarregue o modelo para aplicar." : t("Speculative decoding configurado."));
     return refreshStatus();
   }
   const model = e.target.dataset.mm; if (model === undefined) return;
@@ -1024,7 +1024,7 @@ $("#hfResults").addEventListener("click", async e => {
       ${info && !info.chat ? `<div class="warn-box">${(info.caps || []).some(c => c.key === "imagegen") ? "🎨 Este é um modelo de <b>gerar imagens</b>, não de conversa. Use os modelos de imagem em Modelos → Mídia." : "🔎 Este modelo não serve para conversar."}</div>` : ""}
       <p class="muted small-note">Passe o mouse nos ícones para ver o que significam. ⭐ = melhor qualidade que cabe na sua placa.</p></div>
       ${mmproj ? `<label class="check vis-check"><input type="checkbox" id="withMmproj" checked> 👁 Incluir visão (o modelo poderá ver imagens) <small class="muted">${esc(baseName(mmproj))}</small></label>` : ""}
-      ${mtp ? `<label class="check vis-check" title="${esc(t("Os arquivos MTP não são modelos sozinhos: são um acelerador que funciona junto com o modelo grande e ocupa um pouco mais de VRAM."))}"><input type="checkbox" id="withMtp" checked> ⚡ ${t("Incluir acelerador MTP (respostas mais rápidas, +{size})", { size: fmtSize(mtp_size) })} <small class="muted">${esc(baseName(mtp))}</small></label>` : ""}` +
+      ${mtp ? `<label class="check vis-check" title="${esc(t("Os arquivos MTP não são modelos sozinhos: são cabeças de speculative decoding que funcionam junto com o modelo grande e ocupam um pouco mais de VRAM."))}"><input type="checkbox" id="withMtp" checked> ⚡ ${t("Incluir cabeça MTP (speculative decoding, +{size})", { size: fmtSize(mtp_size) })} <small class="muted">${esc(baseName(mtp))}</small></label>` : ""}` +
       (files.length ? files.map(f => `<div class="item file-item ${f.path === best ? "best" : ""}"><div class="name-col"><span class="name" title="${esc(f.path)}">${f.path === best ? "⭐ " : ""}${esc(f.path.split("/").pop())}${f.parts > 1 ? ` <small class="muted">${t("({n} partes)", { n: f.parts })}</small>` : ""}</span>
         <div class="sub">${f.quant ? `<span class="meta-pill">${esc(f.quant)}</span>` : ""}${starsHTML(f)}<small class="muted">${esc(f.quality || "")}</small></div></div>
         ${fitTag(f.size)}<span class="meta">${fmtSize(f.size)}</span><button class="btn small ${f.path === best ? "primary" : ""}" data-dl="${esc(f.path)}">Baixar</button></div>`).join("")
@@ -1050,7 +1050,7 @@ function renderMedia() {
       <h4>🎧 Áudio e vídeo: transcrição com Whisper</h4>
       <p class="muted small-note">Transforma a fala de áudios e vídeos anexados em texto para o modelo entender. Roda no seu PC, com o whisper.cpp (licença MIT).</p>
       <div class="row wrap">
-        ${w.installed ? `<span class="tag fit">✓ Motor instalado</span><small class="muted">${esc(w.version)}</small>` : ""}
+        ${w.installed ? `<span class="tag fit">✓ Runtime instalado</span><small class="muted">${esc(w.version)}</small>` : ""}
         <button class="btn small ${w.installed ? "" : "primary"}" data-media="whisper:cuda" ${dis}>${w.installed ? "Reinstalar" : "Instalar"} GPU (CUDA, ~650 MB)</button>
         <button class="btn small" data-media="whisper:cpu" ${dis}>${w.installed ? "Reinstalar" : "Instalar"} CPU (~5 MB, mais lento)</button>
       </div>
@@ -1063,7 +1063,7 @@ function renderMedia() {
       <h4>🎨 Geração de imagens: stable-diffusion.cpp</h4>
       <p class="muted small-note">Use o modo <b>🎨 Imagem</b> na caixa de mensagem. O Codex também consegue criar imagens para os projetos.</p>
       <div class="row wrap">
-        ${im.installed ? `<span class="tag fit">✓ Motor instalado</span><small class="muted">${esc(im.version)}</small>` : ""}
+        ${im.installed ? `<span class="tag fit">✓ Runtime instalado</span><small class="muted">${esc(im.version)}</small>` : ""}
         <button class="btn small ${im.installed ? "" : "primary"}" data-media="sd:vulkan" ${dis}>${im.installed ? "Reinstalar" : "Instalar"} Vulkan (recomendado, ~30 MB)</button>
         <button class="btn small" data-media="sd:cuda" ${dis}>CUDA (~860 MB)</button>
         <button class="btn small" data-media="sd:cpu" ${dis}>CPU (muito lento)</button>
@@ -1073,7 +1073,7 @@ function renderMedia() {
     </div>
     <div class="media-sec">
       <h4>👁 Ver imagens (visão)</h4>
-      <p class="muted small-note">Para o modelo <b>enxergar</b> imagens e quadros de vídeo, ele precisa de um arquivo de visão (<i>mmproj</i>). Ao baixar um modelo com visão (ex.: Gemma 3, Qwen2.5-VL, Qwen3-VL), deixe marcado "Incluir visão". Para modelos já baixados, escolha o arquivo em <b>Meus modelos</b>.</p>
+      <p class="muted small-note">Para o modelo <b>enxergar</b> imagens e quadros de vídeo, ele precisa de um projetor de visão (<i>mmproj</i>). Ao baixar um modelo com visão (ex.: Gemma 3, Qwen2.5-VL, Qwen3-VL), deixe marcado "Incluir visão". Para modelos já baixados, escolha o arquivo em <b>Meus modelos</b>.</p>
     </div>`;
   if (box.dataset.sig !== html) { box.innerHTML = html; box.dataset.sig = html; }
 }
@@ -1124,7 +1124,7 @@ document.addEventListener("click", async e => {
   const ra = e.target.closest("[data-rea]")?.dataset.rea; if (!ra) return;
   if (ra === "open") { openModal("settingsModal"); return showSettingsTab("codex"); }
   if (ra === "install") { try { await post("/api/media/install", { what: "rea", value: "install" }); toast(t("Instalando o REA... acompanhe o progresso no topo da janela.")); } catch (err) { toast(err.message, 5000); } return refreshStatus(); }
-  if (ra === "uninstall") { if (!confirm(t("Remover o REA do motor?"))) return; await post("/api/rea/uninstall"); toast(t("REA removido")); await loadMedia(); renderEngine(); renderReaPlaces(); }
+  if (ra === "uninstall") { if (!confirm(t("Remover o REA do runtime?"))) return; await post("/api/rea/uninstall"); toast(t("REA removido")); await loadMedia(); renderEngine(); renderReaPlaces(); }
 });
 // o REA aparece no Motor, em Configurações → Codex e como indicador na barra do Codex
 function renderReaPlaces() {
@@ -1139,7 +1139,7 @@ function renderReaPlaces() {
 }
 $("#engineInfo").addEventListener("click", async e => {
   const b = e.target.dataset.install; if (!b) return;
-  try { await post("/api/engine/install", { backend: b }); toast("Baixando motor..."); } catch (err) { toast(err.message, 5000); }
+  try { await post("/api/engine/install", { backend: b }); toast("Baixando runtime..."); } catch (err) { toast(err.message, 5000); }
   refreshStatus();
 });
 async function loadLog() {

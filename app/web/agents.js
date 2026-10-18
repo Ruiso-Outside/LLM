@@ -89,9 +89,9 @@ function renderAgentEditor() {
             <select class="input" id="agDevice" ${d.model ? "" : "disabled"}><option value="auto" ${d.device === "auto" || !d.device ? "selected" : ""}>Automático (GPU se couber, senão CPU)</option><option value="gpu" ${d.device === "gpu" ? "selected" : ""}>GPU (VRAM): mais rápido</option><option value="cpu" ${d.device === "cpu" ? "selected" : ""}>CPU (RAM): não ocupa a GPU</option></select></label>
           <small class="muted full">Cada agente pode usar um modelo diferente. Os diferentes do principal são carregados juntos: na GPU se couberem, ou na CPU usando a RAM (bom para modelos leves, sem disputar a GPU). ${d.model ? "" : "Com o modelo principal, ele roda onde o principal estiver."}</small>
         </div>
-        <label>Base de conhecimento
+        <label>Base RAG
           <select class="input" id="agKb"><option value="">${t("Nenhuma")}</option>${KB.list.map(k => `<option value="${k.id}" ${k.id === d.kb ? "selected" : ""}>📚 ${esc(k.name)}</option>`).join("")}</select>
-          <small class="muted">O agente consulta esta base antes de responder (crie bases em Conhecimento).</small></label>
+          <small class="muted">O agente consulta esta base antes de responder (crie bases em RAG).</small></label>
         <div><b>🔌 ${t("Ferramentas MCP")}</b> <small class="muted">${t("(o agente pode usar estes programas, ex.: Roblox Studio)")}</small>
           <div class="mcp-pick">${MCP.list.length ? MCP.list.map(s => `<label class="check"><input type="checkbox" data-ag-mcp="${esc(s.id)}" ${(d.mcp || []).includes(s.id) ? "checked" : ""}> ${esc(s.name)}</label>`).join("")
             : `<small class="muted">${t("Nenhum servidor: adicione em Configurações → Ferramentas MCP.")}</small>`}</div></div>

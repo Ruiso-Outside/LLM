@@ -106,7 +106,7 @@ function paletteItems() {
     act("🌐", S.web ? "Desligar a pesquisa na web" : "Ligar a pesquisa na web", () => setWeb(!S.web)),
     act("🧠", "Abrir Modelos", () => openModal("modelsModal")),
     act("⬇️", "Baixar modelos", () => { openModal("modelsModal"); switchTab("tabHF"); }),
-    act("📚", "Abrir bases de conhecimento", () => openModal("kbModal")),
+    act("📚", "Abrir RAG", () => openModal("kbModal")),
     act("🤖", "Criar e editar agentes", () => openModal("agentsModal")),
     act("⚙️", "Abrir Configurações", () => openModal("settingsModal")),
     act("💾", "Backup das conversas", () => openModal("backupModal")),

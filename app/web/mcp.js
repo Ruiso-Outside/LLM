@@ -92,7 +92,7 @@ $("#mcpAddRea").onclick = async () => {
   const b = $("#mcpAddRea"); b.disabled = true;
   try {
     const r = await post("/api/mcp/preset", { kind: "rea" }); MCP.list = r.servers; renderMcpList(); renderModeBars();
-    toast(t("REA adicionado como servidor MCP (usa a cópia instalada no motor, sem internet)."), 6000);
+    toast(t("REA adicionado como servidor MCP (usa a cópia instalada no runtime, sem internet)."), 6000);
   } catch (e) { toast(trText(e.message), 6000); }
   b.disabled = false;
 };

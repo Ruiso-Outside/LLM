@@ -568,7 +568,7 @@ class AgentRun:
         tools = (TOOLS + ([IMAGE_TOOL] if self.image_fn else [])) if ws else []
         if self.kb_fn:
             tools.append(KB_TOOL)
-            self.send({"agent": {"type": "notice", "text": f"📚 Base de conhecimento: {self.kb_name}"}})
+            self.send({"agent": {"type": "notice", "text": f"📚 RAG: {self.kb_name}"}})
         servers = []
         if self.mcp_ids:
             self.send({"agent": {"type": "notice", "text": "🔌 Conectando às ferramentas MCP..."}})

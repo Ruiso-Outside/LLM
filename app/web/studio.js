@@ -98,8 +98,8 @@ function renderDash() {
   if (!r) {
     const env = ST.status.env;
     box.innerHTML = `<div class="st-card hi"><b style="font-size:16px">${t("Treine uma IA só sua")}</b>
-      <p class="muted" style="margin:0">${t("1) Instale o ambiente (aba Ambiente). 2) Monte um conjunto de exemplos (aba Dados): importe conversas, gere exemplos a partir das suas pastas de código e revise. 3) Escolha um modelo base pequeno e treine (aba Nova execução). O resultado vira um modelo em Meus modelos.")}</p>
-      <div class="st-row">${env.installed ? "" : `<button class="st-btn" data-st-go="env">${t("Instalar o ambiente")}</button>`}<button class="btn" data-st-go="data">${t("Montar dados")}</button><button class="btn" data-st-go="new">${t("Nova execução")}</button></div></div>`;
+      <p class="muted" style="margin:0">${t("1) Instale o ambiente (aba Ambiente). 2) Monte um dataset de exemplos (aba Dados): importe conversas, gere exemplos a partir das suas pastas de código e revise. 3) Escolha um modelo base pequeno e treine (aba Nova run). O resultado vira um modelo em Meus modelos.")}</p>
+      <div class="st-row">${env.installed ? "" : `<button class="st-btn" data-st-go="env">${t("Instalar o ambiente")}</button>`}<button class="btn" data-st-go="data">${t("Montar dados")}</button><button class="btn" data-st-go="new">${t("Nova run")}</button></div></div>`;
     return;
   }
   const steps = r.steps || [], evals = r.evals || [], gpu = r.gpu || [];
@@ -176,15 +176,15 @@ function renderDash() {
   if (box.dataset.sig !== html) { const y = $(".st-body").scrollTop; box.innerHTML = html; box.dataset.sig = html; $(".st-body").scrollTop = y; }
 }
 function accelCardHTML(r) {
-  if (r.draft_for) return `<div class="st-card"><b>⚡ ${t("Acelerador de {n}", { n: esc(r.parent_name || "") })}</b>
-    <p class="muted small-note">${t("Gere o modelo em Q8_0: ao terminar, ele é ligado automaticamente como acelerador do modelo de origem (se ele já tiver sido gerado).")}</p></div>`;
+  if (r.draft_for) return `<div class="st-card"><b>⚡ ${t("Draft model de {n}", { n: esc(r.parent_name || "") })}</b>
+    <p class="muted small-note">${t("Gere o modelo em Q8_0: ao terminar, ele é ligado automaticamente como draft model (speculative decoding) do modelo de origem (se ele já tiver sido gerado).")}</p></div>`;
   if (!r.has_adapter || !["done", "stopped", "exported"].includes(r.state)) return "";
   const busy = ST.status?.active;
-  return `<div class="st-sec">⚡ ${t("Acelerador")}</div><div class="st-card">
+  return `<div class="st-sec">⚡ ${t("Draft model (speculative decoding)")}</div><div class="st-card">
     <p>${t("Treina um modelo pequeno da mesma família ({b}) com os mesmos exemplos desta IA. Ele escreve um rascunho de vários tokens e a sua IA só confere: as respostas saem mais rápidas, com a mesma qualidade.", { b: esc((r.draft_base || "").split("/").pop() || "—") })}</p>
-    <div class="st-row"><button class="st-btn" data-st-accel="${r.id}" ${r.draft_base && !busy ? "" : "disabled"}>⚡ ${t("Criar acelerador")}</button>
+    <div class="st-row"><button class="st-btn" data-st-accel="${r.id}" ${r.draft_base && !busy ? "" : "disabled"}>⚡ ${t("Treinar draft model")}</button>
       <span class="muted small-note">${r.draft_base ? t("Leva bem menos tempo que o treino principal. Ocupa ~0,5 a 1 GB a mais de VRAM quando ativo.") : t("Não há modelo pequeno conhecido para esta família.")}</span></div>
-    <span class="muted small-note">${t("Sem treinar nada, você também pode usar o acelerador N-gram em Modelos (acelera muito edições de código).")}</span></div>`;
+    <span class="muted small-note">${t("Sem treinar nada, você também pode ligar o speculative decoding N-gram em Modelos (acelera muito edições de código).")}</span></div>`;
 }
 
 function exportCardHTML(r) {
@@ -199,8 +199,8 @@ function exportCardHTML(r) {
   return `<div class="st-sec">${t("Modelo final")}</div><div class="st-card hi">
     <div class="st-grid">${kpi("Loss final", num(res.final_loss), "", "hi")}${kpi("Melhor avaliação", num(res.best_eval))}${kpi("Duração", fmtDur(res.duration_s))}${kpi("Adaptador LoRA", fmtSize(res.adapter_size || 0))}</div>
     <div class="st-row"><input class="input small-input" id="stExpName" value="${esc((r.name || "minha-ia") + ((r.generation || 1) > 1 ? "-v" + r.generation : ""))}" style="max-width:240px">
-      <select class="input small-input" id="stExpQuant">${r.draft_for ? `<option value="Q8_0">Q8_0 (${t("recomendado para acelerador")})</option>` : ""}<option value="Q4_K_M">Q4_K_M (${t("leve, recomendado")})</option><option value="Q5_K_M">Q5_K_M</option><option value="Q6_K">Q6_K</option><option value="Q8_0">Q8_0 (${t("quase sem perda")})</option><option value="F16">F16 (${t("sem quantizar")})</option></select>
-      <button class="st-btn" data-st-export>${t("Gerar o modelo (GGUF)")}</button></div>
+      <select class="input small-input" id="stExpQuant">${r.draft_for ? `<option value="Q8_0">Q8_0 (${t("recomendado para draft model")})</option>` : ""}<option value="Q4_K_M">Q4_K_M (${t("leve, recomendado")})</option><option value="Q5_K_M">Q5_K_M</option><option value="Q6_K">Q6_K</option><option value="Q8_0">Q8_0 (${t("quase sem perda")})</option><option value="F16">F16 (${t("sem quantizar")})</option></select>
+      <button class="st-btn" data-st-export>${t("Merge + exportar GGUF")}</button></div>
     <span class="muted small-note">${t("Junta o LoRA ao modelo base, converte para GGUF e quantiza. Usa a RAM (o modelo base em bf16) e leva alguns minutos.")}</span></div>`;
 }
 
@@ -214,7 +214,7 @@ function renderRuns() {
       <div>${r.last?.step ? `${r.last.step}/${r.last.total_steps}` : "—"}<small>${t("passos")}</small></div>
       <div>${r.energy_wh ? (+r.energy_wh).toFixed(1) + " Wh" : "—"}<small>${t("energia")}</small></div>
       <button class="icon-btn" data-st-del="${r.id}" title="${esc(t("Apagar"))}">🗑️</button></div>`).join("")
-    : `<p class="muted">${t("Nenhuma execução ainda. Crie uma na aba Nova execução.")}</p>`;
+    : `<p class="muted">${t("Nenhuma run ainda. Crie uma na aba Nova run.")}</p>`;
   if (box.dataset.sig !== html) { box.innerHTML = html; box.dataset.sig = html; }
 }
 
@@ -244,14 +244,14 @@ async function renderData() {
   const dss = ST.status.datasets, d = dss.find(x => x.id === ST.ds), box = $("#stData");
   const items = ST.examples?.items || [];
   box.innerHTML = `<div class="st-cols">
-    <div><div class="st-row" style="margin-bottom:10px"><button class="st-btn" data-st-newds>+ ${t("Novo conjunto")}</button></div>
+    <div><div class="st-row" style="margin-bottom:10px"><button class="st-btn" data-st-newds>+ ${t("Novo dataset")}</button></div>
       ${dss.map(x => `<div class="ds-item ${x.id === ST.ds ? "sel" : ""}" data-st-ds="${x.id}"><b>${esc(x.name)}</b><small>${t("{a} aprovados · {p} pendentes · ~{t} tokens", { a: x.approved, p: x.pending, t: fmtBig(x.tokens) })}</small></div>`).join("")
-        || `<p class="muted small-note">${t("Nenhum conjunto ainda.")}</p>`}</div>
+        || `<p class="muted small-note">${t("Nenhum dataset ainda.")}</p>`}</div>
     <div>${d ? `
       <div class="st-card">
         <div class="st-row"><input class="input" id="stDsName" value="${esc(d.name)}" style="max-width:300px"><button class="btn small" data-st-dssave>${t("Salvar")}</button>
-          <span class="spacer"></span><a class="btn small" href="/api/train/export_dataset?id=${d.id}">${t("Exportar JSONL")}</a><button class="btn small danger" data-st-dsdel>${t("Apagar conjunto")}</button></div>
-        <label>${t("Instrução de sistema (vai em todos os exemplos)")}<textarea class="input" id="stDsSystem" rows="2" placeholder="${esc(t("Ex.: Você é um especialista em Unreal Engine 5 e C++. Responda com código compilável e explique as macros UCLASS/UPROPERTY."))}">${esc(d.system || "")}</textarea></label>
+          <span class="spacer"></span><a class="btn small" href="/api/train/export_dataset?id=${d.id}">${t("Exportar JSONL")}</a><button class="btn small danger" data-st-dsdel>${t("Apagar dataset")}</button></div>
+        <label>${t("System prompt (vai em todos os exemplos)")}<textarea class="input" id="stDsSystem" rows="2" placeholder="${esc(t("Ex.: Você é um especialista em Unreal Engine 5 e C++. Responda com código compilável e explique as macros UCLASS/UPROPERTY."))}">${esc(d.system || "")}</textarea></label>
         <div class="st-grid">${kpi("Exemplos", d.n)}${kpi("Aprovados", d.approved, "", "hi")}${kpi("Pendentes", d.pending, t("revise antes de treinar"), d.pending ? "warn" : "")}${kpi("Tokens aprovados", fmtBig(d.tokens))}</div>
       </div>
       <div class="st-sec">${t("Adicionar exemplos")}</div>
@@ -263,8 +263,8 @@ async function renderData() {
         <div id="stGenForm" hidden><div class="grid">
           <label class="full">${t("Pastas (ex.: a pasta Source do projeto da Unreal, documentação)")}<div class="st-row"><span id="stGenFolders" class="muted small-note">${t("nenhuma")}</span><button class="btn small" data-st-addfolder>+ ${t("Pasta")}</button></div></label>
           <label>${t("Assunto")}<input class="input" id="stGenTopic" value="Unreal Engine 5 e C++"></label>
-          <label>${t("Exemplos por trecho")}<input class="input" id="stGenPer" type="number" min="1" max="8" value="3"></label>
-          <label>${t("Máximo de trechos")}<input class="input" id="stGenMax" type="number" min="1" max="2000" value="40"></label>
+          <label>${t("Exemplos por chunk")}<input class="input" id="stGenPer" type="number" min="1" max="8" value="3"></label>
+          <label>${t("Máximo de chunks")}<input class="input" id="stGenMax" type="number" min="1" max="2000" value="40"></label>
           <label class="full">${t("Orientação extra (opcional)")}<input class="input" id="stGenExtra" placeholder="${esc(t("Ex.: foque em replicação de rede e GAS"))}"></label></div>
           <p class="muted small-note">${t("Usa o modelo carregado no topo para criar perguntas e respostas a partir dos arquivos. Os exemplos entram como pendentes para você revisar. Um modelo maior (ex.: 27B) gera dados melhores.")}</p>
           <div class="st-row"><button class="st-btn" data-st-genrun>${t("Gerar exemplos")}</button></div></div>
@@ -277,7 +277,7 @@ async function renderData() {
       ${ST.editing === "new" ? exEditHTML({ id: "", messages: [] }) : ""}
       ${items.map(x => ST.editing === x.id ? exEditHTML(x) : exHTML(x)).join("") || `<p class="muted">${t("Nenhum exemplo aqui.")}</p>`}
       ${ST.examples && ST.examples.total > ST.exOffset + 40 || ST.exOffset ? `<div class="st-row"><button class="btn small" data-st-page="-1" ${ST.exOffset ? "" : "disabled"}>←</button><span class="muted">${ST.exOffset + 1}–${Math.min(ST.exOffset + 40, ST.examples.total)} / ${ST.examples.total}</span><button class="btn small" data-st-page="1" ${ST.examples.total > ST.exOffset + 40 ? "" : "disabled"}>→</button></div>` : ""}
-    ` : `<div class="st-card"><p class="muted" style="margin:0">${t("Crie um conjunto para começar. Cada exemplo é um pedido e a resposta ideal: é com eles que a IA aprende o seu jeito.")}</p></div>`}</div></div>`;
+    ` : `<div class="st-card"><p class="muted" style="margin:0">${t("Crie um dataset para começar. Cada exemplo é um pedido e a resposta ideal: é com eles que a IA aprende o seu jeito.")}</p></div>`}</div></div>`;
   ST.genFolders = ST.genFolders || [];
 }
 const msgOf = (x, role) => (x.messages.find(m => m.role === role) || {}).content || "";
@@ -301,7 +301,7 @@ function renderNew() {
   box.innerHTML = `${st.env.installed ? "" : `<div class="warn-box" style="margin-bottom:12px">${t("Instale o ambiente de treino primeiro (aba Ambiente).")}</div>`}
     <div class="st-card">
       <div class="grid"><label>${t("Nome da IA")}<input class="input" id="stName" value="${esc(ls("stName", "IA Unreal"))}"></label>
-        <label>${t("Conjunto de dados")}<select class="input" id="stDsPick">${dss.map(d => `<option value="${d.id}" ${d.id === ST.ds ? "selected" : ""}>${esc(d.name)} · ${t("{n} aprovados", { n: d.approved })}</option>`).join("") || `<option value="">${t("Crie um conjunto na aba Dados")}</option>`}</select></label></div>
+        <label>${t("Dataset")}<select class="input" id="stDsPick">${dss.map(d => `<option value="${d.id}" ${d.id === ST.ds ? "selected" : ""}>${esc(d.name)} · ${t("{n} aprovados", { n: d.approved })}</option>`).join("") || `<option value="">${t("Crie um dataset na aba Dados")}</option>`}</select></label></div>
       <div class="st-sec" style="margin-top:4px">${t("Ponto de partida")}</div>
       <div class="preset-row"><button class="preset ${ST.from === "new" ? "sel" : ""}" data-st-from="new">✨ ${t("Do zero (modelo base)")}</button>
         <button class="preset ${ST.from === "continue" ? "sel" : ""}" data-st-from="continue">🔁 ${t("Continuar uma IA já treinada")}</button></div>
@@ -310,9 +310,9 @@ function renderNew() {
       <div class="base-cards">${st.base_models.map(b => `<div class="base-card ${b.repo === ST.base ? "sel" : ""}" data-st-base="${esc(b.repo)}"><b>${esc(b.repo.split("/")[1])}</b>
         <small>${esc(b.params)} · ${t("baixa ~{d} GB · VRAM ~{v} GB", { d: b.download_gb, v: b.vram_gb })}</small><small>${esc(t(b.note))}</small></div>`).join("")}</div>
       <label>${t("Ou outro repositório do Hugging Face (formato safetensors)")}<input class="input" id="stBaseCustom" placeholder="org/modelo" value="${st.base_models.some(b => b.repo === ST.base) ? "" : esc(ST.base)}"></label>`}
-      <div class="st-sec">${t("Intensidade")}</div>
+      <div class="st-sec">${t("Preset")}</div>
       <div class="preset-row">${Object.entries(PRESETS).map(([k, v]) => `<button class="preset ${k === ST.preset ? "sel" : ""}" data-st-preset="${k}">${t(v.label)}</button>`).join("")}</div>
-      <details><summary style="cursor:pointer;margin-top:6px">${t("Ajustes avançados")}</summary>
+      <details><summary style="cursor:pointer;margin-top:6px">${t("Hiperparâmetros")}</summary>
         <div class="grid" style="margin-top:10px">
           <label>LoRA r <input class="input" id="stR" type="number" min="1" max="256" value="${p.lora_r}" ${ST.from === "continue" ? "disabled" : ""}><small class="muted">${t("tamanho do adaptador: maior aprende mais, ocupa mais")}</small></label>
           <label>LoRA alpha <input class="input" id="stA" type="number" min="1" max="512" value="${p.lora_alpha}" ${ST.from === "continue" ? "disabled" : ""}><small class="muted">${t("força do adaptador (normalmente 2×r)")}</small></label>
@@ -343,7 +343,7 @@ function continueHTML(st) {
     <div class="st-row"><button class="st-btn ghost" data-st-pfolder>📂 ${t("Usar a pasta de um adaptador LoRA")}</button>
       ${ST.parentFolder ? `<span class="base-card sel" style="cursor:default">${esc(ST.parentFolder)}</span>` : ""}</div>
     <label class="check"><input type="checkbox" id="stReplay" checked> ${t("Revisar também os exemplos dos treinos anteriores (recomendado: evita que a IA esqueça o que já aprendeu)")}</label>
-    <small class="muted">${t("A IA continua com o mesmo modelo base e o mesmo tamanho de adaptador (LoRA r/alpha). Escolha no Conjunto de dados o conteúdo novo. Arquivos .gguf não podem ser treinados de novo: o treino continua a partir do adaptador LoRA salvo na execução.")}</small>`;
+    <small class="muted">${t("A IA continua com o mesmo modelo base e o mesmo tamanho de adaptador (LoRA r/alpha). Escolha no Dataset o conteúdo novo. Arquivos .gguf não podem ser treinados de novo: o treino continua a partir do adaptador LoRA salvo na run.")}</small>`;
 }
 
 // ------------------------------------------------------------------ ações
@@ -358,13 +358,13 @@ $("#studio").addEventListener("click", async e => {
     if (d.stExport !== undefined) { await post("/api/train/export", { id: ST.runId, name: $("#stExpName").value, quant: $("#stExpQuant").value }); toast(t("Gerando o modelo...")); return refreshStudio(); }
     if (d.stUse) { const mm = { ...(S.status.settings.mode_models || {}), codex: d.stUse }; await api("/api/settings", { method: "PUT", body: { mode_models: mm } }); await refreshStatus(); return toast(t("Pronto: o modo Codex vai usar esse modelo.")); }
     if (d.stOpen && !e.target.closest("[data-st-del]")) { ST.runId = d.stOpen; lsSet("stRun", d.stOpen); ST.run = null; await refreshStudio(); return stTab("dash"); }
-    if (d.stDel) { if (!confirm(t("Apagar esta execução e os arquivos dela?"))) return; await post("/api/train/run/delete", { id: d.stDel }); if (ST.runId === d.stDel) { ST.runId = ""; ST.run = null; } return refreshStudio(); }
+    if (d.stDel) { if (!confirm(t("Apagar esta run e os arquivos dela?"))) return; await post("/api/train/run/delete", { id: d.stDel }); if (ST.runId === d.stDel) { ST.runId = ""; ST.run = null; } return refreshStudio(); }
     if (d.stInstall !== undefined) { await post("/api/train/install"); toast(t("Instalando o ambiente de treino... acompanhe o progresso acima.")); return refreshStatus(); }
-    if (d.stUninstall !== undefined) { if (!confirm(t("Remover o ambiente de treino (~5 GB)? Os conjuntos e as execuções ficam."))) return; await post("/api/train/uninstall"); return refreshStudio(); }
+    if (d.stUninstall !== undefined) { if (!confirm(t("Remover o ambiente de treino (~5 GB)? Os datasets e as runs ficam."))) return; await post("/api/train/uninstall"); return refreshStudio(); }
     if (d.stDs) { ST.ds = d.stDs; lsSet("stDs", d.stDs); ST.exOffset = 0; ST.editing = null; await refreshStudio(); return renderData(); }
-    if (d.stNewds !== undefined) { const name = prompt(t("Nome do conjunto:"), t("Unreal Engine 5")); if (!name) return; const m = await post("/api/train/dataset/create", { name }); ST.ds = m.id; lsSet("stDs", m.id); await refreshStudio(); return renderData(); }
+    if (d.stNewds !== undefined) { const name = prompt(t("Nome do dataset:"), t("Unreal Engine 5")); if (!name) return; const m = await post("/api/train/dataset/create", { name }); ST.ds = m.id; lsSet("stDs", m.id); await refreshStudio(); return renderData(); }
     if (d.stDssave !== undefined) { await post("/api/train/dataset/update", { id: did, name: $("#stDsName").value, system: $("#stDsSystem").value }); toast(t("Salvo")); await refreshStudio(); return renderData(); }
-    if (d.stDsdel !== undefined) { if (!confirm(t("Apagar este conjunto e todos os exemplos?"))) return; await post("/api/train/dataset/delete", { id: did }); ST.ds = ""; await refreshStudio(); return renderData(); }
+    if (d.stDsdel !== undefined) { if (!confirm(t("Apagar este dataset e todos os exemplos?"))) return; await post("/api/train/dataset/delete", { id: did }); ST.ds = ""; await refreshStudio(); return renderData(); }
     if (d.stGen !== undefined) { $("#stGenForm").hidden = !$("#stGenForm").hidden; return; }
     if (d.stAddfolder !== undefined) { const f = await desktop?.chooseFolder?.(); if (f) { ST.genFolders = [...new Set([...(ST.genFolders || []), f])]; $("#stGenFolders").textContent = ST.genFolders.join(" · "); } else if (!desktop) toast(t("Escolher pastas só funciona no app desktop.")); return; }
     if (d.stGenrun !== undefined) {
@@ -387,7 +387,7 @@ $("#studio").addEventListener("click", async e => {
     if (d.stFrom) { ST.from = d.stFrom; return renderNew(); }
     if (d.stAccel) {
       const r = await post("/api/train/start", { draft_for: d.stAccel, free_gpu: true });
-      ST.runId = r.id; ST.run = null; lsSet("stRun", r.id); toast(t("Treinando o acelerador...")); await refreshStudio(); return stTab("dash");
+      ST.runId = r.id; ST.run = null; lsSet("stRun", r.id); toast(t("Treinando o draft model...")); await refreshStudio(); return stTab("dash");
     }
     if (d.stParent) {
       ST.parent = d.stParent; ST.parentFolder = "";
@@ -411,7 +411,7 @@ $("#studio").addEventListener("click", async e => {
         lora_dropout: +$("#stDrop").value, eval_every: +$("#stEval").value, seed: +$("#stSeed").value, quant4bit: $("#st4b").checked, free_gpu: $("#stFree").checked };
       if (cont) Object.assign(cfg, ST.parentFolder ? { parent_adapter: ST.parentFolder } : { parent_run: ST.parent }, { replay: $("#stReplay").checked });
       const r = await post("/api/train/start", cfg);
-      ST.runId = r.id; ST.run = null; lsSet("stRun", r.id); toast(t("Treino iniciado")); await refreshStudio(); return stTab("dash");
+      ST.runId = r.id; ST.run = null; lsSet("stRun", r.id); toast(t("Fine-tuning iniciado")); await refreshStudio(); return stTab("dash");
     }
   } catch (err) { toast(trText(err.message), 6000); }
 });

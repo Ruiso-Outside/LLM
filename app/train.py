@@ -203,7 +203,7 @@ def uninstall():
 
 def _ds_dir(did):
     if not ID_RE.match(did or ""):
-        raise ValueError("conjunto invalido")
+        raise ValueError("dataset invalido")
     return DATA / "datasets" / did
 
 
@@ -248,7 +248,7 @@ def ds_create(name, system=""):
     did = uuid.uuid4().hex[:10]
     d = DATA / "datasets" / did
     d.mkdir(parents=True)
-    (d / "meta.json").write_text(json.dumps({"id": did, "name": (name or "Conjunto")[:80], "system": system[:4000],
+    (d / "meta.json").write_text(json.dumps({"id": did, "name": (name or "Dataset")[:80], "system": system[:4000],
                                              "created": time.time()}, ensure_ascii=False), "utf-8")
     (d / "examples.jsonl").write_text("", "utf-8")
     return ds_meta(did)
@@ -561,14 +561,14 @@ def active():
 
 def run_start(cfg):
     if active():
-        raise RuntimeError("Já existe um treino rodando. Espere terminar ou pare antes.")
+        raise RuntimeError("Já existe um fine-tuning rodando. Espere terminar ou pare antes.")
     if not env_status()["installed"] and not os.environ.get("PIPHIN_TRAIN_FAKE"):
         raise RuntimeError("Instale o ambiente de treino primeiro (aba Ambiente).")
     if cfg.get("draft_for"):
         return _draft_start(cfg)
     meta = ds_meta(cfg["dataset_id"])
     if meta["approved"] < 2:
-        raise RuntimeError("O conjunto precisa de pelo menos 2 exemplos aprovados.")
+        raise RuntimeError("O dataset precisa de pelo menos 2 exemplos aprovados.")
     parent = _parent_info(cfg)  # continuar uma IA ja treinada: parte do adaptador LoRA dela
     rid = uuid.uuid4().hex[:10]
     d = DATA / "runs" / rid
@@ -628,10 +628,10 @@ def _draft_start(cfg):
     src = cfg["draft_for"]
     sd = DATA / "runs" / src
     if not ID_RE.match(src or "") or not (sd / "dataset.jsonl").is_file():
-        raise RuntimeError("Execução de origem não encontrada.")
+        raise RuntimeError("Run de origem não encontrada.")
     pc = json.loads((sd / "config.json").read_text("utf-8"))
     if pc.get("draft_for"):
-        raise RuntimeError("Essa execução já é um acelerador.")
+        raise RuntimeError("Essa run já é um draft model.")
     base = cfg.get("base_repo") or draft_base_for(pc["base_repo"])
     if not base:
         raise RuntimeError(f"Não conheço um modelo pequeno da mesma família de {pc['base_repo']}. "
@@ -641,7 +641,7 @@ def _draft_start(cfg):
     d.mkdir(parents=True)
     shutil.copyfile(sd / "dataset.jsonl", d / "dataset.jsonl")
     n = sum(1 for line in (d / "dataset.jsonl").read_text("utf-8").splitlines() if line.strip())
-    name = (pc.get("name") or "Minha IA")[:48] + " acelerador"
+    name = (pc.get("name") or "Minha IA")[:48] + " draft"
     full = {"name": name, "base_repo": base, "dataset": str(d / "dataset.jsonl"), "dataset_name": pc.get("dataset_name", ""),
             "run_dir": str(d), "lora_r": int(cfg.get("lora_r", 32)), "lora_alpha": int(cfg.get("lora_alpha", 64)),
             "lora_dropout": float(cfg.get("lora_dropout", 0.05)), "lr": float(cfg.get("lr", 2e-4)), "epochs": float(cfg.get("epochs", 3)),
@@ -665,7 +665,7 @@ def _parent_info(cfg):
     if rid:
         d = DATA / "runs" / rid
         if not ID_RE.match(rid) or not (d / "adapter" / "adapter_config.json").is_file():
-            raise RuntimeError("Essa execução não tem um modelo treinado para continuar.")
+            raise RuntimeError("Essa run não tem um modelo treinado para continuar.")
         pc = json.loads((d / "config.json").read_text("utf-8"))
         return {"run": rid, "adapter": d / "adapter", "dataset": pc.get("dataset"), "base_repo": pc["base_repo"],
                 "name": pc.get("name", rid), "generation": int(pc.get("generation", 1)),
@@ -687,7 +687,7 @@ def _parent_info(cfg):
 def run_stop(rid, force=False):
     r = RUNS.get(rid)
     if not r:
-        raise ValueError("execução não encontrada")
+        raise ValueError("run não encontrada")
     (r.dir / "STOP").write_text("1", "utf-8")
     if force and r.proc and r.proc.poll() is None:
         subprocess.run(["taskkill", "/pid", str(r.proc.pid), "/T", "/F"], capture_output=True, creationflags=NO_WINDOW)
@@ -704,7 +704,7 @@ def run_get(rid, since=0):
         d["steps"] = d.get("steps", [])[since:]
         d["n_steps"] = len(d.get("steps", [])) + since
         return d
-    raise ValueError("execução não encontrada")
+    raise ValueError("run não encontrada")
 
 
 def runs_list():
@@ -741,7 +741,7 @@ def run_export(rid, name, quant="Q4_K_M"):
         raise RuntimeError("Espere o treino atual terminar.")
     d = DATA / "runs" / rid
     if not (d / "adapter").is_dir():
-        raise RuntimeError("Esta execução não tem um modelo treinado para exportar.")
+        raise RuntimeError("Esta run não tem um modelo treinado para exportar.")
     r = RUNS.get(rid)
     if not r:
         j = json.loads((d / "run.json").read_text("utf-8"))

@@ -19,9 +19,9 @@
     </div>
     <div class="rail-sep"></div>
     <div class="rail-group">
-      <button data-open="kbModal" title="Bases de conhecimento: seus documentos para o Chat, o Codex e os agentes"><span class="ri">📚</span><span class="rl">Bases</span></button>
-      <button data-open="modelsModal" title="Modelos, motor e mídia"><span class="ri">🧠</span><span class="rl">Modelos</span></button>
-      <button id="studioBtn" title="Estúdio de treino: treine a sua própria IA (fine-tuning LoRA)"><span class="ri">🧪</span><span class="rl">Treino</span></button>
+      <button data-open="kbModal" title="RAG: respostas com base nos seus documentos (Chat, Codex e agentes)"><span class="ri">📚</span><span class="rl">RAG</span></button>
+      <button data-open="modelsModal" title="Modelos, runtime e mídia"><span class="ri">🧠</span><span class="rl">Modelos</span></button>
+      <button id="studioBtn" title="Fine-tuning: treine a sua própria IA (LoRA / QLoRA)"><span class="ri">🧪</span><span class="rl">Fine-tune</span></button>
     </div>
     <div class="spacer"></div>
     <div class="rail-group">
@@ -73,7 +73,7 @@
             </select>
           </div>
           <div class="spacer"></div>
-          <select id="kbSelect" class="input small-input kb-select" title="Responder com base nos seus documentos (bases de conhecimento)"></select>
+          <select id="kbSelect" class="input small-input kb-select" title="Responder com base nos seus documentos (RAG)"></select>
           <button id="webBtn" class="web-toggle" title="Pesquisar na web antes de responder">🌐 Web</button>
         </div>
         <div id="attachTray" class="attach-tray"></div>
@@ -90,12 +90,12 @@
   </main>
   <section id="studio" hidden>
     <header class="st-head">
-      <div class="st-title"><span class="st-logo">🧪</span><div><b>Estúdio de treino</b><small>Fine-tuning LoRA / QLoRA dos seus próprios modelos</small></div></div>
+      <div class="st-title"><span class="st-logo">🧪</span><div><b>Fine-tuning</b><small>LoRA / QLoRA dos seus próprios modelos</small></div></div>
       <nav class="st-tabs">
         <button data-st-tab="dash" class="on">📈 Painel</button>
         <button data-st-tab="data">🗂️ Dados</button>
-        <button data-st-tab="new">🚀 Nova execução</button>
-        <button data-st-tab="runs">🧾 Execuções</button>
+        <button data-st-tab="new">🚀 Nova run</button>
+        <button data-st-tab="runs">🧾 Runs</button>
         <button data-st-tab="env">⚙️ Ambiente</button>
       </nav>
       <div id="stGpu" class="st-gpu"></div>
@@ -133,7 +133,7 @@
         <button class="tab active" data-tab="tabLocal">Meus modelos</button>
         <button class="tab" data-tab="tabHF">Baixar modelos</button>
         <button class="tab" data-tab="tabMedia">Mídia</button>
-        <button class="tab" data-tab="tabEngine">Motor</button>
+        <button class="tab" data-tab="tabEngine">Runtime</button>
       </div>
       <button class="icon-btn" data-close>✕</button>
     </div>
@@ -167,9 +167,9 @@
       </div>
 
       <div class="tab-pane" id="tabEngine">
-        <p class="muted">O motor é o <b>llama.cpp</b> (open source, licença MIT), baixado direto do GitHub oficial. Ele é o que roda o modelo na sua GPU.</p>
+        <p class="muted">O runtime é o <b>llama.cpp</b> (open source, licença MIT), baixado direto do GitHub oficial. Ele é o que roda o modelo na sua GPU.</p>
         <div id="engineInfo"></div>
-        <h4>Log do motor</h4>
+        <h4>Log do runtime</h4>
         <pre id="engineLog" class="log"></pre>
       </div>
     </div>
@@ -185,7 +185,7 @@
         <button type="button" class="set-tab active" data-set-tab="general"><span>🖥️</span> Geral</button>
         <button type="button" class="set-tab" data-set-tab="quick"><span>⚡</span> Pergunta rápida</button>
         <button type="button" class="set-tab" data-set-tab="chat"><span>💬</span> Conversa</button>
-        <button type="button" class="set-tab" data-set-tab="engine"><span>🧠</span> Modelo e motor</button>
+        <button type="button" class="set-tab" data-set-tab="engine"><span>🧠</span> Modelo e runtime</button>
         <button type="button" class="set-tab" data-set-tab="codex"><span>🛠️</span> Codex</button>
         <button type="button" class="set-tab" data-set-tab="mcp"><span>🔌</span> Ferramentas MCP</button>
         <button type="button" class="set-tab" data-set-tab="media"><span>🎨</span> Áudio e imagem</button>
@@ -215,7 +215,7 @@
               <button type="button" class="btn small" id="updateBtn">Verificar atualizações</button>
             </div>
             
-          <label class="full">Pasta de dados (modelos, motor e conversas)
+          <label class="full">Pasta de dados (modelos, runtime e conversas)
               <div class="row"><code id="dataDir" class="grow"></code><button type="button" class="btn" id="changeDataDir">Mudar...</button></div>
             </label></div>
           <div class="set-group"><h4>Contador de tokens</h4>
@@ -270,10 +270,10 @@
         </div>
           <div class="checks" style="margin-top:12px"><label class="check full"><input type="checkbox" name="use_recommended"> Usar a amostragem recomendada para cada família de modelo (Qwen, Gemma, Llama...)</label>
           <label class="check full"><input type="checkbox" name="auto_summarize"> Resumir a conversa antiga quando o contexto passar de 80% (a conversa continua sem estourar)</label></div>
-          <small class="muted">Cada modelo também pode ter ajustes próprios em Modelos → Meus modelos → ⚙️.</small></div>
+          <small class="muted">Cada modelo também pode ter parâmetros próprios em Modelos → Meus modelos → ⚙️.</small></div>
         </section>
         <section class="set-pane" data-set-pane="engine">
-          <div class="set-title"><h3>Modelo e motor</h3><p class="muted">Aplicado ao carregar um modelo.</p></div>
+          <div class="set-title"><h3>Modelo e runtime</h3><p class="muted">Aplicado ao carregar um modelo.</p></div>
           <div class="set-group"><h4>Modelo de cada modo</h4>
           <p class="muted small-note">Ao entrar num modo, a IA que estiver ativa é descarregada e o modelo escolhido aqui é carregado. "O que estiver carregado" mantém o modelo atual.</p>
           <div class="grid">
@@ -292,9 +292,9 @@
           <label>Camadas na GPU (999 = todas) <input name="gpu_layers" type="number" step="1" min="0" class="input"></label>
           <label>Uso da CPU <span id="cpuLabel" class="muted"></span>
             <input name="cpu_percent" id="cpuRange" type="range" min="0" max="100" step="5" class="range">
-            <small class="muted">0 = automático (o motor usa os núcleos físicos, cerca de 50%). Acima de 75% raramente acelera e deixa o PC lento.</small>
+            <small class="muted">0 = automático (o runtime usa os núcleos físicos, cerca de 50%). Acima de 75% raramente acelera e deixa o PC lento.</small>
           </label>
-          <label>Motor
+          <label>Backend
             <select name="backend" class="input">
               <option value="auto">Automático</option><option value="cuda">CUDA (NVIDIA)</option>
               <option value="vulkan">Vulkan</option><option value="cpu">Só CPU</option>
@@ -327,7 +327,7 @@
           <div class="checks">
             <label class="check"><input type="checkbox" name="agent_confirm_commands"> Pedir confirmação antes de rodar comandos</label>
             <label class="check"><input type="checkbox" name="agent_confirm_writes"> Pedir confirmação antes de criar ou alterar arquivos</label>
-            <label class="check" title="Precisa do REA instalado em Modelos → Motor. O Codex usa o REA pelo terminal com a saída limitada, sem gastar contexto."><input type="checkbox" name="rea_codex"> 🔬 Usar o REA (engenharia reversa) quando estiver instalado</label>
+            <label class="check" title="Precisa do REA instalado em Modelos → Runtime. O Codex usa o REA pelo terminal com a saída limitada, sem gastar contexto."><input type="checkbox" name="rea_codex"> 🔬 Usar o REA (engenharia reversa) quando estiver instalado</label>
           </div>
           <label>Máximo de passos por pedido <input name="agent_max_steps" type="number" min="1" max="200" class="input"></label>
         </div></div>
@@ -339,7 +339,7 @@
         <div id="mcpList" class="list mcp-list"></div>
         <div class="row" style="margin:8px 0 6px">
           <button type="button" class="btn" id="mcpAddRoblox">+ Roblox Studio</button>
-          <button type="button" class="btn" id="mcpAddRea" title="Reverse Engineer Anything: o Codex e os agentes inspecionam programas, apps Electron/.NET, executáveis e sites sem o código-fonte, pelas ferramentas MCP. Instale o REA antes em Modelos → Motor.">+ REA (MCP)</button>
+          <button type="button" class="btn" id="mcpAddRea" title="Reverse Engineer Anything: o Codex e os agentes inspecionam programas, apps Electron/.NET, executáveis e sites sem o código-fonte, pelas ferramentas MCP. Instale o REA antes em Modelos → Runtime.">+ REA (MCP)</button>
           <button type="button" class="btn" id="mcpAddCustom">+ Outro servidor</button>
         </div>
         <div id="mcpForm" class="mcp-form" hidden>
@@ -447,10 +447,10 @@
   </div>
 </div>
 
-<!-- Ajustes de um modelo -->
+<!-- Parâmetros de um modelo -->
 <div class="modal" id="modelSettingsModal">
   <div class="modal-card">
-    <div class="modal-head"><h3 id="msTitle">Ajustes do modelo</h3><button class="icon-btn" data-close>✕</button></div>
+    <div class="modal-head"><h3 id="msTitle">Parâmetros do modelo</h3><button class="icon-btn" data-close>✕</button></div>
     <div class="modal-body">
       <p class="muted small-note" id="msFamily"></p>
       <p class="muted small-note">Deixe um campo vazio para usar o valor recomendado (ou o das configurações globais). Contexto e camadas na GPU valem ao carregar o modelo.</p>
@@ -480,12 +480,12 @@
   </div>
 </div>
 
-<!-- Bases de conhecimento -->
+<!-- RAG -->
 <div class="modal" id="kbModal">
   <div class="modal-card large">
-    <div class="modal-head"><h3>Bases de conhecimento</h3><button class="icon-btn" data-close>✕</button></div>
+    <div class="modal-head"><h3>RAG (Retrieval-Augmented Generation)</h3><button class="icon-btn" data-close>✕</button></div>
     <div class="modal-body">
-      <p class="muted small-note">A IA responde com base nos seus documentos: escolha pastas, o app cria um índice local (nada sai do seu PC) e, no chat, selecione a base no 📚 ao lado do 🌐 Web. Lê texto, código, Markdown, PDF, Word, Excel e PowerPoint.</p>
+      <p class="muted small-note">A IA responde com base nos seus documentos: escolha pastas, o app cria um índice vetorial local com embeddings (nada sai do seu PC) e, no chat, selecione a base no 📚 ao lado do 🌐 Web. Lê texto, código, Markdown, PDF, Word, Excel e PowerPoint.</p>
       <div id="kbEmbed" class="kb-embed"></div>
       <div class="row between"><b>Suas bases</b><button class="btn small" id="kbNew">+ Nova base</button></div>
       <div id="kbList" class="list"></div>

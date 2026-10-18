@@ -633,7 +633,7 @@ class EngineProcess:
         if proc is self.proc and getattr(self, "mtp", False):
             # o motor nao aceitou o acelerador MTP (versao antiga ou arquivo incompativel): tenta sem ele
             model_rel, s, device, embed = self._args
-            note = "[Piphin LLM] O motor falhou com o acelerador; carregando sem ele."
+            note = "[Piphin LLM] O runtime falhou com o speculative decoding; carregando sem ele."
             try:
                 self.start(model_rel, s, device, embed, no_mtp=True)
                 self.log.append(note)
@@ -960,7 +960,7 @@ def embed_texts(texts, on_wait=None):
     """Vetores (embeddings) dos textos, com o modelo de embeddings rodando num motor proprio."""
     path = media.embed_model_path()
     if not path:
-        raise RuntimeError("Modelo de embeddings não baixado. Baixe em Conhecimento.")
+        raise RuntimeError("Modelo de embeddings não baixado. Baixe em RAG.")
     rel = path.relative_to(MODELS).as_posix()
     with POOL.use(rel, load_settings(), on_wait, "auto", embed=True) as eng:
         req = urllib.request.Request(f"http://127.0.0.1:{eng.port}/v1/embeddings",
@@ -1231,7 +1231,7 @@ def download_model(task, repo, path, with_mmproj=False, with_mtp=False):
     if mt:
         mt_dest = MODELS / "mtp" / f"{repo.split('/')[-1]}__{Path(mt['path']).name}"
         mt_dest.parent.mkdir(parents=True, exist_ok=True)
-        task["detail"] = "acelerador MTP"
+        task["detail"] = "cabeça MTP (speculative decoding)"
         task["total"] += mt["size"]
         if not mt_dest.exists():
             download(f"https://huggingface.co/{repo}/resolve/main/{urllib.parse.quote(mt['path'])}", mt_dest, task, done)
@@ -1737,7 +1737,7 @@ class Handler(BaseHTTPRequestHandler):
             if p == "/api/models/mtp":
                 mt = b.get("mtp") or ""
                 if not valid_accel(b.get("model", ""), mt):
-                    return self.send_json({"error": "acelerador inválido: use um MTP, o n-gram ou um modelo menor da mesma família"}, 400)
+                    return self.send_json({"error": "speculative decoding inválido: use MTP, n-gram ou um draft model menor da mesma família"}, 400)
                 set_mtp(b.get("model", ""), mt)
                 return self.send_json({"ok": True})
             if p == "/api/models/mmproj":
@@ -2325,7 +2325,7 @@ class Handler(BaseHTTPRequestHandler):
         if not hits:
             return messages
         blocks = [f"[D{i}] {Path(h['path']).name} (linhas {h['lines']})\n{h['text']}" for i, h in enumerate(hits, 1)]
-        ctx = (f"[Trechos da base de conhecimento \"{meta['name']}\" relacionados à pergunta]\n\n" + "\n\n---\n\n".join(blocks)
+        ctx = (f"[Trechos da base RAG \"{meta['name']}\" relacionados à pergunta]\n\n" + "\n\n---\n\n".join(blocks)
                + "\n\n[Fim dos trechos]\n\nUse os trechos acima quando forem relevantes e cite as fontes no texto como "
                "[D1], [D2]. Se eles não bastarem para responder, diga isso.\n\nMensagem do usuario:\n")
         out = [dict(m) for m in messages]

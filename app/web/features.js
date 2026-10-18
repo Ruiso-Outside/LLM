@@ -7,7 +7,7 @@ const MS = { model: null, rec: null };
 async function openModelSettings(path) {
   const r = await api("/api/models/settings?model=" + encodeURIComponent(path));
   MS.model = path; MS.rec = r.recommended;
-  $("#msTitle").textContent = t("Ajustes de {name}", { name: modelNameOf(path) });
+  $("#msTitle").textContent = t("Parâmetros de {name}", { name: modelNameOf(path) });
   $("#msFamily").textContent = t("Família detectada: {f}", { f: t(r.family) }) + (r.family === "Genérico" ? " · " + t("sem recomendação específica (valem as configurações globais)") : "");
   for (const el of $("#msForm").elements) {
     el.value = r.settings[el.name] ?? "";
@@ -24,7 +24,7 @@ $("#msSave").onclick = async () => {
     await api("/api/models/settings", { method: "PUT", body: { model: MS.model, settings: Object.keys(vals).length ? vals : null } });
     $("#modelSettingsModal").classList.remove("open");
     const loaded = S.status.engine.model === MS.model || (S.status.extras || []).some(x => x.model === MS.model);
-    toast(loaded ? "Ajustes salvos. Recarregue o modelo para aplicar contexto/GPU." : "Ajustes salvos");
+    toast(loaded ? "Parâmetros salvos. Recarregue o modelo para aplicar contexto/GPU." : "Parâmetros salvos");
     refreshStatus();
   } catch (e) { toast(e.message, 5000); }
 };
@@ -88,7 +88,7 @@ $("#kbSelect").onchange = e => { lsSet("kb", e.target.value); S.kb = e.target.va
 function kbStatus(k) {
   if (KB.pdf?.id === k.id) return t("lendo PDF {i}/{n}: {f}", { i: KB.pdf.i, n: KB.pdf.n, f: KB.pdf.file });
   const st = { nova: t("ainda não indexada"), indexando: t("indexando..."), pdfs_pendentes: t("{n} PDFs pendentes", { n: k.pending_pdfs }) }[k.status] || "";
-  return [k.indexed ? t("{f} arquivos · {c} trechos", { f: k.n_files, c: k.n_chunks }) : "", st].filter(Boolean).join(" · ");
+  return [k.indexed ? t("{f} arquivos · {c} chunks", { f: k.n_files, c: k.n_chunks }) : "", st].filter(Boolean).join(" · ");
 }
 function renderKb() {
   const running = (S.status?.tasks || []).filter(x => x.status === "running" && (x.kind === "kb" || /embeddings/i.test(x.label)));
@@ -173,7 +173,7 @@ function kbBoxHTML(k, streaming) {
   if (k.stage === "error") return `<div class="web-box kb-box"><span class="status err">📚 ${esc(trText(k.text))}</span></div>`;
   if (!k.sources?.length) return `<div class="web-box kb-box"><span class="status">📚 ${t("Nada relevante encontrado em {name}", { name })}</span></div>`;
   const items = k.sources.map(s => `<li><a href="#" data-kb-open="${esc(s.path)}" title="${esc(s.path)}">${esc(s.file)}</a><small>${t("linhas {l}", { l: s.lines })} · ${Math.round(s.score * 100)}%</small></li>`).join("");
-  return `<details class="web-box kb-box"${streaming ? " open" : ""}><summary>📚 ${t("Consultou {name} · {n} trechos", { name, n: k.sources.length })}</summary><ol>${items}</ol></details>`;
+  return `<details class="web-box kb-box"${streaming ? " open" : ""}><summary>📚 ${t("RAG: {name} · {n} chunks", { name, n: k.sources.length })}</summary><ol>${items}</ol></details>`;
 }
 function linkDocCitations(html, sources) {
   if (!sources?.length) return html;
