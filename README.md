@@ -48,6 +48,15 @@ node node_modules\electron\install.js
 npm run dist
 ```
 
+### Módulo do Piphin Hub
+O Piphin LLM também roda **dentro do [Piphin Hub](https://github.com/Ruiso-Outside/Piphin-Hub)** (1.2.0 ou mais novo), como módulo de cerca de 1 MB: usa o Electron do Hub em vez de trazer o próprio.
+- `desktop/module/backend.js` faz o papel do `desktop/main.js`: inicia o mesmo servidor Python, cuida da pergunta rápida (janela extra do Hub), dos atalhos globais, do print da tela e da área de transferência.
+- `app/web/piphin-bridge.js` monta a mesma ponte `window.llmDesktop` falando com o Hub; no app separado e no navegador ele não faz nada.
+- A configuração e a pasta de dados são as mesmas do app separado (`%APPDATA%\LLM Local\config.json`). Evite abrir os dois ao mesmo tempo: os atalhos ficam com quem abriu primeiro.
+- No Hub, "Iniciar com o Windows" é do Hub (o módulo só liga e desliga a opção dele) e as atualizações do módulo são feitas pelo Hub.
+
+`npm run module` gera `desktop\dist\piphin-module-llm-X.Y.Z.zip`; o `npm run dist` e o `npm run release` já o geram, e o `release` o envia ao Release junto com o pacote de atualização.
+
 ## Como usar
 
 1. Abra o **Piphin LLM**.

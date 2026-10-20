@@ -1,0 +1,12 @@
+{
+  "id": "llm-local",
+  "name": "Piphin LLM",
+  "version": "0.0.0",
+  "description": "IA local no seu PC: chat com anexos, Codex, imagens e pergunta rápida.",
+  "main": "backend.js",
+  "ui": "web/loading.html",
+  "icon": "icons/llm.png",
+  "accent": "#22d3ee",
+  "minHub": "1.2.0",
+  "allowOrigins": ["http://127.0.0.1:8765"]
+}

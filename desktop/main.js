@@ -373,9 +373,20 @@ async function screenShortcut() {
   if (jpg) quickWin.webContents.send("quick-context", { kind: "screen", data: jpg });
 }
 ipcMain.handle("capture-screen", async () => { try { return await captureScreen(); } catch { return null; } });
-ipcMain.handle("read-clipboard", () => {
-  const img = clipboard.readImage();
-  return { text: clipboard.readText(), image: img.isEmpty() ? null : img.toPNG() };
+ipcMain.handle("read-clipboard", async () => {
+  const text = await clipboard.readText();
+  if (typeof clipboard.readImage === "function") { // Electron antigo
+    const img = clipboard.readImage();
+    return { text, image: img.isEmpty() ? null : img.toPNG() };
+  }
+  // Electron 44+: clipboard.readImage não existe mais; clipboard.read() devolve itens no formato da web
+  for (const item of await clipboard.read()) {
+    const type = (item.types || []).find(t => t.startsWith("image/"));
+    if (!type) continue;
+    const buf = Buffer.from(await (await item.getType(type)).arrayBuffer());
+    return { text, image: type === "image/png" ? buf : nativeImage.createFromBuffer(buf).toPNG() };
+  }
+  return { text, image: null };
 });
 ipcMain.handle("set-screen-hotkey", (_e, k) => {
   if (!k || k === config.screenHotkey) return { ok: true, hotkey: config.screenHotkey };

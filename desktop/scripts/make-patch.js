@@ -3,6 +3,7 @@
 //   dist/patch.json           -> versão, versão do Electron, tamanho e SHA-512
 //   node scripts/make-patch.js            (só gera)
 //   node scripts/make-patch.js --upload   (gera e envia para o Release vX.Y.Z; precisa de GH_TOKEN)
+//   Com --upload também envia dist/piphin-module-llm-X.Y.Z.zip (módulo do Piphin Hub), se existir.
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
@@ -40,7 +41,8 @@ async function upload() {
   const rels = await (await fetch(`https://api.github.com/repos/${owner}/${repo}/releases?per_page=100`, { headers: h })).json();
   const rel = rels.find(r => r.tag_name === `v${version}`);
   if (!rel) fail(`Release v${version} não encontrado.`);
-  for (const name of [file, "patch.json"]) {
+  const moduleZip = `piphin-module-llm-${version}.zip`;
+  for (const name of [file, "patch.json", ...(fs.existsSync(path.join(dist, moduleZip)) ? [moduleZip] : [])]) {
     const old = rel.assets.find(a => a.name === name);
     if (old) await fetch(`https://api.github.com/repos/${owner}/${repo}/releases/assets/${old.id}`, { method: "DELETE", headers: h });
     const body = fs.readFileSync(path.join(dist, name));

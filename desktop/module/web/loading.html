@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'">
+  <title>Piphin LLM</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #0f1014; color: #e6e7ee; font: 14px/1.5 "Segoe UI", system-ui, sans-serif; }
+    body { display: grid; place-items: center; }
+    .box { text-align: center; max-width: 440px; padding: 24px; }
+    img { width: 72px; height: 72px; border-radius: 50%; }
+    h2 { margin: 14px 0 6px; font-size: 18px; font-weight: 600; }
+    p { margin: 0; color: #9aa0b4; }
+    .spin { width: 22px; height: 22px; margin: 18px auto 0; border: 3px solid #2a2d3a; border-top-color: #22d3ee; border-radius: 50%; animation: s 0.9s linear infinite; }
+    @keyframes s { to { transform: rotate(360deg); } }
+    button { margin-top: 18px; padding: 8px 16px; border-radius: 10px; border: 1px solid #2a2d3a; background: #1a1c25; color: #e6e7ee; cursor: pointer; font: inherit; }
+    button:hover { border-color: #22d3ee; }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <img src="../icons/llm.png" alt="">
+    <h2 id="title">Iniciando o Piphin LLM...</h2>
+    <p id="text">Ligando o servidor local. Na primeira vez pode levar alguns segundos.</p>
+    <div class="spin" id="spin"></div>
+    <button id="retry" hidden>Tentar de novo</button>
+  </div>
+  <script src="loading.js"></script>
+</body>
+</html>
