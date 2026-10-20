@@ -1483,6 +1483,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if p == "/api/status":
                 return self.send_json({"engine": ENGINE_PROC.status() | {"device": ENGINE_PROC.device}, "extras": POOL.status(),
+                                       "hub_tools": bool(mcp.hub_server()),
                                        "memory": POOL.memory(), "backends": installed_backends(), "quick": POOL.quick_status(),
                                        "gpu_live": {k: DIAG[k] for k in ("vram_used", "vram_total", "gpu_util", "guard")} | {"full": bool(DIAG["full_since"])},
                                        "gpu": GPU | {"cpu_count": CPU_COUNT},
@@ -2350,6 +2351,83 @@ class Handler(BaseHTTPRequestHandler):
         """on_wait do POOL: avisa a interface uma vez e depois so manda pings (detecta desconexao)."""
         return lambda name, first: self.sse_safe(make_event(name) if first else None)
 
+    # ---- ferramentas dos modulos do Piphin Hub no chat (Piphin Macro, InfoHardware...)
+    def hub_tools(self, payload):
+        """Liga as ferramentas do Hub neste chat: (ferramentas, mapa) ou None se nao houver."""
+        if not mcp.hub_server():
+            return None
+        tools, mapping = mcp.MANAGER.toolset([mcp.HUB_ID], None,
+                                             lambda name, err: self.sse({"tool": {"stage": "error", "text": err}}))
+        if not tools:
+            return None
+        mods = sorted({(t.get("title") or "").split(":")[0] for _, t in mapping.values() if t.get("title")})
+        note = ("Você está dentro do Piphin Hub e pode usar ferramentas de outros módulos instalados (" + ", ".join(mods) +
+                "). Use-as só quando o pedido envolver esses programas (ex.: criar ou ajustar macros, analisar o hardware do PC). "
+                "Para analisar o PC, leia os dados reais com a ferramenta antes de responder. Depois de usar uma ferramenta, "
+                "explique em linguagem simples o que foi feito ou encontrado. Não invente resultados.")
+        msgs = payload["messages"]
+        if msgs and msgs[0].get("role") == "system" and isinstance(msgs[0].get("content"), str):
+            msgs[0] = {**msgs[0], "content": msgs[0]["content"] + "\n\n" + note}
+        else:
+            msgs.insert(0, {"role": "system", "content": note})
+        return tools, mapping
+
+    def chat_with_tools(self, payload, tools, mapping, max_steps=8):
+        """Chat em que o modelo pode chamar as ferramentas do Hub; o texto vai para a tela como no chat normal."""
+        payload = {**payload, "tools": tools, "tool_choice": "auto", "parallel_tool_calls": True}
+        messages, last = payload["messages"], None
+        for _ in range(max_steps):
+            content, calls = "", {}
+            with self.engine_call(payload, True) as up:
+                for raw in iter(up.readline, b""):
+                    line = raw.decode("utf-8", "replace").strip()
+                    if not line.startswith("data:") or line == "data: [DONE]":
+                        continue
+                    try:
+                        j = json.loads(line[5:])
+                    except ValueError:
+                        continue
+                    if j.get("timings"):
+                        last = raw
+                    d = (j.get("choices") or [{}])[0].get("delta") or {}
+                    content += d.get("content") or ""
+                    for tc in d.get("tool_calls") or []:
+                        c = calls.setdefault(tc.get("index", 0), {"id": "", "name": "", "arguments": ""})
+                        c["id"] = tc.get("id") or c["id"]
+                        fn = tc.get("function") or {}
+                        c["name"] += fn.get("name") or ""
+                        c["arguments"] += fn.get("arguments") or ""
+                    if d.get("content") or d.get("reasoning_content") or j.get("timings") or j.get("error"):
+                        self.sse(j)
+            if not calls:
+                break
+            tcs = [{"id": c["id"] or f"call_{uuid.uuid4().hex[:12]}", "type": "function",
+                    "function": {"name": c["name"], "arguments": c["arguments"] or "{}"}} for _, c in sorted(calls.items())]
+            messages.append({"role": "assistant", "content": content, "tool_calls": tcs})
+            for tc in tcs:
+                name, cid = tc["function"]["name"], tc["id"]
+                srv, tool = mapping.get(name, (None, None))
+                try:
+                    args = json.loads(tc["function"]["arguments"] or "{}")
+                except ValueError:
+                    args = None
+                title = (tool or {}).get("title") or name
+                self.sse({"tool": {"stage": "call", "id": cid, "title": title}})
+                if not srv:
+                    text, ok = f"Ferramenta desconhecida: {name}", False
+                elif not isinstance(args, dict):
+                    text, ok = "Os argumentos não são um JSON válido. Tente de novo.", False
+                else:
+                    try:
+                        res = srv.call(tool["name"], args)
+                        text, _ = mcp.result_text(res, limit=12_000)
+                        ok = not res.get("isError")
+                    except mcp.MCPError as e:
+                        text, ok = f"Erro: {e}", False
+                self.sse({"tool": {"stage": "done", "id": cid, "title": title, "ok": ok, "result": text[:600]}})
+                messages.append({"role": "tool", "tool_call_id": cid, "content": text})
+        return last
+
     def proxy_chat(self, b):
         ag = agents.get_agent(b["agent_id"]) if b.get("agent_id") else None
         model = (ag or {}).get("model") or b.get("model") or ""
@@ -2389,13 +2467,17 @@ class Handler(BaseHTTPRequestHandler):
             if int(b.get("max_tokens") or 0) > 0:
                 payload["max_tokens"] = int(b["max_tokens"])
             apply_model_sampling(payload, eng.model, (ag or {}).get("temperature"))
-            upstream = self.engine_call(payload, True)
             last_timings = None
-            for line in iter(upstream.readline, b""):
-                self.wfile.write(line)
-                self.wfile.flush()
-                if b'"timings"' in line:
-                    last_timings = line
+            hub = self.hub_tools(payload) if b.get("hub") and not ag else None
+            if hub:
+                last_timings = self.chat_with_tools(payload, *hub)
+            else:
+                upstream = self.engine_call(payload, True)
+                for line in iter(upstream.readline, b""):
+                    self.wfile.write(line)
+                    self.wfile.flush()
+                    if b'"timings"' in line:
+                        last_timings = line
         except RuntimeError as e:
             try:
                 self.sse({"error": {"message": str(e)}})

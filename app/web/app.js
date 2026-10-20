@@ -11,6 +11,7 @@ const S = {
   selectedRepo: "",
   chatFilter: "",
   web: ls("web", "0") === "1",
+  hub: ls("hub", "1") === "1",   // ferramentas dos módulos do Piphin Hub no chat (só aparece dentro do Hub)
   mode: ls("mode", "chat"),          // chat | codex | image
   workspace: ls("workspace", ""),
   attachments: [],     // anexos pendentes no compositor
@@ -55,6 +56,7 @@ async function refreshStatus() {
   finished.forEach(t => S.doneTasks.add(t.id));
   if (finished.length) { loadMedia(); loadKbs(); }
   const lang = S.status.settings.language; if (lang && lang !== LANG && !S.generating) return setLanguage(lang);
+  $("#hubBtn").hidden = !S.status.hub_tools;
   renderTopbar(); renderChatList(); renderTasks(); renderStatsBar(); renderModeBars(); renderReaPlaces();
   if ($("#modelsModal").classList.contains("open")) { renderLocalModels(); renderEngine(); }
   if (typeof renderInspector === "function") renderInspector();
@@ -412,6 +414,7 @@ function msgHTML(msg, idx, isLast) {
   let html = `<div class="msg assistant ${isLast ? "last" : ""}" data-i="${idx}"><div class="role">${who}${live ? `<span class="live">${live}</span>` : ""}</div>`;
   if (msg.kb) html += kbBoxHTML(msg.kb, streaming);
   if (msg.web) html += webBoxHTML(msg.web, streaming);
+  if (msg.tools?.length) html += toolsBoxHTML(msg.tools);
   if (reasoning) html += `<details class="think" ${thinking ? "open" : ""}><summary>${thinking ? "Pensando..." : "Raciocínio"}</summary><div class="think-body">${esc(thinking && reasoning.length > 6000 ? "…" + reasoning.slice(-6000) : reasoning)}</div></details>`;
   html += `<div class="content ${streaming ? "cursor" : ""}">${linkDocCitations(linkCitations(md(content), msg.web?.sources), msg.kb?.sources)}</div>`;
   if (msg.error) html += `<div class="err">${esc(msg.error)}</div>`;
@@ -729,7 +732,9 @@ async function generate(isContinue = false, agent = null) {
   const t0 = performance.now(); let tokens = 0;
   try {
     if (S.kb && !isContinue && !agent?.kb) msg.kb = { stage: "searching", name: (KB.list.find(k => k.id === S.kb) || {}).name };
-    await streamChat({ messages, web: S.web && !isContinue && !agent, kb: isContinue ? "" : S.kb, ...sampling(), ...(agent ? { agent_id: agent.id } : {}) }, S.abort.signal, j => {
+    const hub = S.hub && !!S.status?.hub_tools && !agent;
+    await streamChat({ messages, web: S.web && !isContinue && !agent, kb: isContinue ? "" : S.kb, hub, ...sampling(), ...(agent ? { agent_id: agent.id } : {}) }, S.abort.signal, j => {
+      if (j.tool) { addToolEvent(msg, j.tool); renderLastMessage(); return; }
       if (j.kb) { msg.kb = { ...msg.kb, ...j.kb }; renderLastMessage(); return; }
       if (j.engine) { msg.loadingModel = j.engine.stage === "loading" ? j.engine.model : null; if (j.engine.stage === "ready" && j.engine.model) msg.model = j.engine.model + (j.engine.device ? ` · ${j.engine.device.toUpperCase()}` : ""); renderLastMessage(); return; }
       if (j.llmlocal) { msg.web = { ...msg.web, ...j.llmlocal }; renderLastMessage(); return; }
@@ -817,6 +822,23 @@ function setComposerState() {
   b.classList.toggle("stop", S.generating);
 }
 $("#sendBtn").onclick = () => S.generating ? S.abort?.abort() : send();
+// ferramentas dos módulos do Hub usadas na resposta (ex.: "Piphin Macro: Criar macro")
+function addToolEvent(msg, ev) {
+  msg.tools = msg.tools || [];
+  if (ev.stage === "error") { msg.tools.push({ id: "e" + msg.tools.length, title: ev.text, state: "error" }); return; }
+  const t = msg.tools.find(x => x.id === ev.id);
+  if (!t) msg.tools.push({ id: ev.id, title: ev.title, state: "running" });
+  else Object.assign(t, { state: ev.ok ? "ok" : "error", result: ev.result || "" });
+}
+function toolsBoxHTML(tools) {
+  const ico = { running: "⏳", ok: "✅", error: "⚠️" };
+  return `<div class="hub-tools">${tools.map(t => `<div class="hub-tool ${t.state}" title="${esc(t.result || "")}">${ico[t.state] || ""} 🧩 ${esc(t.title)}</div>`).join("")}</div>`;
+}
+function setHub(on) {
+  S.hub = on; $("#hubBtn").classList.toggle("on", on);
+  lsSet("hub", on ? "1" : "0");
+}
+$("#hubBtn").onclick = () => { setHub(!S.hub); toast(S.hub ? "A IA pode usar os outros módulos" : "Módulos desligados neste chat"); };
 function setWeb(on) {
   S.web = on; $("#webBtn").classList.toggle("on", on);
   lsSet("web", on ? "1" : "0");
@@ -1329,7 +1351,7 @@ async function openChatFromHash() {
 window.addEventListener("hashchange", openChatFromHash);
 
 (async function init() {
-  setWeb(S.web);
+  setWeb(S.web); setHub(S.hub);
   setMode(S.mode);
   await refreshStatus();
   loadMedia();

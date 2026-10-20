@@ -128,16 +128,29 @@ def _clean(s, taken):
     return out
 
 
+# Dentro do Piphin Hub: as ferramentas dos outros modulos (Piphin Macro, InfoHardware...) chegam por um servidor
+# MCP local do Hub. Ele nao fica no mcp.json (o endereco muda a cada vez que o Hub abre).
+HUB_ID = "piphin"
+
+
+def hub_server():
+    url = os.environ.get("PIPHIN_TOOLS_URL", "")
+    if not re.match(r"^http://127\.0\.0\.1:\d+/mcp/[0-9a-f]+$", url):
+        return None
+    return {"id": HUB_ID, "name": "Módulos do Piphin Hub", "type": "http", "url": url, "enabled": True,
+            "auto_approve": False, "command": "", "args": [], "env": {}, "tools": None, "builtin": True}
+
+
 def load():
     try:
-        return json.loads(FILE.read_text("utf-8")).get("servers", [])
+        return [s for s in json.loads(FILE.read_text("utf-8")).get("servers", []) if s.get("id") != HUB_ID]
     except (OSError, ValueError, AttributeError):
         return []
 
 
 def save(servers):
-    out, taken = [], set()
-    for s in (servers or [])[:30]:
+    out, taken = [], {HUB_ID}
+    for s in [x for x in (servers or []) if x.get("id") != HUB_ID and not x.get("builtin")][:30]:
         c = _clean(s, taken)
         taken.add(c["id"])
         out.append(c)
@@ -446,7 +459,9 @@ class Manager:
     def sync(self, cfgs=None):
         """Aplica a configuracao: fecha servidores removidos ou alterados."""
         cfgs = load() if cfgs is None else cfgs
-        cfgs = [_local_rea(c) for c in cfgs]
+        cfgs = [_local_rea(c) for c in cfgs if c.get("id") != HUB_ID]
+        if hub_server():
+            cfgs.append(hub_server())
         with self.lock:
             new = {}
             for c in cfgs:

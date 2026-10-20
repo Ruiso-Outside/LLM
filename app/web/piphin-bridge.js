@@ -62,6 +62,8 @@
   }
   const web = document.querySelector("#webBtn");
   if (web) web.innerHTML = `<i class="i i-globe"></i> Web`;
+  const hubBtn = document.querySelector("#hubBtn");
+  if (hubBtn) hubBtn.innerHTML = `<i class="i i-puzzle"></i> Módulos`;
   for (const href of ["piphin://ui/tokens.css", "piphin://ui/icons.css", "piphin-theme.css"]) {
     const l = document.createElement("link");
     l.rel = "stylesheet";

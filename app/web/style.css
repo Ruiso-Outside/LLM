@@ -776,3 +776,11 @@ body.studio-open #sidebar, body.studio-open #main, body.studio-open #inspector {
 .st-state.training, .st-state.loading, .st-state.exporting { color: var(--st2); background: #a3e6351f; } .st-state.done, .st-state.exported { color: var(--ok); background: #34d39914; }
 .st-state.error { color: var(--err); background: #fb718514; } .st-state.stopped { color: var(--warn); background: #fbbf2414; }
 @media (max-width: 900px) { .st-cols { grid-template-columns: 1fr; } .run-row { grid-template-columns: 1fr 1fr; } .st-tabs { overflow-x: auto; } }
+
+/* ferramentas dos módulos do Piphin Hub usadas numa resposta */
+.hub-tools { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; }
+.hub-tool { font-size: 12px; padding: 3px 10px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); background: var(--bg); }
+.hub-tool.ok { border-color: #34d39966; color: #86efac; }
+.hub-tool.error { border-color: #f8717166; color: #fca5a5; }
+.hub-tool.running { border-color: #22d3ee66; color: #7fdcf0; }
+#hubBtn[hidden] { display: none !important; }
