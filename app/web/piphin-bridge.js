@@ -42,4 +42,30 @@
   };
   // "Continuar no app" da pergunta rápida: abre a conversa na janela principal
   piphin.on("open-chat", (id) => { if (id && /^[\w-]+$/.test(id)) location.hash = "chat=" + id; });
+
+  // visual do Hub: paleta do Piphin UI (tokens) e o acabamento do LLM dentro do Hub (piphin-theme.css)
+  document.documentElement.classList.add("in-piphin");
+  // ícones do Piphin UI no lugar dos emojis (a página principal já está montada quando este script roda)
+  const ICONS = {
+    '[data-mode="chat"] .ri': "message-square", '[data-mode="codex"] .ri': "square-terminal", '[data-mode="image"] .ri': "palette",
+    '[data-mode="agents"] .ri': "users", '[data-open="kbModal"] .ri': "library", '[data-open="modelsModal"] .ri': "brain-circuit",
+    "#studioBtn .ri": "flask-conical", '[data-open="backupModal"] .ri': "save", '[data-open="settingsModal"] .ri': "settings",
+  };
+  for (const [sel, name] of Object.entries(ICONS)) {
+    const el = document.querySelector(sel);
+    if (el) { el.textContent = ""; el.className = "ri i i-" + name; }
+  }
+  const ICON_BTNS = { "#toggleSide": "panel-left-close", "#exportBtn": "download", "#toggleInspector": "activity", "#openWorkspace": "folder-open" };
+  for (const [sel, name] of Object.entries(ICON_BTNS)) {
+    const el = document.querySelector(sel);
+    if (el) el.innerHTML = `<i class="i i-${name}"></i>`;
+  }
+  const web = document.querySelector("#webBtn");
+  if (web) web.innerHTML = `<i class="i i-globe"></i> Web`;
+  for (const href of ["piphin://ui/tokens.css", "piphin://ui/icons.css", "piphin-theme.css"]) {
+    const l = document.createElement("link");
+    l.rel = "stylesheet";
+    l.href = href;
+    document.head.appendChild(l);
+  }
 })();

@@ -1,0 +1,59 @@
+/* Piphin LLM dentro do Piphin Hub: acabamento no padrão do Piphin UI.
+   Carregado pelo piphin-bridge.js só quando a página roda no Hub (junto com piphin://ui/tokens.css,
+   que já troca a paleta). Fora do Hub, nada aqui é usado. */
+.in-piphin body { font-family: var(--p-font); }
+.in-piphin #app { overflow: hidden; }
+
+/* trilho de modos: o logo fica com o Hub; ícones do Piphin UI */
+.in-piphin #rail { width: 68px; background: var(--p-bg); border-right: 1px solid var(--p-line); padding-top: 10px; }
+.in-piphin .rail-logo { display: none; }
+.in-piphin .rail-group button { border-radius: 12px; padding: 8px 0 7px; gap: 4px; color: var(--p-text-2); }
+.in-piphin .rail-group button:hover { background: var(--p-hover); color: var(--p-text); }
+.in-piphin .rail-group .ri.i { width: 20px; height: 20px; font-size: 20px; }
+.in-piphin .rail-group .rl { font-size: 10.5px; font-weight: 500; }
+.in-piphin #modes button.on { color: #fff; background: var(--p-active); border-color: transparent; box-shadow: none; }
+.in-piphin #modes button.on::before { left: -8px; background: #22d3ee; box-shadow: 0 0 10px #22d3ee; }
+.in-piphin .rail-sep { background: var(--p-line-2); }
+
+/* conversas */
+.in-piphin #sidebar { background: var(--p-bg-2); border-right: 1px solid var(--p-line); width: 248px; }
+.in-piphin #app.side-hidden #sidebar { margin-left: -248px; }
+.in-piphin .side-head b { font: 600 12px var(--p-font); letter-spacing: .06em; text-transform: uppercase; color: var(--p-text-3); }
+.in-piphin .chat-item { color: var(--p-text-2); border-radius: 10px; }
+.in-piphin .chat-item:hover { background: var(--p-hover); }
+.in-piphin .chat-item.active { background: var(--p-active); color: #fff; }
+.in-piphin .chat-group { color: var(--p-text-3); }
+
+/* barra do topo: cabe na área do módulo sem rolagem lateral */
+.in-piphin #topbar { background: var(--p-bg); backdrop-filter: none; min-height: 52px; border-bottom: 1px solid var(--p-line); min-width: 0; }
+.in-piphin #topbar .pill { min-width: 0; flex: 0 1 auto; }
+.in-piphin #modelSelect { min-width: 150px; max-width: 280px; flex: 0 1 auto; }
+.in-piphin .icon-btn { display: inline-grid; place-items: center; width: 34px; height: 34px; padding: 0; border-radius: 9px; color: var(--p-text-2); }
+.in-piphin .icon-btn .i { font-size: 18px; }
+.in-piphin .icon-btn:hover { background: var(--p-hover); color: var(--p-text); }
+.in-piphin #main { background: var(--p-bg); }
+
+/* controles no padrão do kit */
+.in-piphin .btn { border-radius: 10px; border-color: var(--p-line-2); background: var(--p-surface-2); font-weight: 500; }
+.in-piphin .btn:hover { background: var(--p-surface-3); border-color: rgba(255, 255, 255, .18); }
+.in-piphin .btn.primary { background: var(--p-grad); border-color: transparent; color: #fff; box-shadow: 0 6px 18px -6px rgba(139, 92, 246, .6); }
+.in-piphin .btn.primary:hover { filter: brightness(1.08); }
+.in-piphin .btn.primary:disabled { filter: saturate(.4); box-shadow: none; }
+.in-piphin .input { background: var(--p-bg-2); border-color: var(--p-line-2); border-radius: 10px; }
+.in-piphin .input:focus { border-color: var(--p-accent); box-shadow: var(--p-ring); }
+.in-piphin .pill { background: var(--p-hover); color: var(--p-text-2); }
+
+/* conversa e caixa de mensagem */
+.in-piphin .msg.user .bubble { background: var(--p-surface-2); border: 1px solid var(--p-line); }
+.in-piphin .empty .steps { background: var(--p-surface-1); border-color: var(--p-line); border-radius: var(--p-r-l); }
+.in-piphin .composer-box { background: var(--p-surface-1); border: 1px solid var(--p-line-2); border-radius: 16px; box-shadow: var(--p-shadow); }
+.in-piphin .composer-box:focus-within { border-color: var(--p-accent-line); box-shadow: var(--p-ring), var(--p-shadow); }
+.in-piphin .web-toggle { display: inline-flex; align-items: center; gap: 6px; background: var(--p-bg-2); border-color: var(--p-line-2); }
+.in-piphin .web-toggle.on { background: rgba(34, 211, 238, .12); border-color: rgba(34, 211, 238, .55); color: #7fdcf0; }
+.in-piphin .code { background: var(--p-bg); border-color: var(--p-line); border-radius: 12px; }
+.in-piphin .code-h { background: var(--p-surface-2); }
+
+/* no Hub, Ctrl+K abre a paleta do Hub: o botão da paleta do LLM fica só com o ícone */
+.in-piphin #paletteTop span, .in-piphin #paletteTop kbd { display: none; }
+.in-piphin #paletteTop { min-width: 34px; }
+.in-piphin #statusPill { min-width: 110px; }

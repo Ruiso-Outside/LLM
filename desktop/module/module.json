@@ -8,5 +8,13 @@
   "icon": "icons/llm.png",
   "accent": "#22d3ee",
   "minHub": "1.2.0",
-  "allowOrigins": ["http://127.0.0.1:8765"]
+  "allowOrigins": [
+    "http://127.0.0.1:8765"
+  ],
+  "reservedKeys": [
+    "ctrl+1",
+    "ctrl+2",
+    "ctrl+3",
+    "ctrl+4"
+  ]
 }
