@@ -12,7 +12,8 @@
     "dist": "electron-builder --win --publish never && node scripts/make-patch.js && node scripts/make-module.js",
     "module": "node scripts/make-module.js",
     "release": "node scripts/release-check.js && electron-builder --win --publish always && node scripts/make-module.js && node scripts/make-patch.js --upload && node scripts/release-check.js --verify --wait-installer",
-    "verify-release": "node scripts/release-check.js --verify --wait-installer"
+    "verify-release": "node scripts/release-check.js --verify --wait-installer",
+    "module-icon": "electron scripts/make-module-icon.js"
   },
   "build": {
     "appId": "studio.piphin.llmlocal",
