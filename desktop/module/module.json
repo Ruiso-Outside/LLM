@@ -16,5 +16,6 @@
     "ctrl+2",
     "ctrl+3",
     "ctrl+4"
-  ]
+  ],
+  "i18nSkip": "html:not(.llm-loading) body"
 }

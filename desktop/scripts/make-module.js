@@ -17,6 +17,8 @@ manifest.version = pkg.version;
 fs.writeFileSync(path.join(stage, "module.json"), JSON.stringify(manifest, null, 2));
 fs.copyFileSync(path.join(desk, "module", "backend.js"), path.join(stage, "backend.js"));
 fs.cpSync(path.join(desk, "module", "web"), path.join(stage, "web"), { recursive: true });
+// traduções da tela de carregamento e dos avisos do Windows (o Hub aplica); source.jsonl e config.json ficam de fora
+fs.cpSync(path.join(desk, "module", "i18n"), path.join(stage, "i18n"), { recursive: true, filter: (src) => !/\.jsonl$|config\.json$/.test(src) });
 // ícone próprio do módulo (scripts/make-module-icon.js); sem ele, o do app
 const modIcon = path.join(desk, "module", "icon.png");
 fs.copyFileSync(fs.existsSync(modIcon) ? modIcon : path.join(desk, "icon.png"), path.join(stage, "icons", "llm.png"));

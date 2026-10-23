@@ -1,14 +1,21 @@
 "use strict";
-// Tradução da interface do Piphin LLM: Português (original), English e Español.
+// Tradução da interface do Piphin LLM: Português (original) e mais 11 idiomas.
 // - Textos fixos são traduzidos automaticamente (inclusive os que aparecem depois, via MutationObserver).
 // - Textos com valores usam t("Texto {nome}", { nome }).
 // - O conteúdo das conversas, código e o que o usuário digita nunca são traduzidos.
+// - English e Español ficam no DICT abaixo; os outros vêm de i18n/<idioma>.js (gerados por i18n/gen.js).
+// - Dentro do Piphin Hub o idioma é o do Hub (piphin.info.lang) e o seletor do app some.
 
-const LANGS = { "pt-BR": "Português (Brasil)", en: "English", es: "Español" };
+const LANGS = { "pt-BR": "Português (Brasil)", en: "English", es: "Español", th: "ไทย", zh: "简体中文", ja: "日本語", ko: "한국어",
+  id: "Bahasa Indonesia", vi: "Tiếng Việt", fr: "Français", de: "Deutsch", ru: "Русский" };
 const lsGet = k => { try { return localStorage.getItem(k); } catch { return null; } };
-const sysLang = () => { const n = (navigator.language || "pt").toLowerCase(); return n.startsWith("pt") ? "pt-BR" : n.startsWith("es") ? "es" : "en"; };
-let LANG = LANGS[lsGet("lang")] ? lsGet("lang") : sysLang();
+const langOf = l => { l = String(l || "").toLowerCase(); if (l.startsWith("pt")) return "pt-BR"; const c = l.slice(0, 2); return LANGS[c] ? c : "en"; };
+const sysLang = () => langOf(navigator.language || "pt");
+const HUB_LANG = window.piphin && window.piphin.info && window.piphin.info.lang ? langOf(window.piphin.info.lang) : null;
+const LANG_LOCKED = !!HUB_LANG;
+let LANG = HUB_LANG || (LANGS[lsGet("lang")] ? lsGet("lang") : sysLang());
 document.documentElement.lang = LANG;
+if (LANG !== "pt-BR") document.write(`<script src="i18n/${LANG}.js"><\/script>`);
 
 // "texto em português": ["English", "Español"]
 const DICT = {
@@ -817,7 +824,9 @@ const DICT = {
 
 function _pick(key) {
   const d = DICT[key];
-  return d ? d[LANG === "en" ? 0 : 1] : null;
+  const x = window.DICT_X && window.DICT_X[key];
+  if (LANG === "en" || LANG === "es") return d ? d[LANG === "en" ? 0 : 1] : x ?? null;
+  return x ?? (d ? d[0] : null); // sem tradução no idioma: inglês
 }
 
 // Traduz uma chave (com {variáveis}). Em português devolve o original.
@@ -888,10 +897,13 @@ function startI18n() {
 
 // troca o idioma (salvo no navegador; a página recarrega para aplicar do zero)
 function setLanguage(lang) {
-  if (!LANGS[lang] || lang === LANG) return false;
+  if (LANG_LOCKED || !LANGS[lang] || lang === LANG) return false;
   try { localStorage.setItem("lang", lang); } catch {}
   location.reload();
   return true;
 }
 
-if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", startI18n); else startI18n();
+// no Hub o idioma é escolhido nas Configurações do Hub
+function hideLangSelect() { const l = LANG_LOCKED && document.getElementById("langSelect"); if (l) l.closest("label").hidden = true; }
+
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => { hideLangSelect(); startI18n(); }); else { hideLangSelect(); startI18n(); }

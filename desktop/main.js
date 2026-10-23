@@ -81,7 +81,8 @@ const curLang = () => {
 };
 function tm(key, vars) {
   const lang = curLang();
-  let s = lang === "pt-BR" ? key : (MAIN_I18N[key]?.[lang === "en" ? 0 : 1] ?? key);
+  // idiomas sem tradução aqui (ไทย, 日本語...) usam o inglês
+  let s = lang === "pt-BR" ? key : (MAIN_I18N[key]?.[lang === "es" ? 1 : 0] ?? key);
   if (vars) s = s.replace(/\{(\w+)\}/g, (m, k) => vars[k] ?? m);
   return s;
 }

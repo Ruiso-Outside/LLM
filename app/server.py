@@ -144,7 +144,10 @@ def save_settings(new):
 
 
 REPLY_RULES = {"pt-BR": "Responda sempre em português do Brasil.", "en": "Always answer in English.",
-               "es": "Responde siempre en español."}
+               "es": "Responde siempre en español.", "th": "ตอบเป็นภาษาไทยเสมอ", "zh": "请始终用简体中文回答。",
+               "ja": "常に日本語で答えてください。", "ko": "항상 한국어로 답하세요.", "id": "Selalu jawab dalam bahasa Indonesia.",
+               "vi": "Luôn trả lời bằng tiếng Việt.", "fr": "Réponds toujours en français.", "de": "Antworte immer auf Deutsch.",
+               "ru": "Всегда отвечай по-русски."}
 
 
 def reply_rule(s=None):

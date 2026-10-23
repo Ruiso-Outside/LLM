@@ -55,7 +55,9 @@ async function refreshStatus() {
   const finished = S.status.tasks.filter(t => t.status === "done" && !S.doneTasks.has(t.id));
   finished.forEach(t => S.doneTasks.add(t.id));
   if (finished.length) { loadMedia(); loadKbs(); }
-  const lang = S.status.settings.language; if (lang && lang !== LANG && !S.generating) return setLanguage(lang);
+  const lang = S.status.settings.language;
+  if (LANG_LOCKED) { if (lang !== LANG && !S.langSynced) { S.langSynced = true; api("/api/settings", { method: "PUT", body: { language: LANG } }).catch(() => {}); } }
+  else if (lang && lang !== LANG && !S.generating) return setLanguage(lang);
   $("#hubBtn").hidden = !S.status.hub_tools;
   renderTopbar(); renderChatList(); renderTasks(); renderStatsBar(); renderModeBars(); renderReaPlaces();
   if ($("#modelsModal").classList.contains("open")) { renderLocalModels(); renderEngine(); }
@@ -1312,7 +1314,7 @@ $("#settingsForm").onsubmit = async e => {
     const reloadKeys = ["ctx_size", "gpu_layers", "cpu_percent", "backend", "extra_args"];
     const needReload = S.status.engine.state === "ready" && reloadKeys.some(k => String(old[k]) !== String(data[k]));
     toast(needReload ? "Salvo. Recarregue o modelo para aplicar contexto/GPU." : "Configurações salvas");
-    if (data.language && data.language !== LANG) return setTimeout(() => setLanguage(data.language), 600);
+    if (!LANG_LOCKED && data.language && data.language !== LANG) return setTimeout(() => setLanguage(data.language), 600);
     refreshStatus();
   } catch (err) { toast(err.message, 5000); }
 };

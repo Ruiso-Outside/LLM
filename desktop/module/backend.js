@@ -90,7 +90,7 @@ exports.activate = (ctx) => {
     }
     serverError = "timeout";
     diag("servidor interno não respondeu ao iniciar");
-    ctx.host.messageBox({ type: "error", message: "O servidor interno não respondeu.", detail: "Veja o log em:\n" + LOG_FILE }).catch(() => {});
+    ctx.host.messageBox({ type: "error", message: "O servidor interno não respondeu.", detail: `Veja o log em:\n${LOG_FILE}` }).catch(() => {});
     return false;
   }
 
@@ -100,7 +100,7 @@ exports.activate = (ctx) => {
     if (restarts.length >= 3) {
       serverError = "crashed";
       diag("servidor caiu 3 vezes em 5 minutos: parei de reiniciar");
-      return ctx.host.messageBox({ type: "error", message: "O servidor interno parou várias vezes.", detail: "Veja o log em:\n" + LOG_FILE }).catch(() => {});
+      return ctx.host.messageBox({ type: "error", message: "O servidor interno parou várias vezes.", detail: `Veja o log em:\n${LOG_FILE}` }).catch(() => {});
     }
     restarts.push(Date.now());
     ctx.host.notify("Piphin LLM", `O servidor interno parou (código ${code}). Reiniciando...`).catch(() => {});
