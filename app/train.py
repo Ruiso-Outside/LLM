@@ -72,12 +72,15 @@ def configure(engine_dir, data_dir, models_dir, **hooks):
 
 # ---------------------------------------------------------------- ambiente de treino
 
+WIN = os.name == "nt"
+
+
 def py():
-    return ENGINE / "venv" / "Scripts" / "python.exe"
+    return ENGINE / "venv" / ("Scripts/python.exe" if WIN else "bin/python")
 
 
 def uv():
-    return ENGINE / "uv.exe"
+    return ENGINE / ("uv.exe" if WIN else "uv")
 
 
 def worker_script():
@@ -127,14 +130,26 @@ def install(task):
     if not uv().is_file():
         task["detail"] = "Baixando o uv (gerenciador de Python)..."
         rel = _hooks["get_json"]("https://api.github.com/repos/astral-sh/uv/releases/latest")
-        asset = next(a for a in rel["assets"] if a["name"] == "uv-x86_64-pc-windows-msvc.zip")
-        z = ENGINE / "uv.zip"
-        _hooks["download"](asset["browser_download_url"], z, task)
-        with zipfile.ZipFile(z) as f:
-            for n in f.namelist():
-                if n.endswith("uv.exe"):
-                    uv().write_bytes(f.read(n))
-        z.unlink(missing_ok=True)
+        if WIN:
+            asset = next(a for a in rel["assets"] if a["name"] == "uv-x86_64-pc-windows-msvc.zip")
+            z = ENGINE / "uv.zip"
+            _hooks["download"](asset["browser_download_url"], z, task)
+            with zipfile.ZipFile(z) as f:
+                for n in f.namelist():
+                    if n.endswith("uv.exe"):
+                        uv().write_bytes(f.read(n))
+            z.unlink(missing_ok=True)
+        else:
+            import tarfile
+            asset = next(a for a in rel["assets"] if a["name"] == "uv-x86_64-unknown-linux-gnu.tar.gz")
+            z = ENGINE / "uv.tar.gz"
+            _hooks["download"](asset["browser_download_url"], z, task)
+            with tarfile.open(z) as t:
+                for m in t.getmembers():
+                    if m.name.endswith("/uv") or m.name == "uv":
+                        uv().write_bytes(t.extractfile(m).read())
+            uv().chmod(0o755)
+            z.unlink(missing_ok=True)
     task["total"] = task["done"] = 0
     if not py().is_file():
         _run([uv(), "venv", "--python", "3.12", "venv"], task, "Criando o Python 3.12 do treino")
@@ -690,7 +705,10 @@ def run_stop(rid, force=False):
         raise ValueError("run não encontrada")
     (r.dir / "STOP").write_text("1", "utf-8")
     if force and r.proc and r.proc.poll() is None:
-        subprocess.run(["taskkill", "/pid", str(r.proc.pid), "/T", "/F"], capture_output=True, creationflags=NO_WINDOW)
+        if WIN:
+            subprocess.run(["taskkill", "/pid", str(r.proc.pid), "/T", "/F"], capture_output=True, creationflags=NO_WINDOW)
+        else:
+            r.proc.kill()
     return r.summary()
 
 
@@ -757,7 +775,7 @@ def run_export(rid, name, quant="Q4_K_M"):
     out = MODELS / "treinados" / f"{slug}-{quant}.gguf"
     llama = Path(_hooks["llama_dir"]() or ".")
     r.cfg.update(out_path=str(out), quant_type=quant, convert_script=str(ENGINE / "convert" / "convert_hf_to_gguf.py"),
-                 quantize_exe=str(llama / "llama-quantize.exe"))
+                 quantize_exe=str(llama / ("llama-quantize.exe" if WIN else "llama-quantize")))
     (d / "config.json").write_text(json.dumps(r.cfg, ensure_ascii=False, indent=1), "utf-8")
     r.state, r.export, r.error = "exporting", {"stage": "start", "quant": quant}, ""
 

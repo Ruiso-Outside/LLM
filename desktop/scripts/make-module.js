@@ -28,7 +28,10 @@ fs.cpSync(path.join(desk, "..", "app"), path.join(stage, "server"), {
 });
 
 fs.rmSync(out, { force: true });
-const tar = path.join(process.env.SystemRoot || "C:\\Windows", "System32", "tar.exe");
-execFileSync(tar, ["-a", "-c", "-f", out, "-C", stage, "."], { stdio: "inherit" });
+// tar do Windows (System32); no Linux, o tar do sistema
+const tar = process.platform === "win32" ? path.join(process.env.SystemRoot || "C:\\Windows", "System32", "tar.exe") : "tar";
+// .zip: o tar do Windows cria pela extensão; no Linux, pelo Python (vem em toda distribuição)
+if (process.platform === "win32") execFileSync(tar, ["-a", "-c", "-f", out, "-C", stage, "."], { stdio: "inherit" });
+else execFileSync("python3", ["-c", "import os,sys,zipfile\nr,o=sys.argv[1],sys.argv[2]\nwith zipfile.ZipFile(o,'w',zipfile.ZIP_DEFLATED) as z:\n for d,_,fs in os.walk(r):\n  for f in fs:\n   p=os.path.join(d,f);z.write(p,os.path.relpath(p,r))", stage, out], { stdio: "inherit" });
 fs.rmSync(stage, { recursive: true, force: true });
 console.log("módulo:", out, `(${(fs.statSync(out).size / 1048576).toFixed(1)} MB)`);

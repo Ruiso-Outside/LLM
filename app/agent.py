@@ -54,7 +54,7 @@ TOOLS = [
         {"pattern": S | {"description": "Expressao regular (Python)"}, "path": S,
          "glob": S | {"description": "Filtro de nome, ex.: *.py"}}, ["pattern"]),
     _fn("delete_path", "Apaga um arquivo ou pasta (pede confirmacao ao usuario).", {"path": S}, ["path"]),
-    _fn("run_command", "Executa um comando no PowerShell do Windows, na raiz do projeto (ou em cwd). "
+    _fn("run_command", ("Executa um comando no PowerShell do Windows" if os.name == "nt" else "Executa um comando no bash do Linux") + ", na raiz do projeto (ou em cwd). "
         "Use para instalar dependencias, compilar, testar e rodar scripts que terminam sozinhos. "
         "NAO inicie servidores ou programas que ficam rodando para sempre.",
         {"command": S, "cwd": S | {"description": "Subpasta relativa onde rodar"},
@@ -77,7 +77,7 @@ def system_prompt(root, has_image_tool):
     return f"""Voce e o Codex do Piphin LLM, um engenheiro de software autonomo trabalhando no computador do usuario.
 
 Ambiente:
-- Sistema: Windows. Comandos rodam no PowerShell (use sintaxe do PowerShell, nao bash).
+- {'Sistema: Windows. Comandos rodam no PowerShell (use sintaxe do PowerShell, nao bash).' if os.name == 'nt' else 'Sistema: Linux. Comandos rodam no bash (use sintaxe do bash).'}
 - Pasta do projeto (raiz): {root}
 - Todos os caminhos das ferramentas sao RELATIVOS a essa pasta; voce nao tem acesso fora dela.
 - Data de hoje: {datetime.now():%d/%m/%Y}.
@@ -281,10 +281,14 @@ def _trim_output(s):
 def tool_run_command(ws, command, cwd=None, timeout=120, heartbeat=None):
     d = ws.path(cwd or ".")
     timeout = max(5, min(int(timeout or 120), 900))
-    proc = subprocess.Popen(["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command",
-                             "[Console]::OutputEncoding=[Text.Encoding]::UTF8; " + command],
-                            cwd=str(d), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                            creationflags=NO_WINDOW)
+    if os.name == "nt":
+        proc = subprocess.Popen(["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command",
+                                 "[Console]::OutputEncoding=[Text.Encoding]::UTF8; " + command],
+                                cwd=str(d), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                                creationflags=NO_WINDOW)
+    else:  # Linux: bash, num grupo de processos próprio para encerrar tudo de uma vez
+        proc = subprocess.Popen(["bash", "-lc", command], cwd=str(d), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                stdin=subprocess.DEVNULL, start_new_session=True)
     chunks = []
     reader = threading.Thread(target=lambda: chunks.append(proc.stdout.read()), daemon=True)
     reader.start()
@@ -299,7 +303,14 @@ def tool_run_command(ws, command, cwd=None, timeout=120, heartbeat=None):
             break
         time.sleep(0.5)
     if proc.poll() is None:
-        subprocess.run(["taskkill", "/pid", str(proc.pid), "/T", "/F"], capture_output=True, creationflags=NO_WINDOW)
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/pid", str(proc.pid), "/T", "/F"], capture_output=True, creationflags=NO_WINDOW)
+        else:
+            import signal
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except OSError:
+                pass
     reader.join(5)
     out = (chunks[0] if chunks else b"").decode("utf-8", "replace").replace("\r\n", "\n").strip()
     if timed_out is None:

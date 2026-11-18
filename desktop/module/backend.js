@@ -10,7 +10,9 @@ const { spawn, spawnSync } = require("child_process");
 const PORT = Number(process.env.LLM_PORT) || 8765;
 const BASE = `http://127.0.0.1:${PORT}`;
 const QUICK_W = 720;
-const CONFIG_FILE = path.join(process.env.APPDATA, "LLM Local", "config.json");
+const IS_WIN = process.platform === "win32";
+// Linux: ~/.config/LLM Local (o mesmo lugar que o app separado usa no Linux)
+const CONFIG_FILE = path.join(process.env.APPDATA || process.env.XDG_CONFIG_HOME || path.join(require("os").homedir(), ".config"), "LLM Local", "config.json");
 
 exports.activate = (ctx) => {
   const SERVER_DIR = path.join(ctx.dir, "server");
@@ -64,15 +66,16 @@ exports.activate = (ctx) => {
     if (!py) {
       serverError = "python";
       const r = await ctx.host.messageBox({ type: "error", message: "Python não encontrado",
-        detail: "O Piphin LLM precisa do Python 3.9 ou mais novo.\nInstale em python.org marcando a opção \"Add python.exe to PATH\" e abra o módulo de novo.",
-        buttons: ["Abrir python.org", "Fechar"] });
-      if (r === 0) ctx.emit("open-url", "https://www.python.org/downloads/");
+        detail: IS_WIN ? "O Piphin LLM precisa do Python 3.9 ou mais novo.\nInstale em python.org marcando a opção \"Add python.exe to PATH\" e abra o módulo de novo."
+          : "O Piphin LLM precisa do Python 3.9 ou mais novo.\nNo terminal: sudo apt install python3  e abra o módulo de novo.",
+        buttons: IS_WIN ? ["Abrir python.org", "Fechar"] : ["Fechar"] });
+      if (IS_WIN && r === 0) ctx.emit("open-url", "https://www.python.org/downloads/");
       return false;
     }
     fs.mkdirSync(config.homeDir, { recursive: true });
     const log = fs.createWriteStream(LOG_FILE, { flags: "w" });
     server = spawn(py[0], [...py[1], path.join(SERVER_DIR, "server.py")], {
-      cwd: SERVER_DIR, windowsHide: true, stdio: ["ignore", "pipe", "pipe"],
+      cwd: SERVER_DIR, windowsHide: true, stdio: ["ignore", "pipe", "pipe"], detached: !IS_WIN, // Linux: grupo próprio para encerrar a árvore
       // LLM_PARENT_PID: o servidor se encerra sozinho se este módulo cair
       env: { ...process.env, LLM_HOME: config.homeDir, LLM_PORT: String(PORT), LLM_PARENT_PID: String(process.pid),
         PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8", PYTHONDONTWRITEBYTECODE: "1" },
@@ -113,6 +116,7 @@ exports.activate = (ctx) => {
     if (!server) return;
     const pid = server.pid; server = null; serverReady = false;
     // encerra a árvore toda (python + llama-server)
+    if (!IS_WIN) { try { process.kill(-pid, "SIGTERM"); setTimeout(() => { try { process.kill(-pid, "SIGKILL"); } catch { /* saiu */ } }, 3000); } catch { /* já saiu */ } return; }
     try { spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], { windowsHide: true, timeout: 5000 }); } catch { /* já saiu */ }
   }
 

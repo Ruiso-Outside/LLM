@@ -410,9 +410,16 @@ def diag_sampler():
 
 
 def ram_info():
-    """Memoria RAM total e disponivel (MB), pelo Windows."""
+    """Memoria RAM total e disponivel (MB), pelo Windows (no Linux, pelo /proc/meminfo)."""
     if os.name != "nt":
-        return 0, 0
+        try:
+            info = {}
+            for line in Path("/proc/meminfo").read_text().splitlines():
+                k, _, v = line.partition(":")
+                info[k] = int(v.split()[0]) // 1024
+            return info.get("MemTotal", 0), info.get("MemAvailable", info.get("MemFree", 0))
+        except (OSError, ValueError):
+            return 0, 0
     import ctypes
 
     class MEMSTAT(ctypes.Structure):
@@ -441,15 +448,26 @@ def installed_backends():
 
 def install_engine(task, backend):
     task["detail"] = "Consultando versao mais recente do llama.cpp..."
-    # os builds "bNNNN" sao marcados como prerelease; pega o mais novo que tenha binarios Windows
+    # os builds "bNNNN" sao marcados como prerelease; pega o mais novo que tenha binarios do sistema
+    # (Windows: -bin-win-; Linux: -bin-ubuntu-, que tambem roda no Zorin, Mint, Pop!_OS e outros)
+    linux = os.name != "nt"
+    tagos = "-bin-ubuntu-" if linux else "-bin-win-"
     releases = get_json("https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=15")
-    rel = next((r for r in releases if any("-bin-win-" in a["name"] for a in r.get("assets", []))), None)
+    rel = next((r for r in releases if any(tagos in a["name"] for a in r.get("assets", []))), None)
     if not rel:
-        raise RuntimeError("Nenhuma versao do llama.cpp com binarios para Windows encontrada.")
+        raise RuntimeError("Nenhuma versao do llama.cpp com binarios para " + ("Linux" if linux else "Windows") + " encontrada.")
     assets = {a["name"]: (a["browser_download_url"], a.get("size", 0)) for a in rel.get("assets", [])}
     tag = rel.get("tag_name", "")
     files = []
-    if backend == "cuda":
+    if linux and backend == "cuda":
+        raise RuntimeError("O llama.cpp nao tem pacote CUDA pronto para Linux. Use o motor Vulkan: ele funciona nas placas NVIDIA, AMD e Intel.")
+    if linux:
+        pat = {"vulkan": r"llama-.*-bin-ubuntu-vulkan-x64\.(zip|tar\.gz)$", "cpu": r"llama-.*-bin-ubuntu-x64\.(zip|tar\.gz)$"}[backend]
+        name = next((n for n in assets if re.match(pat, n)), None)
+        if not name:
+            raise RuntimeError(f"Pacote '{backend}' para Linux nao encontrado na versao {tag}.")
+        files.append(name)
+    elif backend == "cuda":
         cands = []
         for n in assets:
             m = re.match(r"llama-.*-bin-win-cuda-([\d.]+)-x64\.zip$", n)
@@ -484,10 +502,19 @@ def install_engine(task, backend):
     shutil.rmtree(dest, ignore_errors=True)
     dest.mkdir()
     for f in files:
-        with zipfile.ZipFile(tmp / f) as z:
-            z.extractall(dest)
+        if f.endswith(".tar.gz"):
+            import tarfile
+            with tarfile.open(tmp / f) as t:
+                t.extractall(dest, filter="data") if hasattr(tarfile, "data_filter") else t.extractall(dest)  # noqa: S202
+        else:
+            with zipfile.ZipFile(tmp / f) as z:
+                z.extractall(dest)
+    if linux:  # o .zip nao guarda a permissao de executar: programas e bibliotecas
+        for x in dest.rglob("*"):
+            if x.is_file() and (x.suffix in ("", ".so") or ".so." in x.name):
+                x.chmod(0o755)
     # bibliotecas do CUDA precisam ficar na mesma pasta do executavel
-    exe = next(dest.rglob("llama-server.exe"), None)
+    exe = next(dest.rglob("llama-server.exe" if not linux else "llama-server"), None)
     if exe and exe.parent != dest:
         for dll in dest.glob("*.dll"):
             if not (exe.parent / dll.name).exists():
@@ -603,8 +630,11 @@ class EngineProcess:
             cmd += [a.strip('"') for a in shlex.split(s["extra_args"], posix=False)]
         self.log.clear()
         self.log.append("> " + " ".join(f'"{c}"' if " " in c else c for c in cmd))
+        env = None
+        if os.name != "nt":  # as bibliotecas .so do llama.cpp ficam ao lado do programa
+            env = {**os.environ, "LD_LIBRARY_PATH": os.pathsep.join(filter(None, [str(Path(cmd[0]).parent), os.environ.get("LD_LIBRARY_PATH", "")]))}
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                                cwd=str(Path(cmd[0]).parent),
+                                cwd=str(Path(cmd[0]).parent), env=env,
                                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         if self.job:
             try:
@@ -1807,6 +1837,8 @@ class Handler(BaseHTTPRequestHandler):
                 folder = {"models": MODELS, "data": DATA, "engine": ENGINE}.get(b.get("which"), ROOT)
                 if os.name == "nt":
                     os.startfile(folder)  # noqa: S606
+                else:
+                    subprocess.Popen(["xdg-open", str(folder)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)  # noqa: S603,S607
                 return self.send_json({"ok": True})
             return self.send_json({"error": "rota desconhecida"}, 404)
         except ValueError as e:
@@ -2580,7 +2612,23 @@ def configure_train():
 def watch_parent():
     """Encerra o servidor quando o app desktop que o abriu fecha (mesmo se fechar a forca)."""
     pid = int(os.environ.get("LLM_PARENT_PID") or 0)
-    if not pid or os.name != "nt":
+    if not pid:
+        return
+    if os.name != "nt":  # Linux: confere a cada 2 s se o app ainda existe
+        def poll():
+            while True:
+                time.sleep(2)
+                try:
+                    os.kill(pid, 0)
+                except ProcessLookupError:
+                    break
+                except PermissionError:
+                    continue
+            mcp.MANAGER.stop()
+            POOL.stop()
+            ENGINE_PROC.stop()
+            os._exit(0)
+        threading.Thread(target=poll, daemon=True).start()
         return
     import ctypes
     k32 = ctypes.WinDLL("kernel32")

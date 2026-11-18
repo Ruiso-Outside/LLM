@@ -126,11 +126,16 @@ def extract_text_path(p):
 
 # ---------------------------------------------------------------- instalacao dos motores
 
+LINUX = os.name != "nt"
+
+
 def _latest_win_release(repo):
+    """Versao mais nova com binarios deste sistema (Windows, ou Linux quando roda no Linux)."""
+    key = "linux" if LINUX else "win"
     for r in _get_json(f"https://api.github.com/repos/{repo}/releases?per_page=15"):
-        if any("win" in a["name"].lower() for a in r.get("assets", [])):
+        if any(key in a["name"].lower() for a in r.get("assets", [])):
             return r
-    raise RuntimeError(f"Nenhuma versao com binarios Windows em {repo}.")
+    raise RuntimeError(f"Nenhuma versao com binarios {'Linux' if LINUX else 'Windows'} em {repo}.")
 
 
 def _pick(assets, pattern):
@@ -163,6 +168,10 @@ def _install(task, repo, files, dest_name, exe_names):
     for f in files:
         with zipfile.ZipFile(tmp / f) as z:
             z.extractall(dest)
+    if LINUX:  # o .zip nao guarda a permissao de executar
+        for x in dest.rglob("*"):
+            if x.is_file() and (x.suffix in ("", ".so") or ".so." in x.name):
+                x.chmod(0o755)
     exe = find_exe(dest_name, exe_names)
     if not exe:
         raise RuntimeError("Executavel nao encontrado no pacote baixado.")
@@ -234,7 +243,7 @@ def install_embed_model(task, _value=""):
 
 # ---------------------------------------------------------------- audio: whisper.cpp
 
-WHISPER_EXE = ("whisper-cli.exe", "main.exe")
+WHISPER_EXE = ("whisper-cli.exe", "main.exe", "whisper-cli")
 WHISPER_MODELS = {
     "large-v3-turbo-q5_0": "Large v3 Turbo (melhor, 530 MB)",
     "small-q8_0": "Small (bom e leve, 250 MB)",
@@ -244,6 +253,8 @@ WHISPER_MODELS = {
 
 def install_whisper(task, backend):
     task["detail"] = "Consultando versao do whisper.cpp..."
+    if LINUX:
+        raise RuntimeError("O whisper.cpp nao publica o programa pronto para Linux. Por enquanto, a transcricao de audio fica so no Windows.")
     rel = _latest_win_release("ggml-org/whisper.cpp")
     names = [a["name"] for a in rel["assets"]]
     if backend == "cuda":
@@ -290,7 +301,7 @@ def transcribe(fid, model_name="", language="auto", threads=0):
 
 # ---------------------------------------------------------------- imagem: stable-diffusion.cpp
 
-SD_EXE = ("sd-cli.exe", "sd.exe")
+SD_EXE = ("sd-cli.exe", "sd.exe", "sd-cli", "sd")
 IMAGE_PRESETS = {
     "z-image-turbo": {
         "name": "Z-Image Turbo",
@@ -313,6 +324,12 @@ def install_sd(task, backend):
     task["detail"] = "Consultando versao do stable-diffusion.cpp..."
     rel = _latest_win_release("leejet/stable-diffusion.cpp")
     names = [a["name"] for a in rel["assets"]]
+    if LINUX:  # pacotes do Linux: "...-bin-Linux-Ubuntu-...-x86_64(-vulkan).zip"
+        lx = [n for n in names if re.search(r"linux", n, re.I) and n.endswith(".zip") and re.search(r"x86_64|x64", n)]
+        vk = [n for n in lx if "vulkan" in n.lower()]
+        f = (vk if backend in ("vulkan", "cuda") and vk else [n for n in lx if "vulkan" not in n.lower()] or lx or [None])[0]
+        _install(task, "leejet/stable-diffusion.cpp", [f] if f else [], "sd", SD_EXE)
+        return
     if backend == "cuda":
         f = _pick(names, r"sd-.*-bin-win-cuda(\d+)-x64\.zip$")
         files = [f, _pick(names, r"cudart-sd-bin-win-cu(\d+)-x64\.zip$")]

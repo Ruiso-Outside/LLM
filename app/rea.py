@@ -28,8 +28,11 @@ def configure(engine_dir, download, get_json):
     _download, _get_json = download, get_json
 
 
+WIN = os.name == "nt"
+
+
 def node_exe():
-    return ROOT / "node" / "node.exe"
+    return ROOT / "node" / ("node.exe" if WIN else "bin/node")
 
 
 def rea_script():
@@ -37,7 +40,7 @@ def rea_script():
 
 
 def cli_path():
-    return ROOT / "rea.cmd"
+    return ROOT / ("rea.cmd" if WIN else "rea")
 
 
 def installed():
@@ -61,7 +64,7 @@ def mcp_command():
 
 def _env():
     env = dict(os.environ)
-    env["PATH"] = str(ROOT / "node") + os.pathsep + env.get("PATH", "")
+    env["PATH"] = str(ROOT / "node" / ("" if WIN else "bin")) + os.pathsep + env.get("PATH", "")
     env.update(NO_UPDATE_NOTIFIER="1", NPM_CONFIG_UPDATE_NOTIFIER="false", NPM_CONFIG_FUND="false", NPM_CONFIG_AUDIT="false")
     return env
 
@@ -70,9 +73,9 @@ def _pick_node():
     """Versao LTS mais nova do Node 24 com pacote .zip para Windows x64."""
     for rel in _get_json("https://nodejs.org/dist/index.json"):
         v = rel.get("version", "")
-        if v.startswith(f"v{NODE_MAJOR}.") and rel.get("lts") and "win-x64-zip" in rel.get("files", []):
+        if v.startswith(f"v{NODE_MAJOR}.") and rel.get("lts") and ("win-x64-zip" if WIN else "linux-x64") in rel.get("files", []):
             return v
-    raise RuntimeError(f"Não encontrei o Node.js {NODE_MAJOR} para Windows em nodejs.org.")
+    raise RuntimeError(f"Não encontrei o Node.js {NODE_MAJOR} para {'Windows' if WIN else 'Linux'} em nodejs.org.")
 
 
 def _sha256(path):
@@ -93,27 +96,33 @@ def install(task):
         # 1) Node.js portatil oficial, conferido pelo SHA-256 publicado em nodejs.org
         task["detail"] = "Consultando o Node.js..."
         ver = _pick_node()
-        name = f"node-{ver}-win-x64"
+        name = f"node-{ver}-{'win' if WIN else 'linux'}-x64"
+        ext = ".zip" if WIN else ".tar.xz"
         base = f"https://nodejs.org/dist/{ver}/"
         with urllib.request.urlopen(base + "SHASUMS256.txt", timeout=30) as r:
             sums = r.read().decode("utf-8", "replace")
-        m = re.search(rf"^([0-9a-f]{{64}})\s+{re.escape(name)}\.zip$", sums, re.M)
+        m = re.search(rf"^([0-9a-f]{{64}})\s+{re.escape(name + ext)}$", sums, re.M)
         if not m:
             raise RuntimeError("Não encontrei a assinatura SHA-256 do Node.js.")
         task["detail"] = f"Node.js {ver}"
-        zpath = tmp / f"{name}.zip"
-        _download(base + f"{name}.zip", zpath, task, 0)
+        zpath = tmp / f"{name}{ext}"
+        _download(base + f"{name}{ext}", zpath, task, 0)
         if _sha256(zpath) != m.group(1):
             raise RuntimeError("O Node.js baixado está corrompido (SHA-256 diferente). Tente de novo.")
         task["detail"] = "Extraindo o Node.js..."
-        with zipfile.ZipFile(zpath) as z:
-            z.extractall(tmp)
+        if WIN:
+            with zipfile.ZipFile(zpath) as z:
+                z.extractall(tmp)
+        else:  # o .tar.xz guarda as permissoes de executar
+            import tarfile
+            with tarfile.open(zpath, "r:xz") as t:
+                t.extractall(tmp, filter="data") if hasattr(tarfile, "data_filter") else t.extractall(tmp)  # noqa: S202
         shutil.rmtree(ROOT / "node", ignore_errors=True)
         shutil.move(str(tmp / name), str(ROOT / "node"))
         # 2) rea-agents na versao fixa, sem scripts de instalacao
         task["detail"] = f"Instalando o REA {REA_VERSION} (cerca de 250 MB)..."
         task["total"], task["done"] = 0, 0
-        npm = ROOT / "node" / "node_modules" / "npm" / "bin" / "npm-cli.js"
+        npm = ROOT / "node" / ("node_modules" if WIN else "lib/node_modules") / "npm" / "bin" / "npm-cli.js"
         shutil.rmtree(ROOT / "pkg", ignore_errors=True)
         (ROOT / "pkg").mkdir()
         cmd = [str(node_exe()), str(npm), "install", f"rea-agents@{REA_VERSION}", "--prefix", str(ROOT / "pkg"),
@@ -129,8 +138,13 @@ def install(task):
         if p.wait() != 0 or not rea_script().is_file():
             raise RuntimeError("Falha ao instalar o REA: " + " | ".join(l for l in out[-4:] if l))
         # 3) atalho para o terminal do Codex
-        cli_path().write_text('@echo off\r\nset NO_UPDATE_NOTIFIER=1\r\n'
-                              '"%~dp0node\\node.exe" "%~dp0pkg\\node_modules\\rea-agents\\scripts\\rea.mjs" %*\r\n', "utf-8")
+        if WIN:
+            cli_path().write_text('@echo off\r\nset NO_UPDATE_NOTIFIER=1\r\n'
+                                  '"%~dp0node\\node.exe" "%~dp0pkg\\node_modules\\rea-agents\\scripts\\rea.mjs" %*\r\n', "utf-8")
+        else:
+            cli_path().write_text('#!/bin/sh\nexport NO_UPDATE_NOTIFIER=1\nD="$(dirname "$(readlink -f "$0")")"\n'
+                                  'exec "$D/node/bin/node" "$D/pkg/node_modules/rea-agents/scripts/rea.mjs" "$@"\n', "utf-8")
+            cli_path().chmod(0o755)
         (ROOT / "versao.json").write_text(json.dumps({"rea": REA_VERSION, "node": ver, "installed": time.time()}), "utf-8")
         task["detail"] = f"REA {REA_VERSION} pronto (funciona sem internet)"
     finally:
