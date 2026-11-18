@@ -66,8 +66,8 @@ exports.activate = (ctx) => {
     if (!py) {
       serverError = "python";
       const r = await ctx.host.messageBox({ type: "error", message: "Python não encontrado",
-        detail: IS_WIN ? "O Piphin LLM precisa do Python 3.9 ou mais novo.\nInstale em python.org marcando a opção \"Add python.exe to PATH\" e abra o módulo de novo."
-          : "O Piphin LLM precisa do Python 3.9 ou mais novo.\nNo terminal: sudo apt install python3  e abra o módulo de novo.",
+        detail: IS_WIN ? "O Arasaka Mikoshi precisa do Python 3.9 ou mais novo.\nInstale em python.org marcando a opção \"Add python.exe to PATH\" e abra o módulo de novo."
+          : "O Arasaka Mikoshi precisa do Python 3.9 ou mais novo.\nNo terminal: sudo apt install python3  e abra o módulo de novo.",
         buttons: IS_WIN ? ["Abrir python.org", "Fechar"] : ["Fechar"] });
       if (IS_WIN && r === 0) ctx.emit("open-url", "https://www.python.org/downloads/");
       return false;
@@ -106,7 +106,7 @@ exports.activate = (ctx) => {
       return ctx.host.messageBox({ type: "error", message: "O servidor interno parou várias vezes.", detail: `Veja o log em:\n${LOG_FILE}` }).catch(() => {});
     }
     restarts.push(Date.now());
-    ctx.host.notify("Piphin LLM", `O servidor interno parou (código ${code}). Reiniciando...`).catch(() => {});
+    ctx.host.notify("Arasaka Mikoshi", `O servidor interno parou (código ${code}). Reiniciando...`).catch(() => {});
     await new Promise((r) => setTimeout(r, 1500));
     if (stopping) return;
     if (await startServer()) { diag("servidor reiniciado"); ctx.host.reloadView().catch(() => {}); ctx.host.reloadWindows().catch(() => {}); }
@@ -183,11 +183,11 @@ exports.activate = (ctx) => {
   ctx.handle("set-voice-hotkey", (k) => setHotkey("voiceHotkey", k));
   ctx.handle("set-screen-hotkey", (k) => setHotkey("screenHotkey", k));
   ctx.handle("set-option", async (key, value) => {
-    if (key === "autoStart") return ctx.host.setStartWithWindows(!!value); // no Hub, é o Hub que inicia com o Windows
+    if (key === "autoStart") return ctx.host.setStartWithWindows(!!value); // na Central, é a Central que inicia com o Windows
     if (key === "quickHideOnBlur") { config.quickHideOnBlur = !!value; saveConfig(); }
   });
   ctx.handle("choose-home", async () => {
-    const dirs = await ctx.host.openDialog({ title: "Pasta de dados do Piphin LLM", properties: ["openDirectory", "createDirectory"], defaultPath: config.homeDir });
+    const dirs = await ctx.host.openDialog({ title: "Pasta de dados do Arasaka Mikoshi", properties: ["openDirectory", "createDirectory"], defaultPath: config.homeDir });
     const dir = dirs && dirs[0];
     if (!dir || dir === config.homeDir) return null;
     config.homeDir = dir; saveConfig();
@@ -219,9 +219,9 @@ exports.activate = (ctx) => {
     await openQuick();
     const busy = [];
     for (const key of Object.keys(actions)) if (!(await bind(key, config[key]))) busy.push(prettyKey(config[key]));
-    if (busy.length) ctx.host.notify("Piphin LLM", `Atalho já em uso por outro programa: ${busy.join(", ")}. Troque em Configurações → App desktop.`).catch(() => {});
+    if (busy.length) ctx.host.notify("Arasaka Mikoshi", `Atalho já em uso por outro programa: ${busy.join(", ")}. Troque em Configurações → App desktop.`).catch(() => {});
     // a pergunta rápida precisa do Hub rodando: fechar a janela só o esconde
-    ctx.host.keepAlive(true, "pergunta rápida do Piphin LLM").catch(() => {});
+    ctx.host.keepAlive(true, "pergunta rápida do Arasaka Mikoshi").catch(() => {});
   }
 
   (async () => {
@@ -232,7 +232,7 @@ exports.activate = (ctx) => {
         buttons: ["Usar a pasta padrão", "Escolher outra pasta..."], defaultId: 0, cancelId: 0 });
       let dir = def;
       if (r === 1) {
-        const dirs = await ctx.host.openDialog({ title: "Pasta de dados do Piphin LLM", properties: ["openDirectory", "createDirectory"], defaultPath: def });
+        const dirs = await ctx.host.openDialog({ title: "Pasta de dados do Arasaka Mikoshi", properties: ["openDirectory", "createDirectory"], defaultPath: def });
         if (dirs && dirs[0]) dir = dirs[0];
       }
       config.homeDir = dir; saveConfig();

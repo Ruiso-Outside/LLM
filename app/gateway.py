@@ -1,9 +1,9 @@
-"""API local do Piphin LLM para outros programas (Visual Studio, VS Code, Unreal Engine, scripts...).
+"""API local do Arasaka Mikoshi para outros programas (Visual Studio, VS Code, Unreal Engine, scripts...).
 
 Fala dois "idiomas" na mesma porta (padrao 11434, a mesma do Ollama):
 - Ollama: /api/tags, /api/show, /api/chat, /api/generate, /api/embed, /api/ps, /api/version
 - OpenAI: /v1/models, /v1/chat/completions, /v1/completions, /v1/embeddings
-Os pedidos vao para os modelos do Piphin LLM (carregados sob demanda). So aceita conexoes do proprio PC,
+Os pedidos vao para os modelos do Arasaka Mikoshi (carregados sob demanda). So aceita conexoes do proprio PC,
 bloqueia paginas da web e pode exigir uma chave (Authorization: Bearer <chave> ou X-API-Key).
 """
 import base64
@@ -176,7 +176,7 @@ def make_handler(S):
         def allowed(self):
             origin = self.headers.get("Origin")
             if origin and not re.match(r"^(https?://(127\.0\.0\.1|localhost)(:\d+)?|vscode-webview://.*|vscode-file://.*|null)$", origin):
-                self.send_json({"error": "origem bloqueada: a API do Piphin LLM só aceita programas do próprio PC"}, 403)
+                self.send_json({"error": "origem bloqueada: a API do Arasaka Mikoshi só aceita programas do próprio PC"}, 403)
                 return False
             s = S.load_settings()
             if s.get("api_require_key") and s.get("api_key"):
@@ -213,7 +213,7 @@ def make_handler(S):
                 if last and (S.MODELS / last).is_file():
                     rel = last
                 else:
-                    raise RuntimeError("Nenhum modelo carregado no Piphin LLM.")
+                    raise RuntimeError("Nenhum modelo carregado no Arasaka Mikoshi.")
             return S.POOL.use(rel, S.load_settings())
 
         def sampling(self, payload, rel):
@@ -296,7 +296,7 @@ def make_handler(S):
                         return self.send_json({"embedding": vecs[0] if vecs else []})
                     return self.send_json({"model": b.get("model", ""), "embeddings": vecs})
                 if p in ("/api/pull", "/api/push", "/api/create", "/api/copy", "/api/delete"):
-                    return self.send_json({"error": "Gerencie os modelos pelo Piphin LLM (Modelos → Baixar modelos)."}, 501)
+                    return self.send_json({"error": "Gerencie os modelos pelo Arasaka Mikoshi (Modelos → Baixar modelos)."}, 501)
                 if p == "/v1/chat/completions":
                     return self.openai_proxy(b, "/v1/chat/completions")
                 if p == "/v1/completions":
@@ -316,7 +316,7 @@ def make_handler(S):
         do_PUT = do_POST
 
         def do_DELETE(self):
-            self.send_json({"error": "Gerencie os modelos pelo Piphin LLM."}, 501)
+            self.send_json({"error": "Gerencie os modelos pelo Arasaka Mikoshi."}, 501)
 
         # -- OpenAI: repassa para o motor (mantem o streaming)
         def openai_proxy(self, b, path):

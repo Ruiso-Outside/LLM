@@ -1,4 +1,4 @@
-"""Treino do Piphin LLM: fine-tuning LoRA/QLoRA e exportacao para GGUF.
+"""Treino do Arasaka Mikoshi: fine-tuning LoRA/QLoRA e exportacao para GGUF.
 
 Roda no ambiente Python proprio do treino (engine/train/venv, com PyTorch + CUDA), chamado pelo servidor:
     python train_worker.py probe

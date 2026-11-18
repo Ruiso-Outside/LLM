@@ -8,8 +8,8 @@
 <style>
   html, body { background: transparent; height: auto; overflow: hidden; }
   body { padding: 10px; }
-  .card { background: linear-gradient(180deg, #10121cf7, #0b0d15f7); border: 1px solid #7c5cff55; border-radius: 18px;
-    box-shadow: 0 16px 48px #000b, 0 0 28px #7c5cff2e; overflow: hidden; }
+  .card { background: linear-gradient(180deg, #171515f7, #110f0ff7); border: 1px solid #ff5c5c55; border-radius: 2px;
+    box-shadow: 0 16px 48px #000000bb, 0 0 28px #ff5c5c2e; overflow: hidden; }
   .ask { display: flex; align-items: flex-start; gap: 10px; padding: 14px 14px 12px 16px; }
   .ask .bolt { font-size: 20px; line-height: 30px; filter: saturate(1.3); }
   #q { flex: 1; background: none; border: 0; outline: 0; resize: none; font-size: 17px; line-height: 30px; max-height: 150px; padding: 0; }
@@ -24,7 +24,7 @@
     font-size: 12px; color: var(--muted); background: #0000001f; }
   .foot .st { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .foot .st.ok { color: var(--ok); } .foot .st.warn { color: var(--warn); } .foot .st.err { color: var(--err); }
-  .foot button { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 12px; padding: 4px 8px; border-radius: 7px; white-space: nowrap; }
+  .foot button { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 12px; padding: 4px 8px; border-radius: 2px; white-space: nowrap; }
   .foot button:hover { background: #ffffff12; color: var(--text); }
   .foot button.on { color: var(--accent2); }
   .mic-btn { border: 0; background: none; font-size: 18px; cursor: pointer; padding: 0 4px; line-height: 30px; opacity: .8; }
@@ -33,14 +33,14 @@
   @keyframes pulse { 50% { transform: scale(1.18); filter: drop-shadow(0 0 6px #f2686a); } }
   .ctx-tray { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 14px 10px 46px; }
   .ctx-tray:empty { display: none; }
-  .ctx-chip { display: flex; align-items: center; gap: 6px; background: #ffffff0f; border: 1px solid #ffffff1a; border-radius: 9px;
-    padding: 3px 4px 3px 4px; font-size: 12px; color: #c9cbd6; max-width: 260px; }
-  .ctx-chip img { height: 34px; max-width: 60px; object-fit: cover; border-radius: 6px; }
+  .ctx-chip { display: flex; align-items: center; gap: 6px; background: #ffffff0f; border: 1px solid #ffffff1a; border-radius: 2px;
+    padding: 3px 4px 3px 4px; font-size: 12px; color: #f8a7a7; max-width: 260px; }
+  .ctx-chip img { height: 34px; max-width: 60px; object-fit: cover; border-radius: 2px; }
   .ctx-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-left: 4px; }
-  .ctx-chip button { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 12px; padding: 2px 5px; border-radius: 6px; }
+  .ctx-chip button { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 12px; padding: 2px 5px; border-radius: 2px; }
   .ctx-chip button:hover { background: #ffffff14; color: var(--text); }
   .msg.user .ctx-tags { font-size: 12px; color: var(--muted); margin-bottom: 2px; }
-  kbd { font: 11px var(--mono); background: #ffffff14; border-radius: 4px; padding: 1px 4px; color: #aeb1c0; }
+  kbd { font: 11px var(--mono); background: #ffffff14; border-radius: 2px; padding: 1px 4px; color: #f47a7a; }
 </style>
 </head>
 <body>

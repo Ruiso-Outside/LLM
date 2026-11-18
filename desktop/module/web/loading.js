@@ -1,9 +1,9 @@
 // Espera o servidor Python do módulo subir e abre a interface do Piphin LLM (servida por ele).
 const $ = (s) => document.querySelector(s);
 const MSG = {
-  python: ["Python não encontrado", "O Piphin LLM precisa do Python 3.9 ou mais novo. Instale em python.org marcando \"Add python.exe to PATH\" e tente de novo."],
-  timeout: ["O servidor não respondeu", "Veja o log em %APPDATA%\\Piphin Hub\\module-data\\llm-local\\server.log e tente de novo."],
-  crashed: ["O servidor parou várias vezes", "Veja o log em %APPDATA%\\Piphin Hub\\module-data\\llm-local\\server.log e tente de novo."],
+  python: ["Python não encontrado", "O Arasaka Mikoshi precisa do Python 3.9 ou mais novo. Instale em python.org marcando \"Add python.exe to PATH\" e tente de novo."],
+  timeout: ["O servidor não respondeu", "Veja o log em %APPDATA%\\Arasaka Central\\module-data\\llm-local\\server.log e tente de novo."],
+  crashed: ["O servidor parou várias vezes", "Veja o log em %APPDATA%\\Arasaka Central\\module-data\\llm-local\\server.log e tente de novo."],
 };
 
 async function poll() {
@@ -23,7 +23,7 @@ async function poll() {
 $("#retry").onclick = async () => {
   $("#retry").hidden = true;
   $("#spin").hidden = false;
-  $("#title").textContent = "Iniciando o Piphin LLM...";
+  $("#title").textContent = "Iniciando o Arasaka Mikoshi...";
   $("#text").textContent = "Ligando o servidor local.";
   await piphin.invoke("retry");
   poll();

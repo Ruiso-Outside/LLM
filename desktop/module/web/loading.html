@@ -3,25 +3,25 @@
 <head>
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'">
-  <title>Piphin LLM</title>
+  <title>Arasaka Mikoshi</title>
   <style>
-    html, body { margin: 0; height: 100%; background: #0f1014; color: #e6e7ee; font: 14px/1.5 "Segoe UI", system-ui, sans-serif; }
+    html, body { margin: 0; height: 100%; background: #121111; color: #fcd8d8; font: 14px/1.5 "Segoe UI", system-ui, sans-serif; }
     body { display: grid; place-items: center; }
     .box { text-align: center; max-width: 440px; padding: 24px; }
-    img { width: 76px; height: 76px; border-radius: 20px; filter: drop-shadow(0 10px 24px rgba(34, 211, 238, .25)); }
+    img { width: 76px; height: 76px; border-radius: 2px; filter: drop-shadow(0 10px 24px rgba(255, 0, 0, .25)); }
     h2 { margin: 14px 0 6px; font-size: 18px; font-weight: 600; }
-    p { margin: 0; color: #9aa0b4; }
-    .spin { width: 22px; height: 22px; margin: 18px auto 0; border: 3px solid #2a2d3a; border-top-color: #22d3ee; border-radius: 50%; animation: s 0.9s linear infinite; }
+    p { margin: 0; color: #f25c5c; }
+    .spin { width: 22px; height: 22px; margin: 18px auto 0; border: 3px solid #343030; border-top-color: #ff0000; border-radius: 50%; animation: s 0.9s linear infinite; }
     @keyframes s { to { transform: rotate(360deg); } }
-    button { margin-top: 18px; padding: 8px 16px; border-radius: 10px; border: 1px solid #2a2d3a; background: #1a1c25; color: #e6e7ee; cursor: pointer; font: inherit; }
-    button:hover { border-color: #22d3ee; }
+    button { margin-top: 18px; padding: 8px 16px; border-radius: 2px; border: 1px solid #343030; background: #211e1e; color: #fcd8d8; cursor: pointer; font: inherit; }
+    button:hover { border-color: #ff0000; }
     [hidden] { display: none !important; }
   </style>
 </head>
 <body>
   <div class="box">
     <img src="../icons/llm.png" alt="">
-    <h2 id="title">Iniciando o Piphin LLM...</h2>
+    <h2 id="title">Iniciando o Arasaka Mikoshi...</h2>
     <p id="text">Ligando o servidor local. Na primeira vez pode levar alguns segundos.</p>
     <div class="spin" id="spin"></div>
     <button id="retry" hidden>Tentar de novo</button>

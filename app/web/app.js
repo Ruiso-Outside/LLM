@@ -11,7 +11,7 @@ const S = {
   selectedRepo: "",
   chatFilter: "",
   web: ls("web", "0") === "1",
-  hub: ls("hub", "1") === "1",   // ferramentas dos módulos do Piphin Hub no chat (só aparece dentro do Hub)
+  hub: ls("hub", "1") === "1",   // ferramentas dos módulos da Arasaka Central no chat (só aparece dentro da Central)
   mode: ls("mode", "chat"),          // chat | codex | image
   workspace: ls("workspace", ""),
   attachments: [],     // anexos pendentes no compositor
@@ -116,7 +116,7 @@ async function loadIntegration() {
     <details><summary>🔵 VS Code (Copilot Chat)</summary>
       <ol><li>${t("No Copilot Chat, abra o seletor de modelo → Manage Models e escolha Ollama.")}</li>
       <li>${t("Se pedir o endereço, use")} <code>${esc(base)}</code> ${copy(base)}</li></ol>
-      <p class="muted small-note">${t("No modo Agente, só aparecem modelos que suportam ferramentas (o Piphin LLM informa isso). As sugestões automáticas enquanto você digita continuam sendo do Copilot.")}</p></details>
+      <p class="muted small-note">${t("No modo Agente, só aparecem modelos que suportam ferramentas (o Arasaka Mikoshi informa isso). As sugestões automáticas enquanto você digita continuam sendo do Copilot.")}</p></details>
     <details><summary>🧩 ${t("Outras ferramentas (formato OpenAI)")}</summary>
       <p>${t("Endereço base")}: <code>${esc(base)}/v1</code> ${copy(base + "/v1")} · ${t("modelo")}: <code>piphin-codex</code>${key ? ` · ${t("chave")}: <code>${esc(key)}</code>` : ""}</p></details>
     <details><summary>🎮 Unreal Engine 5 (C++ / Blueprint)</summary>
@@ -125,7 +125,7 @@ async function loadIntegration() {
 Content-Type: application/json${key ? `\nAuthorization: Bearer ${esc(key)}` : ""}
 
 ${esc(ex)}</pre>${copy(`curl ${base}/v1/chat/completions -H "Content-Type: application/json"${key ? ` -H "Authorization: Bearer ${key}"` : ""} -d '${ex}'`, t("Copiar como curl"))}
-      <p class="muted small-note">${t("Dica: o Codex do Piphin LLM também trabalha direto nos arquivos C++ do projeto da Unreal (a pasta Source). Libere a pasta do projeto no modo Codex.")}</p></details>`;
+      <p class="muted small-note">${t("Dica: o Codex do Arasaka Mikoshi também trabalha direto nos arquivos C++ do projeto da Unreal (a pasta Source). Libere a pasta do projeto no modo Codex.")}</p></details>`;
 }
 document.addEventListener("click", async e => {
   const c = e.target.closest("[data-copy]");
@@ -520,7 +520,7 @@ function renderMessages() {
   if (!S.chat || !S.chat.messages.length) {
     const st = S.status;
     const noEngine = st && !Object.keys(st.backends).length; const noModel = st && !st.models.length;
-    box.innerHTML = `<div class="empty">${noEngine || noModel ? `<h2>Piphin LLM</h2><div>Seus modelos, sua máquina. Sem conta, sem limites, sem nada saindo do seu PC.</div>` : ""}
+    box.innerHTML = `<div class="empty">${noEngine || noModel ? `<h2>Arasaka Mikoshi</h2><div>Seus modelos, sua máquina. Sem conta, sem limites, sem nada saindo do seu PC.</div>` : ""}
       ${noEngine || noModel ? `<ol class="steps">
         <li>${noEngine ? "" : "✅ "}Instale o runtime em <b>Modelos → Runtime</b></li>
         <li>${noModel ? "" : "✅ "}Baixe um modelo em <b>Modelos → Baixar modelos</b></li>

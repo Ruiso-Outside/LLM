@@ -1,4 +1,4 @@
-"""Estudio de treino do Piphin LLM: ambiente de treino, conjuntos de dados, execucoes e exportacao.
+"""Estudio de treino do Arasaka Mikoshi: ambiente de treino, conjuntos de dados, execucoes e exportacao.
 
 Tudo fica dentro do app: o ambiente (Python 3.12 + PyTorch CUDA, instalado pelo uv) em engine/train,
 os conjuntos de dados e as execucoes em data/train. O treino roda em outro processo (train_worker.py);

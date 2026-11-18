@@ -1,59 +1,178 @@
 /* Piphin LLM dentro do Piphin Hub: acabamento no padrão do Piphin UI.
    Carregado pelo piphin-bridge.js só quando a página roda no Hub (junto com piphin://ui/tokens.css,
    que já troca a paleta). Fora do Hub, nada aqui é usado. */
+/* tema Arasaka: início (gerado a partir do style.css; as regras abaixo têm prioridade) */
+.in-piphin code { border-radius: 2px; }
+.in-piphin .logo { border-radius: 2px; background: linear-gradient(135deg, #ff0000, #f74f4f); }
+.in-piphin .chat-item { border-radius: 2px; color: #f47b7b; }
+.in-piphin .chat-item.active { background: #ff5c5c26; }
+.in-piphin .btn:hover { border-color: #820b0b; background: #2b2727; }
+.in-piphin .btn.primary:hover { background: #ff5252; }
+.in-piphin .input:focus { border-color: #ff0000; }
+.in-piphin .pill { border-radius: 2px; }
+.in-piphin .msg .actions button { border-radius: 2px; }
+.in-piphin .cursor::after { color: #ff5252; }
+.in-piphin .composer-box:focus-within { border-color: #9d0d0d; }
+.in-piphin .web-toggle { border-radius: 2px; }
+.in-piphin .web-toggle.on { background: #f74f4f1f; border-color: #f74f4f; color: #fb7575; }
+.in-piphin .web-box { border: 1px solid #f74f4f33; background: #f74f4f0a; border-radius: 2px; }
+.in-piphin .web-box .status { color: #fb7575; }
+.in-piphin .cite:hover { background: #f74f4f4d; }
+.in-piphin .tab { border-radius: 2px; }
+.in-piphin label { color: #f47b7b; }
+.in-piphin .tag { border-radius: 2px; }
+.in-piphin .tag.on { background: #ff5c5c33; color: #ff5252; }
+.in-piphin .chip:hover { border-color: #ff0000; }
+.in-piphin .task .bar { border-radius: 2px; }
+.in-piphin .log { background: #0e0c0c; border-radius: 2px; color: #f37171; }
+.in-piphin .engine-card .box { border-radius: 2px; }
+.in-piphin .modes button { border-radius: 2px; }
+.in-piphin .modes button.on { background: #ff0000; }
+.in-piphin .att-chip { border-radius: 2px; }
+.in-piphin .att-chip img { border-radius: 2px; }
+.in-piphin .spin { border-top-color: #ff5252; }
+.in-piphin .att-thumb { border-radius: 2px; }
+.in-piphin .ws-tag { border-radius: 2px; }
+.in-piphin .tool-out { background: #0e0c0c; border-radius: 2px; color: #f47b7b; }
+.in-piphin .tool-prompt { color: #f47b7b; }
+.in-piphin .diff pre { border-radius: 2px; }
+.in-piphin .gen-meta div { color: #f47b7b; }
+.in-piphin .gen-progress .bar { border-radius: 2px; }
+.in-piphin .media-sec { border-radius: 2px; }
+.in-piphin .update-box { border-radius: 2px; }
+.in-piphin .cap { border-radius: 2px; }
+.in-piphin .cap-reasoning { background: #f47a7a1a; border-color: #f47a7a44; }
+.in-piphin .meta-pill { border-radius: 2px; color: #f47b7b; }
+.in-piphin .repo-card { border-radius: 2px; }
+.in-piphin .backup-sec { border-radius: 2px; }
+.in-piphin .ag-dot { border-radius: 2px; }
+.in-piphin .icon-pick button.on { border-color: #ff0000; background: #ff5c5c26; }
+.in-piphin .step-row { border-radius: 2px; }
+.in-piphin .g-retry { border-radius: 2px; }
+.in-piphin .mem-bar { border-radius: 2px; }
+.in-piphin .mem-bar .track { border-radius: 2px; }
+.in-piphin .mem-bar b { color: #f47b7b; }
+.in-piphin .dev-gpu { color: #fb7575; border-color: #f74f4f55; }
+.in-piphin .kb-item { border-radius: 2px; }
+.in-piphin .kb-folder { border-radius: 2px; }
+.in-piphin .ck-st { border-radius: 2px; }
+.in-piphin .ck-modified { background: #f74f4f1f; color: #fb7575; }
+.in-piphin .udiff { background: #0e0c0c; color: #f47b7b; }
+.in-piphin .summary-divider details { border-radius: 2px; }
+.in-piphin .summary-text { color: #f47b7b; }
+.in-piphin .mcp-form { border-radius: 2px; }
+.in-piphin ::selection { background: #ff5c5c66; }
+.in-piphin ::-webkit-scrollbar-thumb:hover { background: #ff5c5c66; }
+.in-piphin .logo { background: linear-gradient(135deg, #ff0000, #ff2a2a); box-shadow: 0 0 16px #ff5c5c88; }
+.in-piphin #topbar { background: #110f0fb3; }
+.in-piphin .btn:hover { background: #292626; border-color: #9d0d0d; }
+.in-piphin .btn.primary { background: linear-gradient(135deg, #ff5c5c, #ff5b5b); box-shadow: 0 0 14px #ff5c5c55; }
+.in-piphin .input { background: #100e0e; border-radius: 2px; }
+.in-piphin .input:focus { border-color: #ff0000; box-shadow: 0 0 0 3px #ff5c5c2e; }
+.in-piphin .composer-box:focus-within { border-color: #ff5c5c99; }
+.in-piphin .modes button.on { background: linear-gradient(135deg, #ff5c5c, #ff5b5b); box-shadow: 0 0 12px #ff5c5c66; }
+.in-piphin .ctx-meter .track div { background: linear-gradient(90deg, var(--ok), #ff2a2a); }
+.in-piphin .msg.user .bubble { background: linear-gradient(135deg, #2b2828, #232121); border: 1px solid #730909; }
+.in-piphin .code-h { background: #191717; }
+.in-piphin .empty h2 { background: linear-gradient(90deg, #fff, #ff5252 55%, #ff2a2a); }
+.in-piphin .mode-cards div:hover { border-color: #ff5c5c88; }
+.in-piphin .modal { background: #050404c7; }
+.in-piphin .tab.active { background: #ff5c5c22; box-shadow: inset 0 -2px 0 #ff0000, 0 0 14px #ff5c5c22; }
+.in-piphin .item.clickable:hover, .in-piphin .item.sel { border-color: #ff5c5c99; }
+.in-piphin .tag.on { background: #ff5c5c26; color: #ff5252; }
+.in-piphin #toast { background: #1b1919e6; border-color: #ff5c5c55; }
+.in-piphin .model-card { border-radius: 2px; background: linear-gradient(180deg, #141313, #100e0e); }
+.in-piphin .cap:hover, .in-piphin .meta-pill:hover { border-color: #ff5c5c88; }
+.in-piphin details.tool { background: #100e0e; }
+.in-piphin .set-nav { background: #100e0e; border-bottom-left-radius: 2px; }
+.in-piphin .set-tab.active { background: linear-gradient(90deg, #ff5c5c2e, #ff5c5c08); border-color: #ff5c5c55; box-shadow: inset 2px 0 0 #ff0000, 0 0 16px #ff5c5c1f; }
+.in-piphin .set-group { border-radius: 2px; background: #100e0e; }
+.in-piphin .set-group .update-box { background: #131111; }
+.in-piphin #rail { background: #090909; }
+.in-piphin .rail-logo .logo { border-radius: 2px; }
+.in-piphin .rail-group button { border-radius: 2px; }
+.in-piphin #modes button.on { background: linear-gradient(180deg, #ff5c5c33, #ff5c5c14); border-color: #ff5c5c77; box-shadow: 0 0 16px #ff5c5c33; }
+.in-piphin .gpu-chip:hover { border-color: #9d0d0d; }
+.in-piphin .kbd-btn:hover { border-color: #ff5c5c88; }
+.in-piphin #inspector { background: #110f0fcc; }
+.in-piphin .insp-sec h5 { color: #ff5252; }
+.in-piphin .g-track div { border-radius: 2px; background: linear-gradient(90deg, #ff0000, #ff2a2a); box-shadow: 0 0 10px #ee222255; }
+.in-piphin .palette { background: #05040499; }
+.in-piphin .palette-card { background: linear-gradient(180deg, #181717, #121010); border: 1px solid #ff5c5c66; border-radius: 2px; box-shadow: 0 30px 80px #000c, 0 0 40px #ff5c5c2e; }
+.in-piphin .rea-box { border: 1px solid #ee222244; border-radius: 2px; background: linear-gradient(135deg, #ee22220b, #ff5c5c0b); }
+.in-piphin .rea-chip { background: #100e0e; border-radius: 2px; }
+.in-piphin .rea-chip.on { color: #ff2a2a; border-color: #ee222266; background: #ee222210; }
+.in-piphin #modes button[data-mode="codex"].on .rl { color: #f15757; }
+.in-piphin .st-task { border-radius: 2px; }
+.in-piphin .chart { border-radius: 2px; background: #0b0a0a; }
+.in-piphin .st-btn { border-radius: 2px; color: #0a0909; }
+.in-piphin .st-log { background: #060606; border-radius: 2px; }
+.in-piphin .ds-item { border-radius: 2px; background: #0b0a0a; }
+.in-piphin .base-card { border-radius: 2px; background: #0b0a0a; }
+.in-piphin .preset { border-radius: 2px; background: #0b0a0a; }
+.in-piphin .run-row { border-radius: 2px; background: #0b0a0a; }
+.in-piphin .hub-tool.running { border-color: #ee222266; color: #f47b7b; }
+.in-piphin .foot button.on { color: #ff5252; }
+/* tema Arasaka: fim */
 .in-piphin body { font-family: var(--p-font); }
 .in-piphin #app { overflow: hidden; }
 
 /* trilho de modos: o logo fica com o Hub; ícones do Piphin UI */
 .in-piphin #rail { width: 68px; background: var(--p-bg); border-right: 1px solid var(--p-line); padding-top: 10px; }
 .in-piphin .rail-logo { display: none; }
-.in-piphin .rail-group button { border-radius: 12px; padding: 8px 0 7px; gap: 4px; color: var(--p-text-2); }
+.in-piphin .rail-group button { border-radius: 2px; padding: 8px 0 7px; gap: 4px; color: var(--p-text-2); }
 .in-piphin .rail-group button:hover { background: var(--p-hover); color: var(--p-text); }
 .in-piphin .rail-group .ri.i { width: 20px; height: 20px; font-size: 20px; }
 .in-piphin .rail-group .rl { font-size: 10.5px; font-weight: 500; }
-.in-piphin #modes button.on { color: #fff; background: var(--p-active); border-color: transparent; box-shadow: none; }
-.in-piphin #modes button.on::before { left: -8px; background: #22d3ee; box-shadow: 0 0 10px #22d3ee; }
+.in-piphin #modes button.on { color: #ffffff; background: var(--p-active); border-color: transparent; box-shadow: none; }
+.in-piphin #modes button.on::before { left: -8px; background: #ff0000; box-shadow: 0 0 10px #ff0000; }
 .in-piphin .rail-sep { background: var(--p-line-2); }
 
 /* conversas */
 .in-piphin #sidebar { background: var(--p-bg-2); border-right: 1px solid var(--p-line); width: 248px; }
 .in-piphin #app.side-hidden #sidebar { margin-left: -248px; }
 .in-piphin .side-head b { font: 600 12px var(--p-font); letter-spacing: .06em; text-transform: uppercase; color: var(--p-text-3); }
-.in-piphin .chat-item { color: var(--p-text-2); border-radius: 10px; }
+.in-piphin .chat-item { color: var(--p-text-2); border-radius: 2px; }
 .in-piphin .chat-item:hover { background: var(--p-hover); }
-.in-piphin .chat-item.active { background: var(--p-active); color: #fff; }
+.in-piphin .chat-item.active { background: var(--p-active); color: #ffffff; }
 .in-piphin .chat-group { color: var(--p-text-3); }
 
 /* barra do topo: cabe na área do módulo sem rolagem lateral */
 .in-piphin #topbar { background: var(--p-bg); backdrop-filter: none; min-height: 52px; border-bottom: 1px solid var(--p-line); min-width: 0; }
 .in-piphin #topbar .pill { min-width: 0; flex: 0 1 auto; }
 .in-piphin #modelSelect { min-width: 150px; max-width: 280px; flex: 0 1 auto; }
-.in-piphin .icon-btn { display: inline-grid; place-items: center; width: 34px; height: 34px; padding: 0; border-radius: 9px; color: var(--p-text-2); }
+.in-piphin .icon-btn { display: inline-grid; place-items: center; width: 34px; height: 34px; padding: 0; border-radius: 2px; color: var(--p-text-2); }
 .in-piphin .icon-btn .i { font-size: 18px; }
 .in-piphin .icon-btn:hover { background: var(--p-hover); color: var(--p-text); }
 .in-piphin #main { background: var(--p-bg); }
 
 /* controles no padrão do kit */
-.in-piphin .btn { border-radius: 10px; border-color: var(--p-line-2); background: var(--p-surface-2); font-weight: 500; }
+.in-piphin .btn { border-radius: 2px; border-color: var(--p-line-2); background: var(--p-surface-2); font-weight: 500; }
 .in-piphin .btn:hover { background: var(--p-surface-3); border-color: rgba(255, 255, 255, .18); }
-.in-piphin .btn.primary { background: var(--p-grad); border-color: transparent; color: #fff; box-shadow: 0 6px 18px -6px rgba(139, 92, 246, .6); }
+.in-piphin .btn.primary { background: var(--p-grad); border-color: transparent; color: #ffffff; box-shadow: 0 6px 18px -6px rgba(246, 92, 92, .6); }
 .in-piphin .btn.primary:hover { filter: brightness(1.08); }
 .in-piphin .btn.primary:disabled { filter: saturate(.4); box-shadow: none; }
-.in-piphin .input { background: var(--p-bg-2); border-color: var(--p-line-2); border-radius: 10px; }
+.in-piphin .input { background: var(--p-bg-2); border-color: var(--p-line-2); border-radius: 2px; }
 .in-piphin .input:focus { border-color: var(--p-accent); box-shadow: var(--p-ring); }
 .in-piphin .pill { background: var(--p-hover); color: var(--p-text-2); }
 
 /* conversa e caixa de mensagem */
 .in-piphin .msg.user .bubble { background: var(--p-surface-2); border: 1px solid var(--p-line); }
 .in-piphin .empty .steps { background: var(--p-surface-1); border-color: var(--p-line); border-radius: var(--p-r-l); }
-.in-piphin .composer-box { background: var(--p-surface-1); border: 1px solid var(--p-line-2); border-radius: 16px; box-shadow: var(--p-shadow); }
+.in-piphin .composer-box { background: var(--p-surface-1); border: 1px solid var(--p-line-2); border-radius: 2px; box-shadow: var(--p-shadow); }
 .in-piphin .composer-box:focus-within { border-color: var(--p-accent-line); box-shadow: var(--p-ring), var(--p-shadow); }
 .in-piphin .web-toggle { display: inline-flex; align-items: center; gap: 6px; background: var(--p-bg-2); border-color: var(--p-line-2); }
-.in-piphin .web-toggle.on { background: rgba(34, 211, 238, .12); border-color: rgba(34, 211, 238, .55); color: #7fdcf0; }
-.in-piphin .code { background: var(--p-bg); border-color: var(--p-line); border-radius: 12px; }
+.in-piphin .web-toggle.on { background: rgba(255, 0, 0, .12); border-color: rgba(255, 0, 0, .55); color: #ff5252; }
+.in-piphin .code { background: var(--p-bg); border-color: var(--p-line); border-radius: 2px; }
 .in-piphin .code-h { background: var(--p-surface-2); }
 
 /* no Hub, Ctrl+K abre a paleta do Hub: o botão da paleta do LLM fica só com o ícone */
 .in-piphin #paletteTop span, .in-piphin #paletteTop kbd { display: none; }
 .in-piphin #paletteTop { min-width: 34px; }
 .in-piphin #statusPill { min-width: 110px; }
+
+/* tema Arasaka: cor e nome deste módulo na barra superior */
+:root { --p-module: #ff0000; --ara-tag: "MIKOSHI"; }
+.in-piphin, .in-piphin * { --mode: #ff0000 !important; --mode2: #ff5252 !important; --mode-glow: rgba(255, 0, 0, .35) !important; }
+.in-piphin .empty h2 { background: none; -webkit-text-fill-color: var(--p-text); color: var(--p-text); text-transform: uppercase; letter-spacing: .05em; }
+.in-piphin #sendBtn:not(.stop) { background: var(--p-grad); color: #0a0000; font-weight: 700; box-shadow: none; }

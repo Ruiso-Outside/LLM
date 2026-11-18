@@ -21,7 +21,7 @@ from collections import deque
 from pathlib import Path
 
 PROTOCOL = "2025-06-18"
-CLIENT_INFO = {"name": "Piphin LLM", "version": "1"}
+CLIENT_INFO = {"name": "Arasaka Mikoshi", "version": "1"}
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 ID_RE = re.compile(r"^[a-z0-9_]{1,20}$")
 PREFIX = "mcp__"
@@ -137,7 +137,7 @@ def hub_server():
     url = os.environ.get("PIPHIN_TOOLS_URL", "")
     if not re.match(r"^http://127\.0\.0\.1:\d+/mcp/[0-9a-f]+$", url):
         return None
-    return {"id": HUB_ID, "name": "Módulos do Piphin Hub", "type": "http", "url": url, "enabled": True,
+    return {"id": HUB_ID, "name": "Módulos da Arasaka Central", "type": "http", "url": url, "enabled": True,
             "auto_approve": False, "command": "", "args": [], "env": {}, "tools": None, "builtin": True}
 
 

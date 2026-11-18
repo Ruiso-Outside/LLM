@@ -666,7 +666,7 @@ class EngineProcess:
         if proc is self.proc and getattr(self, "mtp", False):
             # o motor nao aceitou o acelerador MTP (versao antiga ou arquivo incompativel): tenta sem ele
             model_rel, s, device, embed = self._args
-            note = "[Piphin LLM] O runtime falhou com o speculative decoding; carregando sem ele."
+            note = "[Arasaka Mikoshi] O runtime falhou com o speculative decoding; carregando sem ele."
             try:
                 self.start(model_rel, s, device, embed, no_mtp=True)
                 self.log.append(note)
@@ -1417,9 +1417,9 @@ def restore_backup(src, with_settings=False):
         try:
             manifest = json.loads(z.read("manifest.json"))
         except (KeyError, ValueError):
-            raise ValueError("Este arquivo nao e um backup do Piphin LLM.")
+            raise ValueError("Este arquivo nao e um backup do Arasaka Mikoshi.")
         if manifest.get("app") != "LLM Local":
-            raise ValueError("Este arquivo nao e um backup do Piphin LLM.")
+            raise ValueError("Este arquivo nao e um backup do Arasaka Mikoshi.")
         for name in z.namelist():
             m = re.match(r"^chats/([A-Za-z0-9_-]{1,64})\.json$", name)
             if m:
@@ -2388,7 +2388,7 @@ class Handler(BaseHTTPRequestHandler):
 
     # ---- ferramentas dos modulos do Piphin Hub no chat (Piphin Macro, InfoHardware...)
     def hub_tools(self, payload):
-        """Liga as ferramentas do Hub neste chat: (ferramentas, mapa) ou None se nao houver."""
+        """Liga as ferramentas da Central neste chat: (ferramentas, mapa) ou None se nao houver."""
         if not mcp.hub_server():
             return None
         tools, mapping = mcp.MANAGER.toolset([mcp.HUB_ID], None,
@@ -2396,7 +2396,7 @@ class Handler(BaseHTTPRequestHandler):
         if not tools:
             return None
         mods = sorted({(t.get("title") or "").split(":")[0] for _, t in mapping.values() if t.get("title")})
-        note = ("Você está dentro do Piphin Hub e pode usar ferramentas de outros módulos instalados (" + ", ".join(mods) +
+        note = ("Você está dentro da Arasaka Central e pode usar ferramentas de outros módulos instalados (" + ", ".join(mods) +
                 "). Use-as só quando o pedido envolver esses programas (ex.: criar ou ajustar macros, analisar o hardware do PC). "
                 "Para analisar o PC, leia os dados reais com a ferramenta antes de responder. Depois de usar uma ferramenta, "
                 "explique em linguagem simples o que foi feito ou encontrado. Não invente resultados.")
@@ -2408,7 +2408,7 @@ class Handler(BaseHTTPRequestHandler):
         return tools, mapping
 
     def chat_with_tools(self, payload, tools, mapping, max_steps=8):
-        """Chat em que o modelo pode chamar as ferramentas do Hub; o texto vai para a tela como no chat normal."""
+        """Chat em que o modelo pode chamar as ferramentas da Central; o texto vai para a tela como no chat normal."""
         payload = {**payload, "tools": tools, "tool_choice": "auto", "parallel_tool_calls": True}
         messages, last = payload["messages"], None
         for _ in range(max_steps):
@@ -2671,7 +2671,7 @@ def main():
     try:
         httpd = ThreadingHTTPServer((HOST, PORT), Handler)
     except OSError:
-        sys.exit(f"A porta {PORT} ja esta em uso (o Piphin LLM ja esta aberto?).")
+        sys.exit(f"A porta {PORT} ja esta em uso (o Arasaka Mikoshi ja esta aberto?).")
     httpd.daemon_threads = True
     watch_parent()
     threading.Thread(target=auto_load, daemon=True).start()
