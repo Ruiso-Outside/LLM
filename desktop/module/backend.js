@@ -59,6 +59,27 @@ exports.activate = (ctx) => {
     });
   }
 
+  // Pasta de dados num disco que não está montado (ex.: /media/<usuário>/<UUID ou nome>, que some depois
+  // de reiniciar até alguém abrir o disco): monta pelo udisksctl, como o gerenciador de arquivos faz.
+  function tryMount(dir) {
+    if (IS_WIN) return Promise.resolve(false);
+    const m = /^\/(?:media|run\/media)\/[^/]+\/([^/]+)/.exec(dir);
+    if (!m) return Promise.resolve(false);
+    const devs = [`/dev/disk/by-uuid/${m[1]}`, `/dev/disk/by-label/${m[1]}`].filter((d) => fs.existsSync(d));
+    return devs.reduce((prev, dev) => prev.then((ok) => ok || new Promise((resolve) => {
+      const p = spawn("udisksctl", ["mount", "-b", dev], { stdio: "ignore" });
+      p.on("error", () => resolve(false));
+      p.on("exit", (code) => resolve(code === 0));
+    })), Promise.resolve(false));
+  }
+  async function ensureHome() {
+    try { fs.mkdirSync(config.homeDir, { recursive: true }); return true; } catch (e) { diag(`pasta de dados indisponível: ${e.message}`); }
+    if (await tryMount(config.homeDir)) {
+      try { fs.mkdirSync(config.homeDir, { recursive: true }); diag("disco da pasta de dados montado"); return true; } catch { /* segue para o aviso */ }
+    }
+    return false;
+  }
+
   async function startServer() {
     serverError = "";
     if (await ping()) { serverReady = true; return true; } // já há um servidor (ex.: o app separado aberto)
@@ -72,7 +93,7 @@ exports.activate = (ctx) => {
       if (IS_WIN && r === 0) ctx.emit("open-url", "https://www.python.org/downloads/");
       return false;
     }
-    fs.mkdirSync(config.homeDir, { recursive: true });
+    if (!(await ensureHome())) { serverError = "home"; return false; } // a tela de carregamento mostra o aviso
     const log = fs.createWriteStream(LOG_FILE, { flags: "w" });
     server = spawn(py[0], [...py[1], path.join(SERVER_DIR, "server.py")], {
       cwd: SERVER_DIR, windowsHide: true, stdio: ["ignore", "pipe", "pipe"], detached: !IS_WIN, // Linux: grupo próprio para encerrar a árvore
@@ -176,7 +197,7 @@ exports.activate = (ctx) => {
   ctx.host.on("window-hide", (name) => { if (name === "quick") quickHiddenAt = Date.now(); });
 
   // ---------------------------------------------------------------- chamadas das páginas (window.llmDesktop)
-  ctx.handle("status", () => ({ ready: serverReady, error: serverError, base: BASE }));
+  ctx.handle("status", () => ({ ready: serverReady, error: serverError, base: BASE, home: config.homeDir }));
   ctx.handle("retry", async () => { restarts = []; return startServer().then(async (ok) => { if (ok) await afterServer(); return ok; }); });
   ctx.handle("get-config", async () => ({ ...config, autoStart: await ctx.host.getStartWithWindows(), hotkeyLabel: prettyKey(config.hotkey) }));
   ctx.handle("set-hotkey", (k) => setHotkey("hotkey", k));
