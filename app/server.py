@@ -228,6 +228,48 @@ def get_json(url):
         return json.loads(r.read().decode("utf-8"))
 
 
+def http_error_text(e):
+    """Texto do erro HTTP para a pessoa: o 403 do GitHub (limite de consultas) nao e o do Hugging Face (modelo restrito)."""
+    url = getattr(e, "url", "") or getattr(e, "filename", "") or ""
+    hdrs = getattr(e, "headers", None) or {}
+    if "api.github.com" in url and e.code in (403, 429):
+        reset = hdrs.get("X-RateLimit-Reset") if hasattr(hdrs, "get") else None
+        mins = ""
+        try:
+            mins = f" Libera em cerca de {max(1, round((int(reset) - time.time()) / 60))} min."
+        except (TypeError, ValueError):
+            pass
+        return "o GitHub limitou as consultas deste PC (60 por hora sem login)." + mins + " Tente de novo depois."
+    if "huggingface.co" in url and e.code in (401, 403):
+        return "modelo restrito, coloque seu token do Hugging Face nas Configuracoes"
+    return e.reason or "falha no download"
+
+
+def llama_releases(tagos):
+    """Versoes recentes do llama.cpp. Pela API do GitHub; se ela recusar (limite de 60 consultas por hora sem login),
+    pelo feed de releases e pela lista de arquivos de cada versao, que nao contam no limite."""
+    try:
+        return get_json("https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=15")
+    except urllib.error.HTTPError as e:
+        if e.code not in (403, 429):
+            raise
+        first = e
+    try:
+        with OPENER.open(make_request("https://github.com/ggml-org/llama.cpp/releases.atom"), timeout=30) as r:
+            atom = r.read().decode("utf-8", "replace")
+        tags = list(dict.fromkeys(re.findall(r'/ggml-org/llama\.cpp/releases/tag/([^"<>\s]+)"', atom)))
+        for tag in tags[:6]:
+            with OPENER.open(make_request(f"https://github.com/ggml-org/llama.cpp/releases/expanded_assets/{tag}"), timeout=30) as r:
+                html = r.read().decode("utf-8", "replace")
+            names = sorted(set(re.findall(r'/ggml-org/llama\.cpp/releases/download/[^/"]+/([^"/?#]+)"', html)))
+            if any(tagos in n for n in names):
+                base = f"https://github.com/ggml-org/llama.cpp/releases/download/{tag}/"
+                return [{"tag_name": tag, "assets": [{"name": n, "browser_download_url": base + n, "size": 0} for n in names]}]
+    except Exception:  # noqa: BLE001
+        pass
+    raise first
+
+
 # ---------------------------------------------------------------- tarefas (downloads)
 
 TASKS = {}
@@ -291,8 +333,7 @@ def run_task(task, fn):
             task["status"] = "cancelled"
         except urllib.error.HTTPError as e:
             task["status"] = "error"
-            task["error"] = f"HTTP {e.code}: " + (
-                "modelo restrito, coloque seu token do Hugging Face nas Configuracoes" if e.code in (401, 403) else e.reason)
+            task["error"] = f"HTTP {e.code}: " + http_error_text(e)
         except Exception as e:  # noqa: BLE001
             task["status"] = "error"
             task["error"] = str(e)
@@ -326,6 +367,16 @@ def detect_gpu():
 
 
 GPU = detect_gpu()
+
+
+def nvidia_driver_major():
+    """Versao principal do driver da NVIDIA (ex.: 580), ou None sem driver."""
+    try:
+        out = subprocess.run(["nvidia-smi", "--query-gpu=driver_version", "--format=csv,noheader"], capture_output=True, text=True,
+                             timeout=10, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout.strip()
+        return int(out.splitlines()[0].split(".")[0]) if out else None
+    except (OSError, ValueError, IndexError, subprocess.SubprocessError):
+        return None
 
 
 # ---------------------------------------------------------------- diagnostico
@@ -452,7 +503,7 @@ def install_engine(task, backend):
     # (Windows: -bin-win-; Linux: -bin-ubuntu-, que tambem roda no Zorin, Mint, Pop!_OS e outros)
     linux = os.name != "nt"
     tagos = "-bin-ubuntu-" if linux else "-bin-win-"
-    releases = get_json("https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=15")
+    releases = llama_releases(tagos)
     rel = next((r for r in releases if any(tagos in a["name"] for a in r.get("assets", []))), None)
     if not rel:
         raise RuntimeError("Nenhuma versao do llama.cpp com binarios para " + ("Linux" if linux else "Windows") + " encontrada.")
@@ -460,8 +511,27 @@ def install_engine(task, backend):
     tag = rel.get("tag_name", "")
     files = []
     if linux and backend == "cuda":
-        raise RuntimeError("O llama.cpp nao tem pacote CUDA pronto para Linux. Use o motor Vulkan: ele funciona nas placas NVIDIA, AMD e Intel.")
-    if linux:
+        # pacotes ubuntu-cuda-<versao>: o CUDA 13 pede o driver 580+, o 12.x o 570+ (Linux). Escolhe o mais novo que o driver roda.
+        drv = nvidia_driver_major()
+        if drv is None:
+            raise RuntimeError("Nenhum driver da NVIDIA encontrado. Instale o driver em Drivers adicionais (Zorin/Ubuntu), reinicie o PC "
+                               "e tente de novo. Sem a placa NVIDIA, use o motor Vulkan.")
+        cands = []
+        for n in assets:
+            m = re.match(r"llama-.*-bin-ubuntu-cuda-([\d.]+)-x64\.tar\.gz$", n)
+            if m:
+                ver = tuple(int(x) for x in m.group(1).split("."))
+                if drv >= (580 if ver[0] >= 13 else 570 if ver >= (12, 8) else 525):
+                    cands.append((ver, n, m.group(1)))
+        if not cands:
+            raise RuntimeError(f"O driver da NVIDIA instalado ({drv}) e antigo para os pacotes CUDA desta versao. "
+                               "Atualize o driver em Drivers adicionais ou use o motor Vulkan.")
+        _, name, ver = max(cands)
+        files.append(name)
+        cudart = next((n for n in assets if re.match(rf"cudart-llama-.*-bin-ubuntu-cuda-{re.escape(ver)}-x64\.tar\.gz$", n)), None)
+        if cudart:
+            files.append(cudart)
+    elif linux:
         pat = {"vulkan": r"llama-.*-bin-ubuntu-vulkan-x64\.(zip|tar\.gz)$", "cpu": r"llama-.*-bin-ubuntu-x64\.(zip|tar\.gz)$"}[backend]
         name = next((n for n in assets if re.match(pat, n)), None)
         if not name:
@@ -519,6 +589,10 @@ def install_engine(task, backend):
         for dll in dest.glob("*.dll"):
             if not (exe.parent / dll.name).exists():
                 shutil.move(str(dll), exe.parent / dll.name)
+    if linux and exe:  # Linux: o cudart vem numa pasta propria (cudart-llama-...); o motor procura as .so ao lado do executavel
+        for so in [x for x in dest.rglob("*.so*") if x.parent != exe.parent and x.parent.name.startswith("cudart-")]:
+            if not (exe.parent / so.name).exists():
+                shutil.move(str(so), exe.parent / so.name)
     (dest / "version.txt").write_text(f"{tag} ({files[0]})", "utf-8")
     shutil.rmtree(tmp, ignore_errors=True)
     task["detail"] = f"Motor {backend} instalado ({tag})"
@@ -1517,7 +1591,7 @@ class Handler(BaseHTTPRequestHandler):
             if p == "/api/status":
                 return self.send_json({"engine": ENGINE_PROC.status() | {"device": ENGINE_PROC.device}, "extras": POOL.status(),
                                        "hub_tools": bool(mcp.hub_server()),
-                                       "memory": POOL.memory(), "backends": installed_backends(), "quick": POOL.quick_status(),
+                                       "memory": POOL.memory(), "backends": installed_backends(), "os": "windows" if os.name == "nt" else "linux", "quick": POOL.quick_status(),
                                        "gpu_live": {k: DIAG[k] for k in ("vram_used", "vram_total", "gpu_util", "guard")} | {"full": bool(DIAG["full_since"])},
                                        "gpu": GPU | {"cpu_count": CPU_COUNT},
                                        "models": list_models(), "tasks": public_tasks(),
