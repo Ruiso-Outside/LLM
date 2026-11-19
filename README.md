@@ -1,14 +1,16 @@
-# Piphin LLM
+# Arasaka Mikoshi
+
+> Antes chamado **Piphin LLM**. Os arquivos, pastas e dados continuam com o nome antigo.
 
 App da **Piphin Studio** para rodar modelos de IA no seu PC. Sem conta, sem plano pago, sem telemetria e sem nada sendo enviado para a internet. (Os arquivos e a pasta do programa ainda se chamam `LLM Local`, para as instalações existentes continuarem se atualizando.)
 
 ## Instalação
 
-1. Baixe **`LLM-Local-X.Y.Z-win-x64.zip`** na página de [Releases](https://github.com/Ruiso-Outside/LLM/releases/latest).
+1. Baixe **`LLM-Local-X.Y.Z-win-x64.zip`** na página de [Releases](https://github.com/Ruiso-Outside/ArasakaMikoshi/releases/latest).
 2. Extraia numa pasta fixa (ex.: `C:\Programas\LLM Local` ou `G:\LLM\LLM Local`).
 3. Abra o **`LLM Local.exe`**. Na primeira vez, o app oferece criar os atalhos no Menu Iniciar e na Área de Trabalho (dá para recriar depois pelo menu do ícone perto do relógio).
 
-**Por que um .zip e não um instalador?** O **Controle Inteligente de Aplicativos** do Windows bloqueia programas sem assinatura digital, inclusive instaladores. O `LLM Local.exe` é o executável do Electron oficial, sem modificações, que o Windows já reconhece, por isso ele abre normalmente (o arquivo `.exe` mostra o ícone do Electron; os atalhos e a janela usam o do Piphin LLM). As atualizações também não executam instalador nenhum. Para desinstalar, apague a pasta do app (seus modelos e conversas ficam na pasta de dados escolhida na primeira execução).
+**Por que um .zip e não um instalador?** O **Controle Inteligente de Aplicativos** do Windows bloqueia programas sem assinatura digital, inclusive instaladores. O `LLM Local.exe` é o executável do Electron oficial, sem modificações, que o Windows já reconhece, por isso ele abre normalmente (o arquivo `.exe` mostra o ícone do Electron; os atalhos e a janela usam o do Arasaka Mikoshi). As atualizações também não executam instalador nenhum. Para desinstalar, apague a pasta do app (seus modelos e conversas ficam na pasta de dados escolhida na primeira execução).
 
 ### Segundo plano e pergunta rápida
 - Fechar a janela **não encerra** o app: ele continua no ícone perto do relógio. Para sair de verdade, clique com o botão direito no ícone e escolha **Sair**.
@@ -23,7 +25,7 @@ App da **Piphin Studio** para rodar modelos de IA no seu PC. Sem conta, sem plan
 - Pelo menu do ícone perto do relógio dá para **descarregar o modelo** e liberar a GPU (para jogar, por exemplo) sem fechar o app.
 
 ### Atualizações automáticas
-Ao abrir (e a cada 6 horas), o app consulta os [Releases do GitHub](https://github.com/Ruiso-Outside/LLM/releases). Se houver versão nova, ele baixa só os arquivos do app (`app-patch-X.zip`, menos de 1 MB), confere o SHA-512 e pergunta se pode reiniciar. Se você escolher "Depois", a atualização é aplicada quando o app for fechado. Dá para verificar na hora em **Configurações → App desktop** ou no menu do ícone perto do relógio.
+Ao abrir (e a cada 6 horas), o app consulta os [Releases do GitHub](https://github.com/Ruiso-Outside/ArasakaMikoshi/releases). Se houver versão nova, ele baixa só os arquivos do app (`app-patch-X.zip`, menos de 1 MB), confere o SHA-512 e pergunta se pode reiniciar. Se você escolher "Depois", a atualização é aplicada quando o app for fechado. Dá para verificar na hora em **Configurações → App desktop** ou no menu do ícone perto do relógio.
 
 A atualização **não executa nenhum instalador**: ela troca só as pastas `resources\app` e `resources\server`. O `.exe` continua sendo o do Electron oficial, por isso o **Controle Inteligente de Aplicativos** do Windows não bloqueia. Se algo falhar, o app volta à versão anterior. Só quando a versão do Electron mudar (raro) o app pede para baixar o instalador completo.
 
@@ -48,8 +50,8 @@ node node_modules\electron\install.js
 npm run dist
 ```
 
-### Módulo do Piphin Hub
-O Piphin LLM também roda **dentro do [Piphin Hub](https://github.com/Ruiso-Outside/Piphin-Hub)** (1.2.0 ou mais novo), como módulo de cerca de 1 MB: usa o Electron do Hub em vez de trazer o próprio.
+### Módulo da Arasaka Central
+O Arasaka Mikoshi também roda **dentro do [Arasaka Central](https://github.com/Ruiso-Outside/ArasakaCentral)** (1.2.0 ou mais novo), como módulo de cerca de 1 MB: usa o Electron do Hub em vez de trazer o próprio.
 - `desktop/module/backend.js` faz o papel do `desktop/main.js`: inicia o mesmo servidor Python, cuida da pergunta rápida (janela extra do Hub), dos atalhos globais, do print da tela e da área de transferência.
 - `app/web/piphin-bridge.js` monta a mesma ponte `window.llmDesktop` falando com o Hub; no app separado e no navegador ele não faz nada.
 - A configuração e a pasta de dados são as mesmas do app separado (`%APPDATA%\LLM Local\config.json`). Evite abrir os dois ao mesmo tempo: os atalhos ficam com quem abriu primeiro.
@@ -59,7 +61,7 @@ O Piphin LLM também roda **dentro do [Piphin Hub](https://github.com/Ruiso-Outs
 
 ## Como usar
 
-1. Abra o **Piphin LLM**.
+1. Abra o **Arasaka Mikoshi**.
 2. **Modelos → Runtime**: clique em *Instalar* no **CUDA** (para placa NVIDIA). Isso baixa o `llama.cpp` direto do GitHub oficial.
 3. **Modelos → Baixar modelos**: busque um modelo (ex.: `Qwen`, `gemma`). Cada resultado mostra o que o modelo sabe fazer e se cabe na sua placa. Ao abrir um, o arquivo marcado com ⭐ é o de melhor qualidade que cabe na sua GPU.
 
@@ -186,13 +188,13 @@ Dica: a IA fica leve por causa do **modelo base pequeno**; o fine-tuning a espec
 
 ## Integrações: Visual Studio, VS Code, Unreal Engine 🔗
 
-Em **Configurações → Integrações → Ligar a API local**, o Piphin LLM vira um servidor de IA para outros programas do seu PC. A API é compatível com o **Ollama** (`/api/tags`, `/api/chat`, `/api/generate`...) e com a **OpenAI** (`/v1/chat/completions`, `/v1/models`...), na porta **11434** (a do Ollama, onde as IDEs já procuram).
+Em **Configurações → Integrações → Ligar a API local**, o Arasaka Mikoshi vira um servidor de IA para outros programas do seu PC. A API é compatível com o **Ollama** (`/api/tags`, `/api/chat`, `/api/generate`...) e com a **OpenAI** (`/v1/chat/completions`, `/v1/models`...), na porta **11434** (a do Ollama, onde as IDEs já procuram).
 - **Visual Studio** (versões novas, 2026 / 18.x): Copilot Chat → modo Agent → seletor de modelo → *Manage models* → **Ollama** (o endereço `http://127.0.0.1:11434/v1` é preenchido sozinho). O Visual Studio 2022 só aceita OpenAI, Anthropic e Google como modelo próprio.
 - **VS Code**: Copilot Chat → *Manage Models* → **Ollama**.
 - **Unreal Engine 5 e outros**: POST para `http://127.0.0.1:11434/v1/chat/completions` no formato da OpenAI (módulo HTTP do C++ ou um plugin de requisições no Blueprint).
 - **Modelos**: `piphin-chat`, `piphin-codex` e `piphin-agentes` usam o modelo de cada modo; os modelos baixados também aparecem pelo nome. Eles carregam sob demanda.
 - **Segurança**: só aceita programas do próprio PC, bloqueia páginas da web e pode exigir uma chave (`Authorization: Bearer <chave>`). Desligada por padrão. Se o Ollama de verdade estiver instalado e aberto, troque a porta.
-- Dica: para mexer no código C++ do projeto da Unreal, o Codex do Piphin LLM também trabalha direto na pasta `Source` do projeto.
+- Dica: para mexer no código C++ do projeto da Unreal, o Codex do Arasaka Mikoshi também trabalha direto na pasta `Source` do projeto.
 
 ## Modelo de cada modo 🔁
 

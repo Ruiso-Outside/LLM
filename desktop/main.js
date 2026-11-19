@@ -501,13 +501,13 @@ ipcMain.on("resize-quick", (_e, h) => {
 });
 
 // ------------------------------------------------------------------ atualizacao automatica (GitHub Releases)
-// Ao abrir (e a cada 6 h) le o patch.json do ultimo Release de github.com/Ruiso-Outside/LLM.
+// Ao abrir (e a cada 6 h) le o patch.json do ultimo Release de github.com/Ruiso-Outside/ArasakaMikoshi.
 // Atualizacao normal: baixa app-patch-X.zip (so JavaScript, HTML e Python), confere o SHA-512
 // e troca resources/app e resources/server ao reiniciar. O .exe (Electron oficial, sem
 // modificacoes) nunca muda, entao o Controle Inteligente de Aplicativos do Windows nao bloqueia.
 // Se a versao do Electron mudar, e preciso o instalador completo: o app avisa e abre a pagina.
 const crypto = require("crypto");
-const RELEASES = "https://github.com/Ruiso-Outside/LLM/releases";
+const RELEASES = "https://github.com/Ruiso-Outside/ArasakaMikoshi/releases";
 const RES = process.resourcesPath;
 let updateState = { status: "idle", version: "", percent: 0, error: "" };
 let updatePromptShown = false;
