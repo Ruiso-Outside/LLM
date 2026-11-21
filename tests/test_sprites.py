@@ -12,6 +12,7 @@ from pathlib import Path
 TESTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(TESTS.parent / "app"))
 import mcp  # noqa: E402
+import mcpdocs  # noqa: E402
 import media  # noqa: E402
 import pixel  # noqa: E402
 import sprites  # noqa: E402
@@ -195,6 +196,27 @@ class Construct(unittest.TestCase):
         self.assertEqual((st["state"], st["tools"], st["version"], st["can_sprites"]), ("pronto", 4, "9.9.9", True))
         self.assertIn("MeuJogo", sprites.construct_call("project_info", {}))
 
+    def test_manual_and_docs_reach_the_prompt(self):
+        srv = mcp.MANAGER.get(mcp.CONSTRUCT_ID)
+        srv.connect()
+        self.assertGreater(len(srv.instructions), 10000, "o manual inteiro chega (antes cortava em 3000)")
+        import agent
+        self.assertIn("Regra do Construct", agent.mcp_prompt([srv], False))
+        block = mcpdocs.prompt_block([srv], "o jogador perde vida ao encostar no inimigo")
+        self.assertIn("maxHp", block)
+        self.assertNotIn("O que foi testado", block, "paginas que nao ensinam a fazer jogos ficam de fora")
+        self.assertIn("scenes/fase2", mcpdocs.prompt_block([srv], "ir para a proxima fase ao tocar na bandeira"))
+        self.assertEqual(mcpdocs.prompt_block([srv], "xyzzy plugh"), "", "nada a ver: nao poe nada")
+
+    def test_essentials_profile_by_default(self):
+        cfg = mcp.MANAGER.get(mcp.CONSTRUCT_ID).cfg
+        self.assertEqual(cfg["tools"], mcp.CONSTRUCT_ESSENTIALS)
+        self.assertIn("check_code", cfg["tools"])
+        self.assertNotIn("datastore_set", cfg["tools"])
+        self.assertEqual(mcp.MANAGER.get(mcp.CONSTRUCT_ID).public()["profiles"], {"essentials": mcp.CONSTRUCT_ESSENTIALS})
+        mcp.save([{**mcp.MANAGER.get(mcp.CONSTRUCT_ID).public(), "allowed": None}])  # o usuario liga todas
+        self.assertIsNone(mcp.MANAGER.get(mcp.CONSTRUCT_ID).cfg["tools"])
+
     def test_missing_editor(self):
         os.environ["ARASAKA_CONSTRUCT_EDITOR"] = str(self.root / "nao-existe")
         mcp.MANAGER.sync()
@@ -237,6 +259,26 @@ class Construct(unittest.TestCase):
         fid, p = media.new_media_path("png")
         p.write_bytes(pixel.encode_png(img))
         return p
+
+
+class Docs(unittest.TestCase):
+    MD = ("# Scripts (Luau)\n## A API\ninput.bind, input.pressed, arcade.move(self, dx, dy, w.solids).\n"
+          "# Personagens e NPCs\n## NPCs e rotas\nnpc = { mode = \"route\", route = \"Ronda\" } faz o inimigo patrulhar.\n"
+          "# Instalar e atualizar\n## Linux\ninimigo inimigo patrulha patrulha\n")
+
+    def test_split_and_retrieve(self):
+        ch = mcpdocs.split_sections(self.MD)
+        self.assertEqual([c["title"] for c in ch], ["Scripts (Luau) > A API", "Personagens e NPCs > NPCs e rotas"])
+        top = mcpdocs.retrieve(ch, "crie um inimigo que faz patrulha")
+        self.assertEqual(top[0]["title"], "Personagens e NPCs > NPCs e rotas")
+        self.assertEqual(mcpdocs.retrieve(ch, "pule quando apertar a tecla")[0]["title"], "Scripts (Luau) > A API", "sinonimos: tecla -> input")
+        self.assertEqual(mcpdocs.retrieve(ch, ""), [])
+
+    def test_budget_and_accents(self):
+        ch = mcpdocs.split_sections("# A\n## Animação\n" + "animação sprite " * 2000 + "\n# B\n## Outra\nanimacao curta\n")
+        got = mcpdocs.retrieve(ch, "animação", budget=3000)
+        self.assertTrue(got and sum(len(c["text"]) for c in got) <= 3000)
+        self.assertEqual(mcpdocs.terms("Animação"), mcpdocs.terms("animacao"))
 
 
 class MikoshiMcpServer(unittest.TestCase):

@@ -17,6 +17,7 @@ from datetime import datetime
 from pathlib import Path
 
 import mcp
+import mcpdocs
 import rea
 
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -101,6 +102,9 @@ def mcp_prompt(servers, has_workspace):
              "do usuario. Use-as quando o pedido envolver esses programas."]
     for s in servers:
         lines.append(f"- {s.cfg['name']}" + (f": {s.instructions}" if s.instructions else ""))
+        if s.cfg["id"] == "construct":
+            lines.append("  Regra do Construct: siga o manual acima. Leia a cena antes de mudar; depois de escrever um script "
+                         "rode check_code e, antes de terminar, run_game. Se houver erro, corrija e rode de novo.")
         if s.cfg["id"] == "roblox" or "roblox" in s.cfg["name"].lower():
             lines.append("  Dicas para o Roblox Studio: o codigo e Luau. Antes de alterar, consulte o jogo (ex.: liste os "
                          "filhos de workspace/ServerScriptService com run_code e print). Para criar ou editar scripts, "
@@ -113,7 +117,7 @@ def mcp_prompt(servers, has_workspace):
 
 def system_prompt_mcp_only():
     return f"""Voce e o Codex do Arasaka Mikoshi, um agente autonomo trabalhando no computador do usuario.
-- Sistema: Windows. Data de hoje: {datetime.now():%d/%m/%Y}.
+- Sistema: {'Windows' if os.name == 'nt' else 'Linux'}. Data de hoje: {datetime.now():%d/%m/%Y}.
 - Nao ha pasta de projeto neste pedido; voce so tem as ferramentas externas listadas abaixo.
 Como trabalhar: entenda o pedido, consulte o estado atual antes de alterar, execute em passos sem pedir permissao para
 cada um, confira o resultado e corrija os erros. Ao terminar, responda com um resumo curto do que foi feito.
@@ -596,8 +600,15 @@ class AgentRun:
             self.send({"agent": {"type": "notice", "text": "🔬 REA disponível (engenharia reversa, sem internet)"}})
         if not tools:
             raise ToolError("Sem ferramentas: escolha uma pasta de projeto ou conecte um servidor MCP.")
+        # a documentacao dos servidores que a publicam (Construct): so os trechos ligados ao pedido
+        query = next((m.get("content") for m in reversed(history) if m.get("role") == "user"), "")
+        if isinstance(query, list):
+            query = " ".join(p.get("text", "") for p in query if isinstance(p, dict))
+        docs = mcpdocs.prompt_block(servers, str(query or ""), self.send_ping) if servers else ""
+        if docs:
+            self.send({"agent": {"type": "notice", "text": "📖 Documentação do Construct consultada para este pedido"}})
         sp = (system_prompt(ws.root, bool(self.image_fn)) if ws else system_prompt_mcp_only()) + \
-            mcp_prompt(servers, bool(ws)) + ("\n\n" + rea.cli_prompt() if rea_cli else "") + \
+            mcp_prompt(servers, bool(ws)) + docs + ("\n\n" + rea.cli_prompt() if rea_cli else "") + \
             (f"\n\nBase de conhecimento \"{self.kb_name}\": use search_knowledge para consultar os documentos do usuario "
              "antes de implementar e quando precisar de detalhes. Cite os trechos usados como [D1], [D2]." if self.kb_fn else "") + \
             ("\n" + self.s["_reply_rule"] if self.s.get("_reply_rule") else "")

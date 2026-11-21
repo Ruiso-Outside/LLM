@@ -138,6 +138,9 @@ A Mikoshi conversa com o **[Arasaka Construct](https://github.com/Ruiso-Outside/
 - **Descoberta:** ao abrir, ela procura o editor instalado (o que a Arasaka Central instalou, `~/.local/bin/demonic-editor` no Linux, a pasta do app no Windows ou o `PATH`) e abre `demonic-editor <projeto> --mcp` em segundo plano. O projeto é o aberto por último no editor (a mesma lista da tela inicial dele); dá para escolher outro no setor **Sprites**.
 - **Estado na tela:** o indicador **Construct** na barra de cima fica verde com o número de ferramentas (37 na 0.25.0), mostra o erro em vermelho ou "Construct ausente". Clique nele para ver os detalhes, reconectar e trocar de projeto.
 - **No Codex:** as ferramentas do Construct (criar projeto e cenas, escrever scripts, rodar o jogo, tirar print, mexer no banco...) ficam ligadas como as dos outros servidores MCP, com as mesmas confirmações. Em Configurações → Ferramentas MCP ele aparece como servidor embutido: dá para desligar, não pedir confirmação ou escolher as ferramentas (ocupam ~4,6 mil tokens).
+- **A IA aprende a engine:** com o Construct **0.26.0** ou mais novo, o manual da engine chega junto com a conexão (estrutura do projeto e da cena, um script que funciona, a API mais usada, a ordem de trabalho com `check_code` e `run_game` e os erros comuns) e vai inteiro para o prompt do Codex. A cada pedido, a Mikoshi também procura na documentação do Construct (o recurso `demonic://readme`) os trechos ligados ao que foi pedido — "vida", "fase", "tiro" viram personagem, troca de cena, `spawn` — e põe só esses no prompt (aparece "📖 Documentação do Construct consultada"). Um modelo local pequeno quase nunca vai ler a documentação sozinho; assim ele não precisa.
+- **Perfil Essenciais:** por padrão o Construct entra no Codex com as 19 ferramentas de fazer o jogo (de 37). Para ligar as outras (biblioteca de assets, banco de dados, exportar), use Configurações → Ferramentas MCP → Arasaka Construct → **Todas**.
+- `tools/eval-construct.py` mede isso com o seu modelo: cria projetos de teste, pede tarefas ao Codex (inimigo, vida, moedas, tiro, troca de fase) e confere sozinho se o código passa no `check_code`, se o jogo roda e se a mudança existe na cena.
 - Precisa do Construct **0.25.0** ou mais novo para receber imagens (`write_image` e `create_sprite`); as versões antigas conectam, mas não recebem sprites.
 
 ### 👾 Sprites (pixel art com IA local)
@@ -311,6 +314,7 @@ Em **Configurações → Idioma** escolha a língua do app: **Português (Brasil
 | `app/gateway.py` | API local compatível com Ollama e OpenAI para outros programas |
 | `app/rea.py` | REA no motor: instala o Node.js portátil e o rea-agents e monta as instruções do Codex |
 | `app/mcp.py` | Cliente MCP: conecta o Codex e os agentes a programas como o Roblox Studio; acha e conecta sozinho o Arasaka Construct |
+| `app/mcpdocs.py` | Documentação dos servidores MCP no prompt: lê o recurso, divide pelos títulos e busca os trechos do pedido (BM25 + sinônimos) |
 | `app/pixel.py` | Pixel art sem bibliotecas: lê e grava PNG, tira o fundo, reduz sem borrar, paleta, contorno e folhas |
 | `app/sprites.py` | Setor Sprites: gera com os modelos de pixel art (Qwen-Image, Z-Image, SDXL), envia ao Construct e o servidor MCP da Mikoshi (`/mcp`) |
 | `app/kb.py` | RAG: índice vetorial, chunks e busca por embeddings |

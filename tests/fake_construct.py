@@ -63,7 +63,13 @@ for line in sys.stdin:
         continue
     if method == "initialize":
         send({"jsonrpc": "2.0", "id": mid, "result": {"protocolVersion": params.get("protocolVersion"), "capabilities": {"tools": {}},
-                                                      "serverInfo": {"name": "demonic-engine", "version": "9.9.9"}}})
+                                                      "serverInfo": {"name": "demonic-engine", "version": "9.9.9"},
+                                                      "instructions": "# Manual\n" + "Leia a cena antes de mudar. " * 400}})
+    elif method == "resources/read":
+        doc = ("# Personagens e NPCs\n## Personagem (vida e dano)\nO campo character = { maxHp = 3 } da vida ao objeto; self.character.hp.\n\n"
+               "# Cenas e objetos\n## Trocar de cena\nrequire(\"@demonic/scenes\").go(\"scenes/fase2\") troca de fase.\n\n"
+               "# O que foi testado\n## Tudo\nvida vida vida fase fase\n")
+        send({"jsonrpc": "2.0", "id": mid, "result": {"contents": [{"uri": params.get("uri"), "mimeType": "text/markdown", "text": doc}]}})
     elif method == "tools/list":
         send({"jsonrpc": "2.0", "id": mid, "result": {"tools": TOOLS}})
     elif method == "tools/call":

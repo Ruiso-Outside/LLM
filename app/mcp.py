@@ -57,7 +57,14 @@ REA_WINDOWS = REA_ESSENTIALS + [
     "inspect_sqlite_database", "inspect_wasm_artifact", "inspect_web_page", "analyze_web_bundle",
     "inspect_web_network_capture", "list_unknowns", "record_unknown",
 ]
-PROFILES = {"rea": {"essentials": REA_ESSENTIALS, "windows": REA_WINDOWS}}
+# Arasaka Construct: as ferramentas de fazer o jogo (~15 de 37, menos da metade dos tokens). Modelos pequenos se
+# confundem com dezenas de ferramentas; as outras (biblioteca, banco de dados, exportar) continuam para ligar.
+CONSTRUCT_ESSENTIALS = [
+    "engine_info", "api_reference", "project_info", "list_files", "read_file", "write_file", "write_image",
+    "create_sprite", "list_scenes", "read_scene", "create_scene", "add_node", "update_node", "delete_node",
+    "check_code", "run_game", "screenshot", "list_templates", "create_project", "open_project",
+]
+PROFILES = {"rea": {"essentials": REA_ESSENTIALS, "windows": REA_WINDOWS}, "construct": {"essentials": CONSTRUCT_ESSENTIALS}}
 
 def preset(kind):
     if kind == "rea":
@@ -206,8 +213,10 @@ def _file():
 
 def construct_prefs():
     p = _file().get("construct") or {}
+    # sem escolha guardada: o perfil Essenciais (o usuario liga as outras em Configuracoes > MCP)
+    tools = _allowed(p) if ("tools" in p or "allowed" in p) else list(CONSTRUCT_ESSENTIALS)
     return {"enabled": bool(p.get("enabled", True)), "auto_approve": bool(p.get("auto_approve")),
-            "tools": _allowed(p), "project": str(p.get("project") or "")}
+            "tools": tools, "project": str(p.get("project") or "")}
 
 
 def construct_project(prefs=None):
@@ -483,7 +492,8 @@ class Server:
                                  timeout=45, ping=ping)
                 c.notify("notifications/initialized")
                 self.info = init.get("serverInfo") or {}
-                self.instructions = str(init.get("instructions") or "")[:3000]
+                # o Construct manda um manual inteiro (~6,5 mil caracteres): cabe; mais que isso e corte de seguranca
+                self.instructions = str(init.get("instructions") or "")[:16000]
                 self.client = c
                 c.on_notify = self._notified
                 self.tools = self._list_tools(ping)
@@ -503,6 +513,10 @@ class Server:
             if not cursor:
                 break
         return tools
+
+    def read_resource(self, uri, ping=None):
+        self.connect(ping)
+        return self.client.request("resources/read", {"uri": uri}, timeout=60, ping=ping)
 
     def _notified(self, method):
         if method == "notifications/tools/list_changed":
