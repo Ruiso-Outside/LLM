@@ -138,13 +138,24 @@ class EnginePackage(unittest.TestCase):
     def test_pixel_preset_files(self):
         with tempfile.TemporaryDirectory() as d:
             media.configure(d, None, None)
-            names = [n for _, _, _, n in media.preset_files(media.PIXEL_PRESET)]
+            self.assertEqual(media.PIXEL_PRESETS, ("pixel-qwen-image", "pixel-z-image", "pixel-art-xl"))
+            names = [n for _, _, _, n in media.preset_files("pixel-qwen-image")]
+            self.assertEqual(names, ["qwen-image-2512-Q4_K_M.gguf", "qwen_image_vae.safetensors", "Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
+                                     "pixel-art-qwen.safetensors", "qwen-lightning-8.safetensors"])
+            names = [n for _, _, _, n in media.preset_files("pixel-art-xl")]
             self.assertEqual(names, ["sd_xl_base_1.0.safetensors", "sdxl_vae.safetensors", "pixel-art-xl.safetensors", "lcm-sdxl.safetensors"])
-            self.assertFalse(media.preset_installed(media.PIXEL_PRESET))
-            for _, _, folder, n in media.preset_files(media.PIXEL_PRESET):
+            self.assertEqual(media.pixel_default(), "pixel-qwen-image", "nada baixado: oferece o mais forte")
+            for _, _, folder, n in media.preset_files("pixel-z-image"):
                 folder.mkdir(parents=True, exist_ok=True)
                 (folder / n).write_bytes(b"x")
-            self.assertTrue(media.preset_installed(media.PIXEL_PRESET))
+            self.assertTrue(media.preset_installed("pixel-z-image"))
+            self.assertEqual(media.pixel_default(), "pixel-z-image", "usa o mais forte ja baixado")
+            for k in media.PIXEL_PRESETS:  # cada modelo tem a palavra que ativa a sua LoRA e cabe em 16 GB
+                p = media.IMAGE_PRESETS[k]
+                self.assertIn("{subject}", p["style"])
+                self.assertTrue(set(p["modes"]) == {"rapido", "qualidade"})
+                self.assertTrue(all(n in p["loras"] for m in p["modes"].values() for n, _ in m["loras"]))
+            self.assertTrue(sprites.build_prompt("slime", "baixo", media.IMAGE_PRESETS["pixel-qwen-image"]["style"]).startswith("Pixel Art, slime,"))
 
 
 class Construct(unittest.TestCase):
@@ -238,7 +249,11 @@ class MikoshiMcpServer(unittest.TestCase):
 
     def rpc(self, method, params=None, mid=1):
         return sprites.handle_rpc({"jsonrpc": "2.0", "id": mid, "method": method, "params": params or {}},
-                                  self.gen, lambda: {"ok": True})
+                                  self.gen_for, lambda: {"ok": True})
+
+    def gen_for(self, preset):
+        self.presets.append(preset)
+        return self.gen
 
     def gen(self, prompt, negative, seed, mode, on_progress=None):
         self.prompts.append((prompt, seed, mode))
@@ -247,7 +262,7 @@ class MikoshiMcpServer(unittest.TestCase):
         return p
 
     def test_protocol_and_tools(self):
-        self.prompts = []
+        self.prompts, self.presets = [], []
         r = self.rpc("initialize", {"protocolVersion": "2025-06-18"})["result"]
         self.assertEqual(r["serverInfo"]["name"], "arasaka-mikoshi")
         names = [t["name"] for t in self.rpc("tools/list")["result"]["tools"]]
@@ -260,6 +275,11 @@ class MikoshiMcpServer(unittest.TestCase):
         self.assertTrue(base64.b64decode(res["content"][1]["data"]).startswith(pixel.PNG_SIG))
         self.assertEqual([s for _, s, _ in self.prompts], [5, 6, 5, 6], "mesma semente por direcao, +1 por variacao")
         self.assertIn("front view", self.prompts[0][0])
+        self.assertTrue(self.prompts[0][0].startswith("Pixel Art, slime"), "padrao sem nada baixado: Qwen-Image")
+        self.assertEqual(self.presets, ["pixel-qwen-image"])
+        self.rpc("tools/call", {"name": "generate_sprite", "arguments": {"prompt": "chest", "model": "pixel-z-image", "size": 16}})
+        self.assertEqual(self.presets[-1], "pixel-z-image")
+        self.assertTrue(self.prompts[-1][0].startswith("Pixel art style. chest"))
         self.assertIn("side view, facing left", self.prompts[2][0])
         data = base64.b64encode(pixel.encode_png(blob(64, 64))).decode()
         res = self.rpc("tools/call", {"name": "pixelate_image", "arguments": {"data": data, "size": 24}})["result"]

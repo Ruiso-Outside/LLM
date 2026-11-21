@@ -347,23 +347,63 @@ IMAGE_PRESETS = {
         "files": {"-m": ("stabilityai/sdxl-turbo", "sd_xl_turbo_1.0_fp16.safetensors")},
         "args": [], "steps": 4, "cfg": 1.0, "width": 512, "height": 512, "negative": False,
     },
-    # Setor Sprites: SDXL base + LoRA de pixel art (nerijs/pixel-art-xl) + LCM LoRA (8 passos). Com 16 GB de VRAM o
-    # SDXL roda inteiro na GPU pelo Vulkan; o resultado passa pelo pixel.py (paleta, reducao sem borrar, fundo).
+    # Setor Sprites (o resultado passa pelo pixel.py: paleta, reducao sem borrar, fundo). Tres niveis:
+    # 1) Qwen-Image-2512 (20B, o mais forte que cabe em 16 GB): GGUF Q4_K_M (13,3 GB) + Qwen2.5-VL 7B como codificador de
+    #    texto + LoRA "Pixel Art" (prithivMLmods) + LoRA Lightning de 8 passos (lightx2v). Apache 2.0.
+    "pixel-qwen-image": {
+        "name": "Pixel Art Qwen-Image 2512 (20B, máximo)",
+        "desc": "O mais forte: Qwen-Image 2512 (20 bilhões de parâmetros, Q4_K_M) com a LoRA Pixel Art e a Lightning (8 passos). Segue melhor a descrição e desenha melhor mãos, rostos e objetos. ~20,3 GB. Feito para placas de 16 GB (o codificador de texto vai para a RAM).",
+        "files": {"--diffusion-model": ("unsloth/Qwen-Image-2512-GGUF", "qwen-image-2512-Q4_K_M.gguf"),
+                  "--vae": ("Comfy-Org/Qwen-Image_ComfyUI", "split_files/vae/qwen_image_vae.safetensors"),
+                  "--llm": ("unsloth/Qwen2.5-VL-7B-Instruct-GGUF", "Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf")},
+        "loras": {"pixel-art-qwen": ("prithivMLmods/Qwen-Image-2512-Pixel-Art-LoRA", "Qwen-Image-2512-Master-Pixel-Art-LoRA.safetensors"),
+                  "qwen-lightning-8": ("lightx2v/Qwen-Image-2512-Lightning", "Qwen-Image-2512-Lightning-8steps-V1.0-bf16.safetensors")},
+        "modes": {"rapido": {"loras": [("pixel-art-qwen", 1.0), ("qwen-lightning-8", 1.0)], "steps": 8, "cfg": 1.0, "sampler": "euler"},
+                  "qualidade": {"loras": [("pixel-art-qwen", 1.0)], "steps": 40, "cfg": 4.0, "sampler": "euler"}},
+        "style": "Pixel Art, {subject}",
+        "args": ["--diffusion-fa", "--vae-tiling"], "steps": 8, "cfg": 1.0, "width": 1024, "height": 1024, "negative": True,
+        "pixel": True,
+        # 13.300 + 254 + 4.683 + 1.180 + 850 MB, conferido no Hugging Face em 2026-11-21
+        "bytes": 20_267_000_000,
+    },
+    # 2) Z-Image Turbo inteiro (bf16, 6B, sem quantizar) + Qwen3 4B Q8 + LoRA de pixel art mais baixada (tarn59): 8 passos.
+    "pixel-z-image": {
+        "name": "Pixel Art Z-Image Turbo (6B, rápido)",
+        "desc": "Z-Image Turbo sem quantizar (bf16) com a LoRA Pixel Art Style: ótima qualidade e bem mais rápido que o Qwen-Image (8 passos). ~17,1 GB.",
+        "files": {"--diffusion-model": ("Comfy-Org/Z-Image-Turbo", "split_files/diffusion_models/z_image_turbo_bf16.safetensors"),
+                  "--vae": ("Comfy-Org/Z-Image-Turbo", "split_files/vae/ae.safetensors"),
+                  "--llm": ("unsloth/Qwen3-4B-Instruct-2507-GGUF", "Qwen3-4B-Instruct-2507-Q8_0.gguf")},
+        "loras": {"pixel-art-zimage": ("tarn59/pixel_art_style_lora_z_image_turbo", "pixel_art_style_z_image_turbo.safetensors")},
+        "modes": {"rapido": {"loras": [("pixel-art-zimage", 1.0)], "steps": 8, "cfg": 1.0, "sampler": "euler"},
+                  "qualidade": {"loras": [("pixel-art-zimage", 1.0)], "steps": 14, "cfg": 1.0, "sampler": "euler"}},
+        "style": "Pixel art style. {subject}",
+        "args": ["--diffusion-fa"], "steps": 8, "cfg": 1.0, "width": 1024, "height": 1024, "negative": False, "pixel": True,
+        # 12.310 + 335 + 4.280 + 170 MB
+        "bytes": 17_095_000_000,
+    },
+    # 3) Leve (placas de 8 GB): SDXL base + LoRA Pixel Art XL (nerijs) + LCM LoRA (8 passos).
     "pixel-art-xl": {
-        "name": "Pixel Art XL (SDXL + LoRA)",
-        "desc": "Sprites e pixel art: SDXL 1.0 com a LoRA Pixel Art XL e a LCM LoRA (rápido, 8 passos). ~7,8 GB. Precisa de ~8 GB de VRAM (ou use 'Economizar VRAM').",
+        "name": "Pixel Art XL (SDXL, leve)",
+        "desc": "Para placas menores: SDXL 1.0 com a LoRA Pixel Art XL e a LCM LoRA (8 passos). ~7,8 GB. Precisa de ~8 GB de VRAM.",
         "files": {"-m": ("stabilityai/stable-diffusion-xl-base-1.0", "sd_xl_base_1.0.safetensors"),
                   "--vae": ("madebyollin/sdxl-vae-fp16-fix", "sdxl_vae.safetensors")},
         "loras": {"pixel-art-xl": ("nerijs/pixel-art-xl", "pixel-art-xl.safetensors"),
                   "lcm-sdxl": ("latent-consistency/lcm-lora-sdxl", "pytorch_lora_weights.safetensors")},
         "modes": {"rapido": {"loras": [("pixel-art-xl", 1.2), ("lcm-sdxl", 1.0)], "steps": 8, "cfg": 1.5, "sampler": "lcm"},
                   "qualidade": {"loras": [("pixel-art-xl", 1.2)], "steps": 30, "cfg": 7.0, "sampler": "euler_a"}},
+        "style": "pixel art, {subject}",
         "args": [], "steps": 8, "cfg": 1.5, "width": 1024, "height": 1024, "negative": True, "pixel": True,
         # 6.938 MB (SDXL) + 335 MB (VAE) + 171 MB (Pixel Art XL) + 394 MB (LCM), conferido no Hugging Face em 2026-11-21
         "bytes": 7_838_000_000,
     },
 }
-PIXEL_PRESET = "pixel-art-xl"
+PIXEL_PRESETS = ("pixel-qwen-image", "pixel-z-image", "pixel-art-xl")  # do mais forte ao mais leve
+PIXEL_PRESET = PIXEL_PRESETS[0]
+
+
+def pixel_default():
+    """O modelo de pixel art usado quando ninguem escolhe: o mais forte ja baixado (ou o mais forte, para baixar)."""
+    return next((k for k in PIXEL_PRESETS if preset_installed(k)), PIXEL_PRESET)
 
 
 def lora_dir(key):

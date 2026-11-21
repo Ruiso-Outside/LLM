@@ -142,14 +142,22 @@ A Mikoshi conversa com o **[Arasaka Construct](https://github.com/Ruiso-Outside/
 
 ### 👾 Sprites (pixel art com IA local)
 Setor próprio (botão **👾 Sprites** na barra da esquerda) para criar personagens, itens e folhas de sprites:
-1. **Preparar (uma vez):** *Instalar motor* baixa o stable-diffusion.cpp (Vulkan, ~40 MB; no Linux a Mikoshi escolhe o pacote que roda com a glibc do sistema) e *Baixar modelo* baixa o **Pixel Art XL** do Hugging Face: SDXL 1.0 (6,9 GB) + VAE fp16 (335 MB) + LoRA Pixel Art XL (171 MB) + LCM LoRA (394 MB), **~7,8 GB** no total, na pasta `models/image/pixel-art-xl`. A Mikoshi pergunta antes de baixar.
-2. **Gerar:** descreva o sprite (inglês dá resultados melhores), escolha o tamanho (**16, 24, 32, 48, 64, 96 ou 128 px**), o número de cores, as **direções** (frente, esquerda, direita, costas: uma linha da folha cada) e as **variações** por direção (colunas). *Rápido* usa a LCM LoRA (8 passos); *Qualidade*, 30 passos. A mesma semente em todas as direções mantém o mesmo personagem.
+1. **Preparar (uma vez):** *Instalar motor* baixa o stable-diffusion.cpp (Vulkan, ~40 MB; no Linux a Mikoshi escolhe o pacote que roda com a glibc do sistema). Depois escolha o **Modelo** e clique em *Baixar modelo* (a Mikoshi mostra o tamanho e pergunta antes; vai para `models/image/<modelo>`):
+
+   | Modelo | O que baixa | Total | Para quem |
+   |---|---|---|---|
+   | **Qwen-Image 2512 (20B, máximo)** — padrão | Qwen-Image 2512 GGUF Q4_K_M (13,3 GB) + Qwen2.5-VL 7B Q4_K_M como codificador de texto (4,7 GB) + VAE (254 MB) + LoRA [Pixel Art](https://huggingface.co/prithivMLmods/Qwen-Image-2512-Pixel-Art-LoRA) (1,2 GB) + LoRA [Lightning 8 passos](https://huggingface.co/lightx2v/Qwen-Image-2512-Lightning) (850 MB) | **~20,3 GB** | placas de 16 GB: o melhor resultado, mais lento |
+   | **Z-Image Turbo (6B, rápido)** | Z-Image Turbo bf16 sem quantizar (12,3 GB) + Qwen3 4B Q8 (4,3 GB) + VAE (335 MB) + LoRA [Pixel Art Style](https://huggingface.co/tarn59/pixel_art_style_lora_z_image_turbo) (170 MB) | **~17,1 GB** | ótima qualidade, várias vezes mais rápido |
+   | **Pixel Art XL (SDXL, leve)** | SDXL 1.0 (6,9 GB) + VAE fp16 (335 MB) + LoRA [Pixel Art XL](https://huggingface.co/nerijs/pixel-art-xl) (171 MB) + LCM LoRA (394 MB) | **~7,8 GB** | placas de 8 GB |
+
+   Sem escolha, o setor usa o mais forte já baixado. Todos têm licença aberta (Apache 2.0, MIT ou OpenRAIL) e não pedem conta no Hugging Face.
+2. **Gerar:** descreva o sprite (inglês dá resultados melhores), escolha o tamanho (**16, 24, 32, 48, 64, 96 ou 128 px**), o número de cores, as **direções** (frente, esquerda, direita, costas: uma linha da folha cada) e as **variações** por direção (colunas). *Rápido* usa 8 passos (Lightning, Turbo ou LCM); *Qualidade* usa mais passos (40 no Qwen-Image, bem mais lento). A mesma semente em todas as direções mantém o mesmo personagem.
 3. **Pixel art de verdade:** a imagem do modelo passa por um pós-processamento próprio (sem bibliotecas extras): tira o fundo (a cor da borda, com limpeza da franja), recorta o desenho, reduz escolhendo a **cor dominante de cada bloco** (vizinho mais próximo, sem borrar), encosta os pés na base do quadro, **reduz a paleta** (corte mediano, a mesma paleta em todos os quadros da folha) e põe contorno de 1 px se você quiser. Alfa só 0 ou 255.
 4. **Usar:** *Baixar PNG* (folha ou cada quadro), *Reprocessar* (muda tamanho, cores e contorno sem gerar de novo), *Pixelar uma imagem…* (transforma uma imagem sua, sem IA) e **Enviar ao Arasaka Construct**: grava `assets/mikoshi/<nome>.png` e cria `sprites/<nome>.sprite.luau` com as animações `parado` e `andando` no projeto escolhido.
 
-**Por que esse modelo:** o PC de referência (RTX 5070 Ti, 16 GB de VRAM, 60 GB de RAM) roda o SDXL inteiro na GPU; a LoRA Pixel Art XL é a mais usada para sprites em SDXL e a LCM LoRA corta para 8 passos. O stable-diffusion.cpp já era o motor de imagem da Mikoshi: um executável de ~40 MB pelo Vulkan, sem PyTorch (~5 GB, e as placas RTX 50 pedem builds CUDA 12.8) nem um ComfyUI à parte. Com o modelo de texto carregado ao mesmo tempo, ative "Descarregar o modelo de texto enquanto gera imagens" se faltar memória de vídeo.
+**Por que esses modelos:** numa placa de 16 GB (o PC de referência tem RTX 5070 Ti e 60 GB de RAM), o maior modelo aberto de imagem que cabe é o **Qwen-Image 2512** (20 bilhões de parâmetros, contra 2,6 do SDXL) em Q4_K_M: 13,3 GB na GPU, com o codificador de texto passando pela RAM (`--offload-to-cpu`) e o VAE em blocos. Ele segue descrições longas e desenha formas bem melhor, e a LoRA Lightning corta de 40 para 8 passos. O Z-Image Turbo (6B, inteiro em bf16) é a opção rápida, com a LoRA de pixel art mais baixada do Hugging Face. Tudo roda no stable-diffusion.cpp, que já era o motor de imagem da Mikoshi: um executável de ~40 MB pelo Vulkan, sem PyTorch (~5 GB; as placas RTX 50 pedem builds CUDA 12.8) nem um ComfyUI à parte. Com o modelo de texto carregado ao mesmo tempo, ative "Descarregar o modelo de texto enquanto gera imagens" se faltar memória de vídeo.
 
-**Servidor MCP da Mikoshi:** a Mikoshi também é um servidor MCP em `http://127.0.0.1:8765/mcp` (só no PC), com `generate_sprite` (com `construct_name`, grava direto no projeto do Construct), `pixelate_image` e `sprite_status`. Assim o Claude Code, o Cursor ou outro assistente que mexe no Construct gera os sprites aqui:
+**Servidor MCP da Mikoshi:** a Mikoshi também é um servidor MCP em `http://127.0.0.1:8765/mcp` (só no PC), com `generate_sprite` (com `model` para escolher o modelo e `construct_name` para gravar direto no projeto do Construct), `pixelate_image` e `sprite_status`. Assim o Claude Code, o Cursor ou outro assistente que mexe no Construct gera os sprites aqui:
 ```
 claude mcp add --transport http mikoshi http://127.0.0.1:8765/mcp
 ```
@@ -303,7 +311,7 @@ Em **Configurações → Idioma** escolha a língua do app: **Português (Brasil
 | `app/rea.py` | REA no motor: instala o Node.js portátil e o rea-agents e monta as instruções do Codex |
 | `app/mcp.py` | Cliente MCP: conecta o Codex e os agentes a programas como o Roblox Studio; acha e conecta sozinho o Arasaka Construct |
 | `app/pixel.py` | Pixel art sem bibliotecas: lê e grava PNG, tira o fundo, reduz sem borrar, paleta, contorno e folhas |
-| `app/sprites.py` | Setor Sprites: gera com a LoRA de pixel art, envia ao Construct e o servidor MCP da Mikoshi (`/mcp`) |
+| `app/sprites.py` | Setor Sprites: gera com os modelos de pixel art (Qwen-Image, Z-Image, SDXL), envia ao Construct e o servidor MCP da Mikoshi (`/mcp`) |
 | `app/kb.py` | RAG: índice vetorial, chunks e busca por embeddings |
 | `app/modelsettings.py` | Ajustes por modelo e amostragem recomendada por família |
 | `app/media.py` | Whisper, stable-diffusion.cpp, anexos e extração de texto de documentos |

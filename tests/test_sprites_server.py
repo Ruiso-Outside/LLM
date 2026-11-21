@@ -98,7 +98,10 @@ class SpritesServer(unittest.TestCase):
         self.assertTrue(st["engine"]["installed"])
         self.assertEqual(st["engine"]["problem"], "")
         self.assertTrue(st["model"]["installed"])
-        self.assertGreater(st["download_bytes"], 7e9)
+        self.assertEqual(st["preset"], "pixel-qwen-image")
+        self.assertEqual([(m["key"], m["installed"]) for m in st["models"]],
+                         [("pixel-qwen-image", True), ("pixel-z-image", False), ("pixel-art-xl", False)])
+        self.assertGreater(st["models"][0]["bytes"], 20e9)
         evs = self.sse("/api/sprites/generate", {"prompt": "green slime", "size": 16, "colors": 8, "views": ["baixo", "esquerda"],
                                                  "frames": 2, "seed": 10, "mode": "rapido"})
         errors = [e for e in evs if "error" in e]
@@ -111,13 +114,18 @@ class SpritesServer(unittest.TestCase):
         self.assertLessEqual(len(done["palette"]), 8)
         args = json.loads((self.home / "data" / "uploads" / (done["sources"][0] + ".args.json")).read_text("utf-8"))
         prompt = args[args.index("-p") + 1]
-        self.assertIn("pixel art, green slime", prompt)
-        self.assertIn("<lora:pixel-art-xl:1.2>", prompt)
-        self.assertIn("<lora:lcm-sdxl:1>", prompt)
-        self.assertEqual(args[args.index("--sampling-method") + 1], "lcm")
+        self.assertTrue(prompt.startswith("Pixel Art, green slime"), prompt)
+        self.assertIn("<lora:pixel-art-qwen:1>", prompt)
+        self.assertIn("<lora:qwen-lightning-8:1>", prompt)
+        self.assertEqual(args[args.index("--sampling-method") + 1], "euler")
         self.assertEqual(args[args.index("--steps") + 1], "8")
-        self.assertTrue(args[args.index("--lora-model-dir") + 1].endswith(os.path.join("pixel-art-xl", "loras")))
+        self.assertTrue(args[args.index("--diffusion-model") + 1].endswith("qwen-image-2512-Q4_K_M.gguf"))
+        self.assertTrue(args[args.index("--llm") + 1].endswith("Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf"))
+        self.assertTrue(args[args.index("--lora-model-dir") + 1].endswith(os.path.join("pixel-qwen-image", "loras")))
         self.assertIn("-n", args)
+        # um modelo que nao foi baixado: erro claro, sem gerar
+        evs = self.sse("/api/sprites/generate", {"prompt": "slime", "preset": "pixel-art-xl"})
+        self.assertIn("Baixe o modelo Pixel Art XL", evs[-1]["error"]["message"])
         # reprocessar sem gerar de novo
         r = self.call("/api/sprites/pixelate", {"ids": done["sources"], "rows": 2, "size": 32, "colors": 4, "outline": True})
         self.assertEqual((r["sheet_w"], r["sheet_h"]), (64, 64))

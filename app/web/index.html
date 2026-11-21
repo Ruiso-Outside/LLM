@@ -115,7 +115,7 @@
   </section>
   <section id="sprites" hidden>
     <header class="sp-head">
-      <div class="st-title"><span class="sp-logo">👾</span><div><b>Sprites</b><small>Pixel art com IA local · SDXL + Pixel Art XL</small></div></div>
+      <div class="st-title"><span class="sp-logo">👾</span><div><b>Sprites</b><small>Pixel art com IA local · Qwen-Image 2512, Z-Image ou SDXL</small></div></div>
       <div class="spacer"></div>
       <button id="spConstructPill" class="construct-chip" title="Conexão MCP com o Arasaka Construct"></button>
       <button class="icon-btn" id="spritesClose" title="Voltar ao chat">✕</button>
@@ -124,6 +124,8 @@
       <div class="sp-col">
         <div id="spSetup" class="sp-card" hidden></div>
         <div class="sp-card">
+          <label class="sp-label" for="spModel">Modelo</label>
+          <select id="spModel" class="input" title="Modelos de pixel art, do mais forte ao mais leve"></select>
           <label class="sp-label" for="spPrompt">O que desenhar</label>
           <textarea id="spPrompt" class="input" rows="3" placeholder="Ex.: green slime monster with big eyes · knight with red cape · treasure chest (inglês dá resultados melhores)"></textarea>
           <div class="sp-label">Tamanho do sprite</div>
@@ -142,8 +144,8 @@
           <div class="sp-row wrap">
             <label class="check"><input type="checkbox" id="spBg" checked> Fundo transparente</label>
             <label class="check"><input type="checkbox" id="spOutline"> Contorno escuro</label>
-            <select id="spMode" class="input small-input" title="Rápido: LCM, 8 passos. Qualidade: 30 passos.">
-              <option value="rapido">Rápido (8 passos)</option><option value="qualidade">Qualidade (30 passos)</option>
+            <select id="spMode" class="input small-input" title="Rápido: 8 passos (Lightning, Turbo ou LCM). Qualidade: mais passos, bem mais lento.">
+              <option value="rapido">Rápido (8 passos)</option><option value="qualidade">Qualidade (mais passos)</option>
             </select>
             <input id="spSeed" class="input small-input" type="number" value="-1" title="Semente (-1 = aleatória; repita a mesma para refazer o mesmo personagem)">
           </div>

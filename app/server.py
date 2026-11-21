@@ -2320,25 +2320,28 @@ class Handler(BaseHTTPRequestHandler):
     # ---- Sprites (pixel art) ----
     def sprite_status(self):
         img = media.image_status()
-        key = media.PIXEL_PRESET
-        return {"engine": {k: img[k] for k in ("installed", "version", "problem")}, "preset": key,
+        key = media.pixel_default()
+        models = [{"key": k, **img["presets"][k], "bytes": media.IMAGE_PRESETS[k].get("bytes", 0),
+                   "dir": str(MODELS / "image" / k)} for k in media.PIXEL_PRESETS]
+        return {"engine": {k: img[k] for k in ("installed", "version", "problem")}, "preset": key, "models": models,
                 "model": img["presets"][key], "download_bytes": media.IMAGE_PRESETS[key].get("bytes", 0),
                 "construct": sprites.construct_status(), "mcp_url": f"http://{HOST}:{PORT}/mcp",
                 "sizes": list(sprites.pixel.SIZES), "views": list(sprites.VIEWS), "os": "windows" if os.name == "nt" else "linux",
                 "models_dir": str(MODELS / "image" / key),
-                "tasks": [t for t in public_tasks() if key in t["label"] or t["label"].startswith("Motor de imagem")]}
+                "tasks": [t for t in public_tasks() if any(k in t["label"] for k in media.PIXEL_PRESETS)
+                          or t["label"].startswith("Motor de imagem")]}
 
-    def sprite_gen(self, alive=None):
-        """Funcao gen() do sprites.py: gera uma imagem com o preset de pixel art e devolve o caminho."""
+    def sprite_gen(self, alive=None, key=None):
+        """Funcao gen() do sprites.py: gera uma imagem com um preset de pixel art e devolve o caminho."""
         s = load_settings()
-        key = media.PIXEL_PRESET
+        key = key if key in media.PIXEL_PRESETS else media.pixel_default()
         if not media.find_exe("sd", media.SD_EXE):
             raise RuntimeError("Instale o motor de imagem primeiro (setor Sprites > Instalar motor).")
         prob = media.engine_problem("sd", media.SD_EXE)
         if prob:
             raise RuntimeError(prob)
         if not media.preset_installed(key):
-            raise RuntimeError("Baixe o modelo Pixel Art XL primeiro (setor Sprites > Baixar modelo).")
+            raise RuntimeError(f"Baixe o modelo {media.IMAGE_PRESETS[key]['name']} primeiro (setor Sprites > Baixar modelo).")
         preset = media.IMAGE_PRESETS[key]
 
         def gen(prompt, negative, seed, mode, on_progress=None):
@@ -2368,13 +2371,13 @@ class Handler(BaseHTTPRequestHandler):
         s = load_settings()
         reload_model = None
         try:
-            gen = self.sprite_gen(alive)
+            self.sprite_gen(alive, params["preset"])  # confere motor e modelo antes de descarregar o LLM
             if s.get("image_unload_llm") and ENGINE_PROC.state in ("ready", "loading"):
                 reload_model = ENGINE_PROC.model
                 emit({"sprite": {"stage": "unload"}})
                 ENGINE_PROC.stop()
             with SPRITE_LOCK:
-                res = sprites.generate(b["prompt"], params, gen, lambda ev: emit({"sprite": ev}),
+                res = sprites.generate(b["prompt"], params, lambda k: self.sprite_gen(alive, k), lambda ev: emit({"sprite": ev}),
                                        lambda: not alive["ok"], int(b.get("seed", -1)))
             emit({"sprite": {"stage": "done", **res}})
         except (RuntimeError, ValueError, OSError) as e:
@@ -2396,14 +2399,18 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             return self.send_json({"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "JSON inválido"}}, 400)
 
-        def gen(*a, **k):
-            with SPRITE_LOCK:
-                return self.sprite_gen()(*a, **k)
+        def gen_for(key):
+            gen = self.sprite_gen(None, key)
+
+            def locked(*a, **k):
+                with SPRITE_LOCK:
+                    return gen(*a, **k)
+            return locked
         status = self.sprite_status
         if isinstance(msg, list):
-            out = [r for r in (sprites.handle_rpc(m, gen, status) for m in msg) if r]
+            out = [r for r in (sprites.handle_rpc(m, gen_for, status) for m in msg) if r]
         else:
-            out = sprites.handle_rpc(msg, gen, status)
+            out = sprites.handle_rpc(msg, gen_for, status)
         if not out:
             self.send_response(202)
             self.send_header("Content-Length", "0")

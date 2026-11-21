@@ -1,6 +1,7 @@
 """Setor Sprites da Arasaka Mikoshi: pixel art e folhas de sprites com IA local.
 
-Gera com o stable-diffusion.cpp (SDXL + LoRA Pixel Art XL, preset media.PIXEL_PRESET), passa pelo pixel.py
+Gera com o stable-diffusion.cpp (media.PIXEL_PRESETS: Qwen-Image 2512, Z-Image Turbo ou SDXL, cada um com uma LoRA
+de pixel art), passa pelo pixel.py
 (fundo transparente, recorte, reducao sem borrar para 16/32/64..., paleta comum a todos os quadros, contorno) e
 monta a folha: uma linha por direcao (frente, esquerda, direita, costas), uma coluna por variacao.
 
@@ -26,15 +27,16 @@ VIEWS = {
     "direita": "side view, facing right",
     "cima": "back view, facing away",
 }
-STYLE = "pixel art, {subject}, single game sprite, full body, centered, plain flat white background, crisp pixels, limited palette"
+STYLE = "{subject}, single game sprite, full body, centered, plain flat white background, crisp pixels, limited palette"
 NEGATIVE = ("blurry, smooth, 3d render, photo, realistic, gradient background, scenery, text, watermark, signature, "
             "multiple characters, cropped, cut off, frame, border, shadow on ground")
 LIMITS = {"frames": 8, "views": 4, "colors": 64}
 NAME_RE = re.compile(r"^[A-Za-z0-9_-]{1,60}$")
 
 
-def build_prompt(subject, view=""):
-    p = STYLE.format(subject=subject.strip().rstrip("."))
+def build_prompt(subject, view="", style="pixel art, {subject}"):
+    """style: o comeco do prompt de cada modelo, com a palavra que ativa a LoRA (ex.: "Pixel Art, {subject}")."""
+    p = STYLE.format(subject=style.format(subject=subject.strip().rstrip(".")))
     return f"{p}, {VIEWS.get(view, view)}" if view else p
 
 
@@ -47,7 +49,8 @@ def clean_params(b):
             "frames": max(1, min(LIMITS["frames"], int(b.get("frames") or 1))), "views": views,
             "outline": bool(b.get("outline")), "remove_bg": b.get("remove_bg", True) is not False,
             "tolerance": max(5, min(120, int(b.get("tolerance") or 40))),
-            "mode": b.get("mode") if b.get("mode") in ("rapido", "qualidade") else "rapido"}
+            "mode": b.get("mode") if b.get("mode") in ("rapido", "qualidade") else "rapido",
+            "preset": b.get("preset") if b.get("preset") in media.PIXEL_PRESETS else media.pixel_default()}
 
 
 def _save_png(img):
@@ -67,19 +70,21 @@ def process(sources, params, rows=1):
             "palette": ["#%02x%02x%02x" % c for c in pal]}
 
 
-def generate(subject, params, gen, on_event=None, cancel=None, seed=-1):
-    """gen(prompt, negative, seed, mode, on_progress) -> caminho do PNG gerado (o server.py cuida da GPU)."""
+def generate(subject, params, gen_for, on_event=None, cancel=None, seed=-1):
+    """gen_for(preset) -> gen(prompt, negative, seed, mode, on_progress) -> caminho do PNG (o server.py cuida da GPU)."""
     subject = (subject or "").strip()
     if not subject:
         raise ValueError("Descreva o sprite.")
     seed = random.randint(0, 2 ** 31 - 1) if int(seed) < 0 else int(seed)
+    gen = gen_for(params["preset"])
+    style = media.IMAGE_PRESETS[params["preset"]].get("style", "pixel art, {subject}")
     views = params["views"] or [""]
     jobs = [(v, f) for v in views for f in range(params["frames"])]
     sources, t0 = [], time.time()
     for n, (view, f) in enumerate(jobs):
         if cancel and cancel():
             raise RuntimeError("cancelado")
-        prompt = build_prompt(subject, view)
+        prompt = build_prompt(subject, view, style)
         if on_event:
             on_event({"stage": "image", "index": n, "total": len(jobs), "view": view, "prompt": prompt})
         # mesma semente para todas as direcoes (o mesmo personagem); +f para cada variacao
@@ -90,7 +95,7 @@ def generate(subject, params, gen, on_event=None, cancel=None, seed=-1):
     if on_event:
         on_event({"stage": "pixel"})
     res = process(sources, params, len(views))
-    res.update({"subject": subject, "seed": seed, "views": params["views"], "seconds": round(time.time() - t0, 1),
+    res.update({"subject": subject, "seed": seed, "preset": params["preset"], "views": params["views"], "seconds": round(time.time() - t0, 1),
                 "sources": [Path(p).name for p in sources]})
     return res
 
@@ -153,7 +158,7 @@ def send_to_construct(sheet_id, name, size, cols, rows, views=None, fps=8, folde
 
 SERVER_INFO = {"name": "arasaka-mikoshi", "version": "1"}
 INSTRUCTIONS = ("Arasaka Mikoshi: IA local no PC. generate_sprite gera pixel art / folhas de sprites com o modelo local "
-                "(SDXL + LoRA de pixel art) e pode gravar direto no projeto aberto do Arasaka Construct; pixelate_image "
+                "(Qwen-Image 2512 20B, Z-Image Turbo ou SDXL, com LoRA de pixel art) e pode gravar direto no projeto aberto do Arasaka Construct; pixelate_image "
                 "transforma uma imagem PNG em sprite (paleta, fundo transparente, 16/32/64 px).")
 
 
@@ -168,13 +173,15 @@ def tool_defs():
     }
     return [
         {"name": "generate_sprite",
-         "description": "Gera um sprite em pixel art com IA local (SDXL + LoRA Pixel Art XL) e devolve o PNG. Com views, "
+         "description": "Gera um sprite em pixel art com IA local (Qwen-Image 2512, Z-Image Turbo ou SDXL, com LoRA de pixel art) e devolve o PNG. Com views, "
                         "monta uma folha: uma linha por direção (baixo, esquerda, direita, cima), uma coluna por variação.",
          "inputSchema": {"type": "object", "required": ["prompt"], "properties": {
              "prompt": {"type": "string", "description": "o que desenhar, em inglês de preferência (ex.: 'green slime monster')"},
              "views": {"type": "array", "items": {"type": "string", "enum": list(VIEWS)}, "description": "direções (linhas da folha)"},
              "frames": {"type": "integer", "description": "variações por direção (1 a 8)"},
-             "mode": {"type": "string", "enum": ["rapido", "qualidade"], "description": "rapido = 8 passos (LCM); qualidade = 30 passos"},
+             "mode": {"type": "string", "enum": ["rapido", "qualidade"], "description": "rapido = 8 passos; qualidade = mais passos (mais lento)"},
+             "model": {"type": "string", "enum": list(media.PIXEL_PRESETS),
+                       "description": "pixel-qwen-image (20B, o melhor), pixel-z-image (6B, rapido) ou pixel-art-xl (SDXL, leve); padrao: o melhor ja baixado"},
              "seed": {"type": "integer"}, **common}}},
         {"name": "pixelate_image",
          "description": "Transforma uma imagem PNG em sprite de pixel art: tira o fundo, recorta, reduz sem borrar e limita a paleta.",
@@ -193,14 +200,16 @@ def _tool_result(res, extra=""):
     return {"content": [{"type": "text", "text": info}, {"type": "image", "mimeType": "image/png", "data": base64.b64encode(png).decode()}]}
 
 
-def call_tool(name, args, gen, status_fn):
-    """Executa uma ferramenta do servidor MCP da Mikoshi. gen: igual a generate(); status_fn() -> dict."""
-    args = args or {}
+def call_tool(name, args, gen_for, status_fn):
+    """Executa uma ferramenta do servidor MCP da Mikoshi. gen_for: igual a generate(); status_fn() -> dict."""
+    args = dict(args or {})
+    if args.get("model"):
+        args["preset"] = args["model"]
     if name == "sprite_status":
         return {"content": [{"type": "text", "text": json.dumps(status_fn(), ensure_ascii=False)}]}
     params = clean_params(args)
     if name == "generate_sprite":
-        res = generate(args.get("prompt", ""), params, gen, seed=int(args.get("seed", -1)))
+        res = generate(args.get("prompt", ""), params, gen_for, seed=int(args.get("seed", -1)))
     elif name == "pixelate_image":
         if args.get("data"):
             fid, out = media.new_media_path("png")
@@ -222,7 +231,7 @@ def call_tool(name, args, gen, status_fn):
     return _tool_result(res, extra)
 
 
-def handle_rpc(msg, gen, status_fn):
+def handle_rpc(msg, gen_for, status_fn):
     """Uma mensagem JSON-RPC do MCP (transporte HTTP em modo JSON). Devolve a resposta ou None (notificacao)."""
     if not isinstance(msg, dict) or msg.get("jsonrpc") != "2.0":
         return {"jsonrpc": "2.0", "id": None, "error": {"code": -32600, "message": "pedido inválido"}}
@@ -239,7 +248,7 @@ def handle_rpc(msg, gen, status_fn):
             r = {"tools": tool_defs()}
         elif method == "tools/call":
             try:
-                r = call_tool(params.get("name", ""), params.get("arguments"), gen, status_fn)
+                r = call_tool(params.get("name", ""), params.get("arguments"), gen_for, status_fn)
             except (ValueError, RuntimeError, OSError, mcp.MCPError) as e:
                 r = {"content": [{"type": "text", "text": str(e)}], "isError": True}
         else:

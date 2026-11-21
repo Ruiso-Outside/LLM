@@ -2,7 +2,7 @@
 // Setor Sprites: pixel art com IA local (SDXL + LoRA Pixel Art XL) e envio para o Arasaka Construct pelo MCP.
 // Também mantém o indicador da conexão com o Construct na barra de cima.
 
-const SP = { status: null, size: 32, result: null, busy: false, zoom: 0, timer: null, abort: null };
+const SP = { status: null, preset: "", size: 32, result: null, busy: false, zoom: 0, timer: null, abort: null };
 const VIEW_LABEL = { baixo: "Frente", esquerda: "Esquerda", direita: "Direita", cima: "Costas" };
 
 // ------------------------------------------------------------------ indicador do Construct (barra de cima)
@@ -54,8 +54,15 @@ $("#studioBtn").addEventListener("click", () => { if (document.body.classList.co
 
 async function refreshSprites() {
   try { SP.status = await api("/api/sprites"); } catch { return; }
-  renderSetup(); renderConstruct(); renderSizes();
+  if (!SP.preset || !SP.status.models.some(m => m.key === SP.preset)) SP.preset = SP.status.preset;
+  renderModels(); renderSetup(); renderConstruct(); renderSizes();
 }
+const spModel = () => SP.status?.models.find(m => m.key === SP.preset) || SP.status?.models[0];
+function renderModels() {
+  const sel = $("#spModel"); if (!SP.status || sel.matches(":focus")) return;
+  sel.innerHTML = SP.status.models.map(m => `<option value="${esc(m.key)}" ${m.key === SP.preset ? "selected" : ""}>${esc(m.name)} — ${m.installed ? "✓ " + t("baixado") : t("não baixado, {size}", { size: fmtSize(m.bytes) })}</option>`).join("");
+}
+$("#spModel").onchange = e => { SP.preset = e.target.value; renderSetup(); };
 
 // ------------------------------------------------------------------ instalação (motor + modelo)
 function taskBar(task) {
@@ -69,19 +76,20 @@ function taskBar(task) {
 function renderSetup() {
   const s = SP.status, box = $("#spSetup"); if (!s) return;
   const running = s.tasks.filter(x => x.status === "running");
-  const engOk = s.engine.installed && !s.engine.problem, modelOk = s.model.installed;
+  const m = spModel();
+  const engOk = s.engine.installed && !s.engine.problem, modelOk = m.installed;
   box.hidden = engOk && modelOk && !s.tasks.length;
   if (box.hidden) return;
   const engBtn = s.os === "windows"
     ? `<button class="btn small" data-sp-install="sd" data-v="cuda">${t("Instalar motor (NVIDIA CUDA)")}</button> <button class="btn small" data-sp-install="sd" data-v="vulkan">Vulkan</button>`
     : `<button class="btn small" data-sp-install="sd" data-v="vulkan">${t("Instalar motor (Vulkan, ~40 MB)")}</button>`;
   box.innerHTML = `<div class="sp-label">${t("Preparar a IA de pixel art (uma vez só)")}</div>
-    <div class="sp-step ${engOk ? "done" : ""}"><b>1.</b> ${t("Motor stable-diffusion.cpp")}
+    <div class="sp-step ${engOk ? "done" : ""}"><div><b>1.</b> ${t("Motor stable-diffusion.cpp")}</div>
       ${engOk ? `<small class="muted">✓ ${esc(s.engine.version)}</small>` : s.engine.problem ? `<div class="warn-box">${esc(trText(s.engine.problem))}</div>${engBtn}` : engBtn}</div>
-    <div class="sp-step ${modelOk ? "done" : ""}"><b>2.</b> ${esc(s.model.name)}
-      ${modelOk ? `<small class="muted">✓ ${t("baixado")}</small>` : `<div><small class="muted">${esc(trText(s.model.desc))}</small></div>
-      <button class="btn small primary" data-sp-install="image_preset" data-v="${esc(s.preset)}">${t("Baixar modelo ({size})", { size: fmtSize(s.download_bytes) })}</button>
-      <small class="muted">${t("Vai para {dir}", { dir: s.models_dir })}</small>`}</div>
+    <div class="sp-step ${modelOk ? "done" : ""}"><div><b>2.</b> ${esc(m.name)}</div>
+      ${modelOk ? `<small class="muted">✓ ${t("baixado")}</small>` : `<div><small class="muted">${esc(trText(m.desc))}</small></div>
+      <button class="btn small primary" data-sp-install="image_preset" data-v="${esc(m.key)}">${t("Baixar modelo ({size})", { size: fmtSize(m.bytes) })}</button>
+      <small class="muted">${t("Vai para {dir}. Dá para escolher outro modelo no campo Modelo.", { dir: m.dir })}</small>`}</div>
     ${s.tasks.map(taskBar).join("")}`;
   if (running.length) box.querySelectorAll("[data-sp-install]").forEach(b => b.disabled = true);
 }
@@ -90,7 +98,8 @@ $("#spSetup").addEventListener("click", async e => {
   if (c) { await post("/api/tasks/cancel", { id: c.dataset.spCancel }); return refreshSprites(); }
   const b = e.target.closest("[data-sp-install]"); if (!b) return;
   const what = b.dataset.spInstall, value = b.dataset.v;
-  if (what === "image_preset" && !confirm(t("Baixar o modelo de pixel art ({size}) do Hugging Face?", { size: fmtSize(SP.status.download_bytes) }))) return;
+  const mm = SP.status.models.find(x => x.key === value);
+  if (what === "image_preset" && !confirm(t("Baixar {name} ({size}) do Hugging Face?", { name: mm?.name || value, size: fmtSize(mm?.bytes || 0) }))) return;
   b.disabled = true;
   try { await post("/api/media/install", { what, value }); toast(t("Download iniciado")); } catch (err) { toast(trText(err.message), 5000); }
   refreshSprites();
@@ -107,7 +116,7 @@ $("#spSizes").onclick = e => {
 };
 $("#spColors").oninput = e => { $("#spColorsVal").textContent = e.target.value; };
 function spParams() {
-  return { size: SP.size, colors: +$("#spColors").value, frames: +$("#spFrames").value || 1,
+  return { preset: SP.preset, size: SP.size, colors: +$("#spColors").value, frames: +$("#spFrames").value || 1,
     views: $$("#spViews input:checked").map(x => x.value), outline: $("#spOutline").checked,
     remove_bg: $("#spBg").checked, mode: $("#spMode").value };
 }
