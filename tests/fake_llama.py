@@ -13,6 +13,13 @@ port = int(args[args.index("--port") + 1])
 model = Path(args[args.index("-m") + 1]).stem
 CTX = int(args[args.index("-c") + 1]) if "-c" in args else 4096
 READY_AT = time.time() + 0.5
+# placa de video falsa: com FAKE_VRAM_CTX, um contexto maior que isso nao cabe (as mesmas mensagens do llama.cpp)
+_vram = int(__import__("os").environ.get("FAKE_VRAM_CTX") or 0)
+if _vram and CTX > _vram and "--device" not in args:
+    print(f"E ggml_backend_cuda_buffer_type_alloc_buffer: allocating {CTX // 32} MiB on device 0: cudaMalloc failed: out of memory", flush=True)
+    print("E llama_init_from_model: failed to initialize the context: failed to allocate buffer for kv cache", flush=True)
+    print("E srv  server_run_i: exiting due to model loading error", flush=True)
+    sys.exit(1)
 if "-md" in args and "quebrado" in args[args.index("-md") + 1]:
     sys.exit("erro: acelerador MTP incompativel")  # simula o llama.cpp recusando o arquivo
 

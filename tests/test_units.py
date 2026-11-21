@@ -154,6 +154,31 @@ class ModelFiles(unittest.TestCase):
     def tearDownClass(cls):
         cls._tmp.cleanup()
 
+    def test_gguf_context_length(self):
+        import struct
+        def kstr(s):
+            b = s.encode()
+            return struct.pack("<Q", len(b)) + b
+        tokens = [b"<s>", b"ola", b"mundo"]
+        kvs = (kstr("general.architecture") + struct.pack("<I", 8) + kstr("qwen35")
+               + kstr("tokenizer.ggml.tokens") + struct.pack("<I", 9) + struct.pack("<IQ", 8, len(tokens)) + b"".join(struct.pack("<Q", len(t)) + t for t in tokens)
+               + kstr("qwen35.block_count") + struct.pack("<I", 4) + struct.pack("<I", 32)
+               + kstr("qwen35.context_length") + struct.pack("<I", 4) + struct.pack("<I", 262144))
+        p = Path(self._tmp.name) / "teste.gguf"
+        p.write_bytes(b"GGUF" + struct.pack("<IQQ", 3, 0, 4) + kvs)
+        self.assertEqual(self.server.gguf_context_length(p), 262144)
+        p.write_bytes(b"GGUF" + struct.pack("<IQQ", 3, 0, 1) + struct.pack("<Q", 2 ** 60))  # corrompido: chave gigante
+        self.assertEqual(self.server.gguf_context_length(p), 0)
+        p.write_bytes(b"nada disso")
+        self.assertEqual(self.server.gguf_context_length(p), 0)
+        self.assertEqual(self.server.gguf_context_length(Path(self._tmp.name) / "nao-existe.gguf"), 0)
+
+    def test_kv_cache_oom_is_recognized(self):
+        re_ = self.server.KV_OOM_RE
+        self.assertTrue(re_.search("E ggml_backend_cuda_buffer_type_alloc_buffer: allocating 22504.00 MiB on device 0: cudaMalloc failed: out of memory"))
+        self.assertTrue(re_.search("E llama_init_from_model: failed to initialize the context: failed to allocate buffer for kv cache"))
+        self.assertFalse(re_.search("E llama_model_load: error loading model: tensor 'blk.0' has wrong shape"))
+
     def test_detects_mtp(self):
         s = self.server
         for name in ("MTP/mtp-gemma-4-12b-it-Q8_0.gguf", "mtp-gemma-4-12b-it.gguf",

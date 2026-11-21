@@ -242,6 +242,7 @@ Em **Modelos → Meus modelos → ⚙️**, cada modelo pode ter contexto, camad
 - **Atalhos:** `Ctrl+1` a `Ctrl+4` trocam o modo, `Ctrl+N` nova conversa, `Ctrl+B` mostra/oculta as conversas.
 
 ## Travamentos e diagnóstico 🩺
+- **Contexto maior que a placa aguenta:** se o contexto das configurações não cabe na memória de vídeo (ou passa do máximo do modelo, lido do próprio arquivo GGUF), a Mikoshi reduz o contexto até caber, carrega o modelo e avisa quanto usou. As configurações não mudam: ajuste em Configurações → Modelo e runtime para não esperar as tentativas. Até a 1.29.0, com um contexto grande demais (ex.: 720000), o modelo dava erro ao ser carregado de novo depois de descarregado.
 
 - **Servidor interno:** se ele parar, o app reinicia sozinho (antes, uma caixa de erro travava o app inteiro até alguém clicar nela, mesmo escondida atrás das janelas).
 - **Memória da placa de vídeo:** se ela encher (ex.: um jogo aberto junto com um modelo grande), o Windows passa a usar a RAM como memória de vídeo e tudo fica lento.

@@ -643,6 +643,55 @@ def _job_object():
         return None
 
 
+def gguf_context_length(path):
+    """Contexto maximo de treino gravado no GGUF (<arquitetura>.context_length); 0 se nao der para ler.
+    Le so o cabecalho: as chaves de arquitetura vem antes das listas grandes do tokenizador."""
+    import struct
+    sizes = {0: 1, 1: 1, 2: 2, 3: 2, 4: 4, 5: 4, 6: 4, 7: 1, 10: 8, 11: 8, 12: 8}
+    ints = {0: "<B", 1: "<b", 2: "<H", 3: "<h", 4: "<I", 5: "<i", 10: "<Q", 11: "<q"}
+    try:
+        with open(path, "rb") as f:
+            if f.read(4) != b"GGUF":
+                return 0
+            version = struct.unpack("<I", f.read(4))[0]
+            if version < 2:
+                return 0
+            _tensors, kv_count = struct.unpack("<QQ", f.read(16))
+
+            def skip(t):
+                if t in sizes:
+                    f.seek(sizes[t], 1)
+                elif t == 8:
+                    f.seek(struct.unpack("<Q", f.read(8))[0], 1)
+                elif t == 9:
+                    it, n = struct.unpack("<IQ", f.read(12))
+                    if it in sizes:
+                        f.seek(sizes[it] * n, 1)
+                    else:
+                        for _ in range(n):
+                            skip(it)
+                else:
+                    raise ValueError("tipo desconhecido")
+            for _ in range(min(kv_count, 100000)):
+                n = struct.unpack("<Q", f.read(8))[0]
+                if n > 65536:  # arquivo corrompido ou que nao e GGUF
+                    return 0
+                key = f.read(n).decode("utf-8", "replace")
+                t = struct.unpack("<I", f.read(4))[0]
+                if key.endswith(".context_length") and t in ints:
+                    return int(struct.unpack(ints[t], f.read(sizes[t]))[0])
+                skip(t)
+    except (OSError, ValueError, struct.error):
+        pass
+    return 0
+
+
+# erro de memoria ao criar o cache do contexto (CUDA, Vulkan, Metal): da para tentar de novo com menos contexto
+KV_OOM_RE = re.compile(r"failed to allocate buffer for kv cache|cudaMalloc failed: out of memory|ErrorOutOfDeviceMemory|"
+                       r"failed to allocate .* buffer of size", re.I)
+MIN_FIT_CTX = 4096
+
+
 class EngineProcess:
     def __init__(self, port=ENGINE_PORT):
         self.port = port
@@ -655,6 +704,8 @@ class EngineProcess:
         self.state = "stopped"  # stopped | loading | ready | error
         self.error = ""
         self.n_ctx = 0
+        self.ctx_requested = 0  # o contexto pedido nas configuracoes (o usado pode ser menor: n_ctx)
+        self.notice = ""  # aviso para a tela (ex.: contexto reduzido para caber na placa)
         self.modalities = {}
         self.mtp = self.mtp_error = False  # acelerador em uso / recusado pelo motor
         self.accel = ""  # tipo do acelerador em uso: mtp, draft ou ngram
@@ -666,6 +717,7 @@ class EngineProcess:
         with self.lock:
             p, self.proc = self.proc, None
             self.state, self.model, self.error = "stopped", "", ""
+            self.n_ctx = 0  # nao mostrar o contexto da carga anterior
         if p and p.poll() is None:
             p.terminate()
             try:
@@ -673,13 +725,26 @@ class EngineProcess:
             except subprocess.TimeoutExpired:
                 p.kill()
 
-    def start(self, model_rel, s, device=None, embed=False, no_mtp=False):
-        self._args = (model_rel, dict(s), device, embed)
+    def start(self, model_rel, s, device=None, embed=False, no_mtp=False, ctx=None):
+        """ctx: contexto ja ajustado (nova tentativa depois de faltar memoria); None = o das configuracoes."""
+        self._args = (model_rel, dict(s), device, embed, no_mtp)
         if not no_mtp:
             self.mtp_error = False
         model_path = (MODELS / model_rel).resolve()
         if not embed:
             s = model_effective(model_rel, s)  # ajustes proprios do modelo (contexto, GPU)
+        s = dict(s)
+        if ctx is None:
+            self.notice = ""
+            self.ctx_requested = int(s["ctx_size"])
+            # mais contexto que o de treino nao serve para nada e so gasta VRAM (ex.: 720000 num modelo de 262144)
+            train = gguf_context_length(model_path) if model_path.is_file() else 0
+            if train and int(s["ctx_size"]) > train:
+                s["ctx_size"] = train
+                self.notice = (f"Contexto reduzido de {self.ctx_requested} para {train} tokens: é o máximo deste modelo. "
+                               "Ajuste em Configurações → Modelo e runtime.")
+        else:
+            s["ctx_size"] = ctx
         if MODELS.resolve() not in model_path.parents or not model_path.is_file():
             raise ValueError("Modelo nao encontrado.")
         backs = installed_backends()
@@ -734,6 +799,7 @@ class EngineProcess:
         with self.lock:
             self.proc, self.model, self.backend, self.state, self.error = proc, model_rel, backend, "loading", ""
             self.mtp, self.accel = bool(kind), kind
+            self.ctx_used = int(s["ctx_size"])
             self.device = "cpu" if on_cpu or backend == "cpu" or int(s["gpu_layers"]) == 0 else "gpu"
         threading.Thread(target=self._read_output, args=(proc,), daemon=True).start()
         threading.Thread(target=self._wait_ready, args=(proc,), daemon=True).start()
@@ -753,12 +819,26 @@ class EngineProcess:
             except (urllib.error.URLError, OSError):
                 pass
             time.sleep(0.5)
+        model_rel, s, device, embed, no_mtp = self._args
+        used = getattr(self, "ctx_used", 0)
+        if proc is self.proc and used > MIN_FIT_CTX and any(KV_OOM_RE.search(l) for l in list(self.log)[-40:]):
+            # o cache do contexto nao coube na placa: tenta de novo com metade (sem mudar as configuracoes)
+            new = max(MIN_FIT_CTX, (used // 2) // 1024 * 1024)
+            asked = self.ctx_requested or used
+            try:
+                self.start(model_rel, s, device, embed, no_mtp=no_mtp, ctx=new)
+                self.notice = (f"Contexto reduzido de {asked} para {new} tokens para caber na memória da placa de vídeo. "
+                               "Para não esperar as tentativas, ajuste em Configurações → Modelo e runtime.")
+                self.log.append(f"[Arasaka Mikoshi] Faltou memória para {used} tokens de contexto; tentando com {new}.")
+                diag_log(f"contexto reduzido ao carregar {model_rel}: {used} -> {new} (faltou VRAM)")
+                return
+            except (ValueError, OSError):
+                pass
         if proc is self.proc and getattr(self, "mtp", False):
             # o motor nao aceitou o acelerador MTP (versao antiga ou arquivo incompativel): tenta sem ele
-            model_rel, s, device, embed = self._args
             note = "[Arasaka Mikoshi] O runtime falhou com o speculative decoding; carregando sem ele."
             try:
-                self.start(model_rel, s, device, embed, no_mtp=True)
+                self.start(model_rel, s, device, embed, no_mtp=True, ctx=used or None)
                 self.log.append(note)
                 self.mtp_error = True
                 return
@@ -783,7 +863,8 @@ class EngineProcess:
         if self.state == "ready" and self.proc and self.proc.poll() is not None:
             self.state, self.error = "error", "O motor fechou inesperadamente (veja o log)."
         return {"state": self.state, "model": self.model, "backend": self.backend, "error": self.error,
-                "port": self.port, "n_ctx": self.n_ctx, "mtp": self.mtp, "mtp_error": self.mtp_error, "accel": self.accel,
+                "port": self.port, "n_ctx": self.n_ctx, "ctx_requested": self.ctx_requested, "notice": self.notice,
+                "mtp": self.mtp, "mtp_error": self.mtp_error, "accel": self.accel,
                 "vision": self.state == "ready" and self.modalities.get("vision", False),
                 "audio": self.state == "ready" and self.modalities.get("audio", False)}
 

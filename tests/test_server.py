@@ -42,7 +42,8 @@ class ServerTest(unittest.TestCase):
         cls.port = free_port()
         cls.base = f"http://127.0.0.1:{cls.port}"
         env = dict(os.environ, LLM_HOME=str(cls.home), LLM_PORT=str(cls.port), PYTHONIOENCODING="utf-8", PIPHIN_TRAIN_FAKE="1",
-                   ARASAKA_CONSTRUCT_EDITOR=str(cls.home / "sem-construct"))  # nao usa o Construct instalado no PC
+                   ARASAKA_CONSTRUCT_EDITOR=str(cls.home / "sem-construct"),  # nao usa o Construct instalado no PC
+                   FAKE_VRAM_CTX="200000")  # a placa falsa aguenta ate 200 mil tokens de contexto
         env.pop("LLM_PARENT_PID", None)
         cls.proc = subprocess.Popen([sys.executable, str(TESTS / "run_server.py")], env=env,
                                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
@@ -515,6 +516,40 @@ class ServerTest(unittest.TestCase):
         self.call("/api/train/run/delete", {"id": r2["id"]})
         self.call("/api/train/run/delete", {"id": r["id"]})
         self.assertFalse(any(x["id"] == r["id"] for x in self.call("/api/train/status")["runs"]))
+
+    def test_19_unload_and_reload_with_huge_context(self):
+        """Bug da 1.29.0: com o contexto em 720000 nas configuracoes, descarregar e carregar de novo dava erro (o cache
+        do contexto nao cabia na placa). Agora o motor reduz o contexto ate caber, avisa e nao muda as configuracoes."""
+        model = "Qwen3-8B-Q4_K_M.gguf"
+
+        def wait_ready():
+            for _ in range(120):
+                e = self.call("/api/status")["engine"]
+                if e["state"] in ("ready", "error"):
+                    return e
+                time.sleep(0.25)
+            self.fail("o modelo não terminou de carregar")
+        try:
+            self.call("/api/load", {"model": model})
+            self.assertEqual(wait_ready()["state"], "ready")
+            self.call("/api/settings", {"ctx_size": 720000}, "PUT")  # o que o usuario tinha
+            self.call("/api/unload", {})
+            e = self.call("/api/status")["engine"]
+            self.assertEqual((e["state"], e["n_ctx"]), ("stopped", 0), "não mostra o contexto da carga anterior")
+            for attempt in range(2):  # carregar de novo, e de novo depois de descarregar
+                self.call("/api/load", {"model": model})
+                e = wait_ready()
+                self.assertEqual(e["state"], "ready", e.get("error"))
+                self.assertEqual(e["n_ctx"], 179200, "720000 -> 359424 -> 179200 (metade, em blocos de 1024; a placa falsa aguenta 200000)")
+                self.assertEqual(e["ctx_requested"], 720000)
+                self.assertIn("Contexto reduzido de 720000 para 179200", e["notice"])
+                self.assertEqual(self.call("/api/status")["settings"]["ctx_size"], 720000, "as configurações não mudam sozinhas")
+                self.call("/api/unload", {})
+            self.assertIn("contexto reduzido ao carregar", (self.home / "data" / "diagnostico.log").read_text("utf-8"))
+        finally:
+            self.call("/api/settings", {"ctx_size": 8192}, "PUT")
+            self.call("/api/load", {"model": model})
+            wait_ready()
 
     def test_12_summarize_and_backup(self):
         r = self.call("/api/summarize", {"messages": [{"role": "user", "content": "a"}, {"role": "assistant", "content": "b"}]})

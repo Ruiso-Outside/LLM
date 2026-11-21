@@ -59,6 +59,10 @@ async function refreshStatus() {
   if (LANG_LOCKED) { if (lang !== LANG && !S.langSynced) { S.langSynced = true; api("/api/settings", { method: "PUT", body: { language: LANG } }).catch(() => {}); } }
   else if (lang && lang !== LANG && !S.generating) return setLanguage(lang);
   $("#hubBtn").hidden = !S.status.hub_tools;
+  // aviso do motor (ex.: contexto reduzido para caber na placa), uma vez por carga
+  const ntc = S.status.engine.state === "ready" ? S.status.engine.notice : "";
+  if (ntc && ntc !== S.lastNotice) toast(trText(ntc), 9000);
+  if (ntc) S.lastNotice = ntc; else if (S.status.engine.state === "loading") S.lastNotice = ""; // nova carga mostra de novo
   renderTopbar(); renderChatList(); renderTasks(); renderStatsBar(); renderModeBars(); renderReaPlaces();
   if ($("#modelsModal").classList.contains("open")) { renderLocalModels(); renderEngine(); }
   if (typeof renderInspector === "function") renderInspector();
