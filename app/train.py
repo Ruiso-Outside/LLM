@@ -575,6 +575,13 @@ def active():
 
 
 def run_start(cfg):
+    prev = active()
+    if prev and prev.state in ("done", "stopped", "error"):
+        # o treino ja avisou que terminou, mas o processo ainda esta saindo (grava arquivos, libera a GPU): espera
+        try:
+            prev.proc.wait(15)
+        except subprocess.TimeoutExpired:
+            pass
     if active():
         raise RuntimeError("Já existe um fine-tuning rodando. Espere terminar ou pare antes.")
     if not env_status()["installed"] and not os.environ.get("PIPHIN_TRAIN_FAKE"):
