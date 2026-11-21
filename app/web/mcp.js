@@ -40,12 +40,13 @@ function mcpStateHTML(s) {
 function renderMcpList() {
   const box = $("#mcpList"); if (!box) return;
   box.innerHTML = MCP.list.length ? MCP.list.map(s => `<div class="item mcp-item" data-mcp="${esc(s.id)}">
-      <div class="mcp-main"><div class="mcp-title"><b>${s.id === "roblox" ? "🟦" : "🔌"} ${esc(s.name)}</b> ${mcpStateHTML(s)}</div>
+      <div class="mcp-main"><div class="mcp-title"><b>${s.id === "roblox" ? "🟦" : s.id === "construct" ? "🕹️" : "🔌"} ${esc(s.name)}</b>${s.builtin ? ` <small class="muted">${t("(automático)")}</small>` : ""} ${mcpStateHTML(s)}</div>
         <small class="muted mcp-cmd" title="${esc(s.url || s.command_line)}">${esc(s.url || s.command_line)}</small>
+        ${s.id === "construct" ? `<small class="muted">${s.project ? t("Projeto: {p}", { p: s.project }) : t("Sem projeto aberto")} · <a href="#" data-open-sprites>${t("trocar")}</a></small>` : ""}
         ${mcpToolsHTML(s)}
         <div class="mcp-opts"><label class="check"><input type="checkbox" data-mcp-opt="enabled" ${s.enabled ? "checked" : ""}> ${t("Usar no Codex")}</label>
           <label class="check" title="${esc(t("Sem isso, o app pede sua confirmação antes de cada ação que altera algo (ferramentas só de leitura não pedem)."))}"><input type="checkbox" data-mcp-opt="auto_approve" ${s.auto_approve ? "checked" : ""}> ${t("Não pedir confirmação")}</label></div></div>
-      <div class="mcp-btns"><button type="button" class="btn small" data-mcp-act="test">${t("Testar")}</button><button type="button" class="btn small danger" data-mcp-act="del">${t("Remover")}</button></div>
+      <div class="mcp-btns"><button type="button" class="btn small" data-mcp-act="test">${t("Testar")}</button>${s.builtin ? "" : `<button type="button" class="btn small danger" data-mcp-act="del">${t("Remover")}</button>`}</div>
     </div>`).join("") : `<p class="muted small-note">${t("Nenhum servidor MCP.")}</p>`;
   $("#mcpAddRea").hidden = MCP.list.some(s => s.id === "rea");
   const rb = $("#mcpAddRoblox");
@@ -73,6 +74,7 @@ $("#mcpList").addEventListener("click", async e => {
     const id = e.target.closest("[data-mcp]").dataset.mcp;
     return setMcpTools(id, sel === "all" ? null : sel === "none" ? [] : (MCP.list.find(s => s.id === id)?.profiles?.[sel] || []));
   }
+  if (e.target.closest("[data-open-sprites]")) { e.preventDefault(); document.querySelector("#settingsModal")?.classList.remove("open"); return openSprites(true); }
   const act = e.target.closest("[data-mcp-act]")?.dataset.mcpAct; if (!act) return;
   const id = e.target.closest("[data-mcp]").dataset.mcp;
   if (act === "del") {

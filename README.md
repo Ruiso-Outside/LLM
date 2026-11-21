@@ -133,6 +133,27 @@ O Codex e os agentes podem controlar outros programas que falam **MCP** (Model C
 - **Nos agentes:** marque os servidores no editor de cada agente (campo *Ferramentas MCP*). Um agente sozinho com ferramentas, ou dentro de um grupo, chama as ferramentas e mostra cada passo.
 - **Confirmação:** ações que alteram algo pedem **Permitir / Sempre nesta conversa / Negar**. Ferramentas só de leitura não pedem. Marque *Não pedir confirmação* se confiar no servidor.
 
+### 🕹️ Arasaka Construct (MCP, sem configurar nada)
+A Mikoshi conversa com o **[Arasaka Construct](https://github.com/Ruiso-Outside/ArasakaConstruct)** (a engine de jogos do estúdio, só por convite) pelo MCP, sozinha:
+- **Descoberta:** ao abrir, ela procura o editor instalado (o que a Arasaka Central instalou, `~/.local/bin/demonic-editor` no Linux, a pasta do app no Windows ou o `PATH`) e abre `demonic-editor <projeto> --mcp` em segundo plano. O projeto é o aberto por último no editor (a mesma lista da tela inicial dele); dá para escolher outro no setor **Sprites**.
+- **Estado na tela:** o indicador **Construct** na barra de cima fica verde com o número de ferramentas (37 na 0.25.0), mostra o erro em vermelho ou "Construct ausente". Clique nele para ver os detalhes, reconectar e trocar de projeto.
+- **No Codex:** as ferramentas do Construct (criar projeto e cenas, escrever scripts, rodar o jogo, tirar print, mexer no banco...) ficam ligadas como as dos outros servidores MCP, com as mesmas confirmações. Em Configurações → Ferramentas MCP ele aparece como servidor embutido: dá para desligar, não pedir confirmação ou escolher as ferramentas (ocupam ~4,6 mil tokens).
+- Precisa do Construct **0.25.0** ou mais novo para receber imagens (`write_image` e `create_sprite`); as versões antigas conectam, mas não recebem sprites.
+
+### 👾 Sprites (pixel art com IA local)
+Setor próprio (botão **👾 Sprites** na barra da esquerda) para criar personagens, itens e folhas de sprites:
+1. **Preparar (uma vez):** *Instalar motor* baixa o stable-diffusion.cpp (Vulkan, ~40 MB; no Linux a Mikoshi escolhe o pacote que roda com a glibc do sistema) e *Baixar modelo* baixa o **Pixel Art XL** do Hugging Face: SDXL 1.0 (6,9 GB) + VAE fp16 (335 MB) + LoRA Pixel Art XL (171 MB) + LCM LoRA (394 MB), **~7,8 GB** no total, na pasta `models/image/pixel-art-xl`. A Mikoshi pergunta antes de baixar.
+2. **Gerar:** descreva o sprite (inglês dá resultados melhores), escolha o tamanho (**16, 24, 32, 48, 64, 96 ou 128 px**), o número de cores, as **direções** (frente, esquerda, direita, costas: uma linha da folha cada) e as **variações** por direção (colunas). *Rápido* usa a LCM LoRA (8 passos); *Qualidade*, 30 passos. A mesma semente em todas as direções mantém o mesmo personagem.
+3. **Pixel art de verdade:** a imagem do modelo passa por um pós-processamento próprio (sem bibliotecas extras): tira o fundo (a cor da borda, com limpeza da franja), recorta o desenho, reduz escolhendo a **cor dominante de cada bloco** (vizinho mais próximo, sem borrar), encosta os pés na base do quadro, **reduz a paleta** (corte mediano, a mesma paleta em todos os quadros da folha) e põe contorno de 1 px se você quiser. Alfa só 0 ou 255.
+4. **Usar:** *Baixar PNG* (folha ou cada quadro), *Reprocessar* (muda tamanho, cores e contorno sem gerar de novo), *Pixelar uma imagem…* (transforma uma imagem sua, sem IA) e **Enviar ao Arasaka Construct**: grava `assets/mikoshi/<nome>.png` e cria `sprites/<nome>.sprite.luau` com as animações `parado` e `andando` no projeto escolhido.
+
+**Por que esse modelo:** o PC de referência (RTX 5070 Ti, 16 GB de VRAM, 60 GB de RAM) roda o SDXL inteiro na GPU; a LoRA Pixel Art XL é a mais usada para sprites em SDXL e a LCM LoRA corta para 8 passos. O stable-diffusion.cpp já era o motor de imagem da Mikoshi: um executável de ~40 MB pelo Vulkan, sem PyTorch (~5 GB, e as placas RTX 50 pedem builds CUDA 12.8) nem um ComfyUI à parte. Com o modelo de texto carregado ao mesmo tempo, ative "Descarregar o modelo de texto enquanto gera imagens" se faltar memória de vídeo.
+
+**Servidor MCP da Mikoshi:** a Mikoshi também é um servidor MCP em `http://127.0.0.1:8765/mcp` (só no PC), com `generate_sprite` (com `construct_name`, grava direto no projeto do Construct), `pixelate_image` e `sprite_status`. Assim o Claude Code, o Cursor ou outro assistente que mexe no Construct gera os sprites aqui:
+```
+claude mcp add --transport http mikoshi http://127.0.0.1:8765/mcp
+```
+
 ### 🔬 REA (engenharia reversa)
 O [REA](https://github.com/morluto/rea) faz parte do motor: o Codex passa a entender programas sem o código-fonte (apps Electron/JavaScript, `.exe`/`.dll`, .NET, Go, Rust, pacotes, SQLite).
 - **Instalar:** Configurações → **Codex** → **Instalar REA** (ou o indicador 🔬 na barra do modo Codex, ou Modelos → Runtime). Baixa uma vez (~290 MB: um Node.js portátil oficial, conferido por SHA-256, e o `rea-agents` numa versão fixa) para `engine/rea`. Depois **funciona sem internet** e sem nada instalado no Windows.
@@ -141,7 +162,8 @@ O [REA](https://github.com/morluto/rea) faz parte do motor: o Codex passa a ente
 
 ### 🎨 Imagem
 Descreva a imagem (em português mesmo). O modelo de texto carregado melhora a descrição antes de gerar.
-- Instale em **Modelos → Mídia**: o motor (*stable-diffusion.cpp*; Vulkan é o recomendado) e um modelo: **Z-Image Turbo** (melhor qualidade, ~6 GB) ou **SDXL Turbo** (mais rápido).
+- Instale em **Modelos → Mídia**: o motor (*stable-diffusion.cpp*; Vulkan é o recomendado) e um modelo: **Z-Image Turbo** (melhor qualidade, ~6 GB) ou **SDXL Turbo** (mais rápido). Para pixel art, use o setor **👾 Sprites**.
+- **Linux:** até a 1.28.3, o instalador do motor baixava o pacote do Ubuntu 26.04, que não abre no Zorin OS 18 / Ubuntu 24.04 (falta `GLIBC_2.43`). Agora ele escolhe a versão mais nova que roda com a glibc do sistema e avisa quando o motor instalado não abre: clique em instalar de novo.
 - Escolha o tamanho no seletor ao lado dos modos. Clique na imagem para ampliar; dá para salvar, gerar outra ou abrir a pasta.
 - Se faltar memória de vídeo, ative "Descarregar o modelo de texto enquanto gera imagens" nas Configurações.
 
@@ -258,11 +280,11 @@ Em **Configurações → Idioma** escolha a língua do app: **Português (Brasil
 
 ## Testes
 
-`python -m unittest discover -s tests` roda os testes: unidade dos módulos, cliente MCP (com um servidor MCP falso) e integração (o servidor de verdade com um llama-server falso, sem GPU). Eles também rodam no GitHub Actions a cada push.
+`python -m unittest discover -s tests` roda os testes: unidade dos módulos, cliente MCP (com um servidor MCP falso), pixel art (`test_sprites.py`: PNG, fundo, paleta, folhas, escolha do pacote do motor no Linux, conexão com um Construct falso e o servidor MCP da Mikoshi) e integração (o servidor de verdade com um llama-server falso, um stable-diffusion.cpp falso e um Construct falso, sem GPU). No GitHub Actions eles rodam no Windows e no Linux a cada push e antes do instalador de cada Release (o workflow **Instalador Windows** só segue se os **Testes** passarem).
 
 ## Requisitos
 
-- Windows 10/11 com Python 3.9+ instalado e no PATH (sem bibliotecas extras)
+- Windows 10/11 com Python 3.9+ instalado e no PATH (sem bibliotecas extras); no Linux, como módulo da Arasaka Central, o `python3` do sistema
 - Placa NVIDIA (CUDA), AMD/Intel (Vulkan), ou só CPU
 
 ## Estrutura do código
@@ -279,7 +301,9 @@ Em **Configurações → Idioma** escolha a língua do app: **Português (Brasil
 | `app/train_worker.py` | Treino LoRA/QLoRA e exportação para GGUF (roda no Python do treino) |
 | `app/gateway.py` | API local compatível com Ollama e OpenAI para outros programas |
 | `app/rea.py` | REA no motor: instala o Node.js portátil e o rea-agents e monta as instruções do Codex |
-| `app/mcp.py` | Cliente MCP: conecta o Codex e os agentes a programas como o Roblox Studio |
+| `app/mcp.py` | Cliente MCP: conecta o Codex e os agentes a programas como o Roblox Studio; acha e conecta sozinho o Arasaka Construct |
+| `app/pixel.py` | Pixel art sem bibliotecas: lê e grava PNG, tira o fundo, reduz sem borrar, paleta, contorno e folhas |
+| `app/sprites.py` | Setor Sprites: gera com a LoRA de pixel art, envia ao Construct e o servidor MCP da Mikoshi (`/mcp`) |
 | `app/kb.py` | RAG: índice vetorial, chunks e busca por embeddings |
 | `app/modelsettings.py` | Ajustes por modelo e amostragem recomendada por família |
 | `app/media.py` | Whisper, stable-diffusion.cpp, anexos e extração de texto de documentos |

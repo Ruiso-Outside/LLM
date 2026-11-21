@@ -41,7 +41,8 @@ class ServerTest(unittest.TestCase):
         (cls.ws / "app" / "readme.txt").write_text("Projeto - versao 1\n", "utf-8")
         cls.port = free_port()
         cls.base = f"http://127.0.0.1:{cls.port}"
-        env = dict(os.environ, LLM_HOME=str(cls.home), LLM_PORT=str(cls.port), PYTHONIOENCODING="utf-8", PIPHIN_TRAIN_FAKE="1")
+        env = dict(os.environ, LLM_HOME=str(cls.home), LLM_PORT=str(cls.port), PYTHONIOENCODING="utf-8", PIPHIN_TRAIN_FAKE="1",
+                   ARASAKA_CONSTRUCT_EDITOR=str(cls.home / "sem-construct"))  # nao usa o Construct instalado no PC
         env.pop("LLM_PARENT_PID", None)
         cls.proc = subprocess.Popen([sys.executable, str(TESTS / "run_server.py")], env=env,
                                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT)

@@ -129,13 +129,43 @@ def extract_text_path(p):
 LINUX = os.name != "nt"
 
 
-def _latest_win_release(repo):
-    """Versao mais nova com binarios deste sistema (Windows, ou Linux quando roda no Linux)."""
+def host_glibc():
+    """Versao da glibc deste Linux, ex.: (2, 39) no Ubuntu 24.04 / Zorin OS 18. None fora do Linux/glibc."""
+    try:
+        m = re.search(r"(\d+)\.(\d+)", os.confstr("CS_GNU_LIBC_VERSION") or "")
+        return (int(m.group(1)), int(m.group(2))) if m else None
+    except (AttributeError, ValueError, OSError):
+        return None
+
+
+def ubuntu_glibc(name):
+    """glibc exigida por um pacote "...-Ubuntu-24.04-..." (20.04 = 2.31, +2 por ano, +1 nas versoes .10)."""
+    m = re.search(r"ubuntu-(\d{2})\.(\d{2})", name, re.I)
+    if not m:
+        return None
+    yy, mm = int(m.group(1)), int(m.group(2))
+    return (2, 31 + 2 * (yy - 20) + (1 if mm >= 10 else 0))
+
+
+def linux_asset_ok(name, glibc=None):
+    """O pacote roda aqui? Pacotes feitos num Ubuntu mais novo pedem uma glibc que este sistema nao tem."""
+    need, have = ubuntu_glibc(name), glibc or host_glibc()
+    return need is None or have is None or have >= need
+
+
+def _latest_win_release(repo, accept=None):
+    """Versao mais nova com binarios deste sistema (Windows, ou Linux quando roda no Linux).
+    accept(nome) filtra os pacotes; no Linux, por padrao, so os que rodam com a glibc daqui."""
     key = "linux" if LINUX else "win"
-    for r in _get_json(f"https://api.github.com/repos/{repo}/releases?per_page=15"):
-        if any(key in a["name"].lower() for a in r.get("assets", [])):
-            return r
-    raise RuntimeError(f"Nenhuma versao com binarios {'Linux' if LINUX else 'Windows'} em {repo}.")
+    accept = accept or (lambda n: key in n.lower() and (not LINUX or linux_asset_ok(n)))
+    for page in (1, 2, 3):
+        rels = _get_json(f"https://api.github.com/repos/{repo}/releases?per_page=100&page={page}")
+        for r in rels:
+            if any(accept(a["name"]) for a in r.get("assets", [])):
+                return r
+        if len(rels) < 100:
+            break
+    raise RuntimeError(f"Nenhuma versao com binarios {'Linux' if LINUX else 'Windows'} que rodem neste sistema em {repo}.")
 
 
 def _pick(assets, pattern):
@@ -148,8 +178,8 @@ def _pick(assets, pattern):
     return max(cands)[1] if cands else None
 
 
-def _install(task, repo, files, dest_name, exe_names):
-    rel = _latest_win_release(repo)
+def _install(task, repo, files, dest_name, exe_names, rel=None):
+    rel = rel or _latest_win_release(repo)
     assets = {a["name"]: (a["browser_download_url"], a.get("size", 0)) for a in rel["assets"]}
     files = [f for f in files if f in assets]
     if not files:
@@ -317,50 +347,129 @@ IMAGE_PRESETS = {
         "files": {"-m": ("stabilityai/sdxl-turbo", "sd_xl_turbo_1.0_fp16.safetensors")},
         "args": [], "steps": 4, "cfg": 1.0, "width": 512, "height": 512, "negative": False,
     },
+    # Setor Sprites: SDXL base + LoRA de pixel art (nerijs/pixel-art-xl) + LCM LoRA (8 passos). Com 16 GB de VRAM o
+    # SDXL roda inteiro na GPU pelo Vulkan; o resultado passa pelo pixel.py (paleta, reducao sem borrar, fundo).
+    "pixel-art-xl": {
+        "name": "Pixel Art XL (SDXL + LoRA)",
+        "desc": "Sprites e pixel art: SDXL 1.0 com a LoRA Pixel Art XL e a LCM LoRA (rápido, 8 passos). ~7,8 GB. Precisa de ~8 GB de VRAM (ou use 'Economizar VRAM').",
+        "files": {"-m": ("stabilityai/stable-diffusion-xl-base-1.0", "sd_xl_base_1.0.safetensors"),
+                  "--vae": ("madebyollin/sdxl-vae-fp16-fix", "sdxl_vae.safetensors")},
+        "loras": {"pixel-art-xl": ("nerijs/pixel-art-xl", "pixel-art-xl.safetensors"),
+                  "lcm-sdxl": ("latent-consistency/lcm-lora-sdxl", "pytorch_lora_weights.safetensors")},
+        "modes": {"rapido": {"loras": [("pixel-art-xl", 1.2), ("lcm-sdxl", 1.0)], "steps": 8, "cfg": 1.5, "sampler": "lcm"},
+                  "qualidade": {"loras": [("pixel-art-xl", 1.2)], "steps": 30, "cfg": 7.0, "sampler": "euler_a"}},
+        "args": [], "steps": 8, "cfg": 1.5, "width": 1024, "height": 1024, "negative": True, "pixel": True,
+        # 6.938 MB (SDXL) + 335 MB (VAE) + 171 MB (Pixel Art XL) + 394 MB (LCM), conferido no Hugging Face em 2026-11-21
+        "bytes": 7_838_000_000,
+    },
 }
+PIXEL_PRESET = "pixel-art-xl"
+
+
+def lora_dir(key):
+    return MODELS / "image" / key / "loras"
+
+
+def preset_files(key):
+    """(repo, caminho no repo, pasta, nome local) de cada arquivo do modelo."""
+    p = IMAGE_PRESETS[key]
+    out = [(repo, path, MODELS / "image" / key, Path(path).name) for repo, path in p["files"].values()]
+    out += [(repo, path, lora_dir(key), f"{name}.safetensors") for name, (repo, path) in p.get("loras", {}).items()]
+    return out
+
+
+def preset_size(key):
+    """Tamanho total do download em bytes (consulta o Hugging Face; 0 se nao der)."""
+    return sum(_hf_size(repo, path) for repo, path, _, _ in preset_files(key))
 
 
 def install_sd(task, backend):
     task["detail"] = "Consultando versao do stable-diffusion.cpp..."
+    if LINUX:  # pacotes do Linux: "...-bin-Linux-Ubuntu-24.04-x86_64(-vulkan).zip"; a placa NVIDIA usa o Vulkan
+        want_vk = backend in ("vulkan", "cuda")
+
+        def ok(n):
+            return (bool(re.search(r"linux", n, re.I)) and n.endswith(".zip") and bool(re.search(r"x86_64|x64", n))
+                    and "rocm" not in n.lower() and ("vulkan" in n.lower()) == want_vk and linux_asset_ok(n))
+        rel = _latest_win_release("leejet/stable-diffusion.cpp", ok)
+        f = next(a["name"] for a in rel["assets"] if ok(a["name"]))
+        _install(task, "leejet/stable-diffusion.cpp", [f], "sd", SD_EXE, rel)
+        return
     rel = _latest_win_release("leejet/stable-diffusion.cpp")
     names = [a["name"] for a in rel["assets"]]
-    if LINUX:  # pacotes do Linux: "...-bin-Linux-Ubuntu-...-x86_64(-vulkan).zip"
-        lx = [n for n in names if re.search(r"linux", n, re.I) and n.endswith(".zip") and re.search(r"x86_64|x64", n)]
-        vk = [n for n in lx if "vulkan" in n.lower()]
-        f = (vk if backend in ("vulkan", "cuda") and vk else [n for n in lx if "vulkan" not in n.lower()] or lx or [None])[0]
-        _install(task, "leejet/stable-diffusion.cpp", [f] if f else [], "sd", SD_EXE)
-        return
     if backend == "cuda":
         f = _pick(names, r"sd-.*-bin-win-cuda(\d+)-x64\.zip$")
         files = [f, _pick(names, r"cudart-sd-bin-win-cu(\d+)-x64\.zip$")]
     else:
         f = _pick(names, rf"sd-.*-bin-win-{backend}()-x64\.zip$")
         files = [f]
-    _install(task, "leejet/stable-diffusion.cpp", [x for x in files if x], "sd", SD_EXE)
+    _install(task, "leejet/stable-diffusion.cpp", [x for x in files if x], "sd", SD_EXE, rel)
 
 
 def install_image_preset(task, key):
     p = IMAGE_PRESETS.get(key)
     if not p:
         raise ValueError("modelo invalido")
-    items = [(repo, path, _hf_size(repo, path)) for repo, path in p["files"].values()]
-    _hf_download(task, items, MODELS / "image" / key)
+    files = [(repo, path, folder, name, _hf_size(repo, path)) for repo, path, folder, name in preset_files(key)]
+    task["total"] = sum(f[4] for f in files)
+    done = 0
+    for repo, path, folder, name, _ in files:
+        folder.mkdir(parents=True, exist_ok=True)
+        dest = folder / name
+        task["detail"] = name
+        if dest.exists():
+            done += dest.stat().st_size
+            task["done"] = done
+            continue
+        done += _download(f"https://huggingface.co/{repo}/resolve/main/{path}", dest, task, done)
 
 
 def preset_installed(key):
-    p = IMAGE_PRESETS[key]
-    return all((MODELS / "image" / key / Path(path).name).exists() for _, path in p["files"].values())
+    return all((folder / name).exists() for _, _, folder, name in preset_files(key))
+
+
+_CHECKED = {}
+
+
+def engine_problem(dest_name, names):
+    """Roda o motor uma vez (--help) para ver se ele abre neste sistema. "" = ok.
+    Pega o caso do pacote feito para um Linux mais novo (falta GLIBC_2.43, por exemplo)."""
+    exe = find_exe(dest_name, names)
+    if not exe:
+        return ""
+    key = (str(exe), exe.stat().st_mtime)
+    if key in _CHECKED:
+        return _CHECKED[key]
+    msg = ""
+    try:
+        env = dict(os.environ)
+        if LINUX:
+            env["LD_LIBRARY_PATH"] = str(exe.parent) + os.pathsep + env.get("LD_LIBRARY_PATH", "")
+        r = subprocess.run([str(exe), "--help"], capture_output=True, timeout=20, cwd=str(exe.parent), env=env,
+                           stdin=subprocess.DEVNULL, creationflags=NO_WINDOW)
+        out = (r.stdout + r.stderr).decode("utf-8", "replace")
+        m = re.search(r"version `(GLIBC_[\d.]+)' not found", out)
+        if m:
+            msg = f"O motor instalado foi feito para um Linux mais novo (pede {m.group(1)}). Reinstale o motor: a Mikoshi agora escolhe o pacote certo."
+        elif r.returncode not in (0, 1) and "usage" not in out.lower():
+            msg = "O motor não abriu: " + out.strip()[-300:]
+    except (OSError, subprocess.TimeoutExpired) as e:
+        msg = f"O motor não abriu: {e}"
+    _CHECKED[key] = msg
+    return msg
 
 
 def image_status():
     return {"installed": bool(find_exe("sd", SD_EXE)), "version": engine_version("sd"),
+            "problem": engine_problem("sd", SD_EXE),
             "presets": {k: {"name": v["name"], "desc": v["desc"], "installed": preset_installed(k),
-                            "steps": v["steps"], "cfg": v["cfg"], "width": v["width"], "height": v["height"]}
+                            "steps": v["steps"], "cfg": v["cfg"], "width": v["width"], "height": v["height"],
+                            "pixel": bool(v.get("pixel"))}
                         for k, v in IMAGE_PRESETS.items()}}
 
 
 def generate_image(key, prompt, negative="", width=0, height=0, steps=0, cfg=0, seed=-1, offload=True,
-                   on_progress=None, cancel=None, threads=0):
+                   on_progress=None, cancel=None, threads=0, loras=None, sampler=""):
     exe = find_exe("sd", SD_EXE)
     if not exe:
         raise RuntimeError("Motor de imagem nao instalado. Instale em Modelos > Midia.")
@@ -371,6 +480,11 @@ def generate_image(key, prompt, negative="", width=0, height=0, steps=0, cfg=0, 
     cmd = [str(exe)]
     for flag, (_, path) in p["files"].items():
         cmd += [flag, str(MODELS / "image" / key / Path(path).name)]
+    if loras:  # <lora:nome:peso> no prompt + --lora-model-dir (o jeito do stable-diffusion.cpp)
+        cmd += ["--lora-model-dir", str(lora_dir(key))]
+        prompt = prompt + " " + " ".join(f"<lora:{n}:{w:g}>" for n, w in loras)
+    if sampler:
+        cmd += ["--sampling-method", sampler]
     cmd += ["-p", prompt, "-o", str(out), "-W", str(int(width or p["width"])), "-H", str(int(height or p["height"])),
             "--steps", str(int(steps or p["steps"])), "--cfg-scale", str(cfg or p["cfg"]), "-s", str(int(seed))]
     if negative and p["negative"]:

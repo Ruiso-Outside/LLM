@@ -1,4 +1,5 @@
 """Testes de unidade dos modulos do servidor (sem motor nem rede)."""
+import os
 import sys
 import tempfile
 import unittest
@@ -97,7 +98,8 @@ class CodexWorkspace(TempDirCase):
     def test_sandbox_blocks_outside_paths(self):
         ws = agent.Workspace(self.tmp)
         self.assertEqual(ws.path("a/b.txt"), (self.tmp / "a/b.txt").resolve())
-        for bad in ("../fora.txt", "C:/Windows/win.ini", "a/../../x"):
+        absolute = "C:/Windows/win.ini" if os.name == "nt" else "/etc/passwd"  # caminho absoluto de cada sistema
+        for bad in ("../fora.txt", absolute, "a/../../x"):
             with self.assertRaises(agent.ToolError):
                 ws.path(bad)
 

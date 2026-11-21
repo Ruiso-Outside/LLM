@@ -1,4 +1,6 @@
-# Testes automáticos: rodam a cada push e pull request (servidor com motor falso, sem GPU).
+# Testes automáticos: rodam a cada push e pull request e antes do instalador de cada Release (o Release não sai
+# se falharem). Servidor com motor falso, sem GPU; o setor Sprites usa um stable-diffusion.cpp e um Construct falsos.
+# Windows (app desktop) e Linux (módulo da Arasaka Central no Zorin OS).
 name: Testes
 
 on:
@@ -6,10 +8,15 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  workflow_call:
 
 jobs:
   tests:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -37,6 +44,7 @@ jobs:
           EOF
 
       - name: Compilação do Python
+        shell: bash
         run: python -m compileall -q app tests
 
       - name: Testes

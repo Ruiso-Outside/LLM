@@ -22,6 +22,7 @@
       <button data-open="kbModal" title="RAG: respostas com base nos seus documentos (Chat, Codex e agentes)"><span class="ri">📚</span><span class="rl">RAG</span></button>
       <button data-open="modelsModal" title="Modelos, runtime e mídia"><span class="ri">🧠</span><span class="rl">Modelos</span></button>
       <button id="studioBtn" title="Fine-tuning: treine a sua própria IA (LoRA / QLoRA)"><span class="ri">🧪</span><span class="rl">Fine-tune</span></button>
+      <button id="spritesBtn" title="Sprites: pixel art e folhas de sprites com IA local, direto para o Arasaka Construct"><span class="ri">👾</span><span class="rl">Sprites</span></button>
     </div>
     <div class="spacer"></div>
     <div class="rail-group">
@@ -42,6 +43,7 @@
       <button id="loadBtn" class="btn primary">Carregar</button>
       <span id="statusPill" class="pill">—</span>
       <div class="spacer"></div>
+      <button id="constructChip" class="construct-chip" hidden title="Arasaka Construct (MCP): clique para ver a conexão"></button>
       <button id="gpuChip" class="gpu-chip" title="Memória da placa de vídeo em uso (medida real). Clique para ver o painel do sistema."></button>
       <button id="paletteTop" class="kbd-btn" title="Paleta de comandos">⌘ <span>Ações</span> <kbd>Ctrl K</kbd></button>
       <button id="exportBtn" class="icon-btn" title="Exportar conversa (.md)">⤓</button>
@@ -109,6 +111,54 @@
       <div class="st-pane" data-st-pane="new"><div id="stNew"></div></div>
       <div class="st-pane" data-st-pane="runs"><div id="stRuns"></div></div>
       <div class="st-pane" data-st-pane="env"><div id="stEnv"></div></div>
+    </div>
+  </section>
+  <section id="sprites" hidden>
+    <header class="sp-head">
+      <div class="st-title"><span class="sp-logo">👾</span><div><b>Sprites</b><small>Pixel art com IA local · SDXL + Pixel Art XL</small></div></div>
+      <div class="spacer"></div>
+      <button id="spConstructPill" class="construct-chip" title="Conexão MCP com o Arasaka Construct"></button>
+      <button class="icon-btn" id="spritesClose" title="Voltar ao chat">✕</button>
+    </header>
+    <div class="sp-body">
+      <div class="sp-col">
+        <div id="spSetup" class="sp-card" hidden></div>
+        <div class="sp-card">
+          <label class="sp-label" for="spPrompt">O que desenhar</label>
+          <textarea id="spPrompt" class="input" rows="3" placeholder="Ex.: green slime monster with big eyes · knight with red cape · treasure chest (inglês dá resultados melhores)"></textarea>
+          <div class="sp-label">Tamanho do sprite</div>
+          <div id="spSizes" class="seg"></div>
+          <div class="sp-row">
+            <label class="sp-field"><span>Cores <b id="spColorsVal">16</b></span><input id="spColors" type="range" min="2" max="64" value="16"></label>
+            <label class="sp-field"><span>Variações por direção</span><input id="spFrames" class="input" type="number" min="1" max="8" value="1"></label>
+          </div>
+          <div class="sp-label">Direções (uma linha da folha cada; nenhuma = só um sprite)</div>
+          <div class="sp-row wrap" id="spViews">
+            <label class="check"><input type="checkbox" value="baixo"> Frente</label>
+            <label class="check"><input type="checkbox" value="esquerda"> Esquerda</label>
+            <label class="check"><input type="checkbox" value="direita"> Direita</label>
+            <label class="check"><input type="checkbox" value="cima"> Costas</label>
+          </div>
+          <div class="sp-row wrap">
+            <label class="check"><input type="checkbox" id="spBg" checked> Fundo transparente</label>
+            <label class="check"><input type="checkbox" id="spOutline"> Contorno escuro</label>
+            <select id="spMode" class="input small-input" title="Rápido: LCM, 8 passos. Qualidade: 30 passos.">
+              <option value="rapido">Rápido (8 passos)</option><option value="qualidade">Qualidade (30 passos)</option>
+            </select>
+            <input id="spSeed" class="input small-input" type="number" value="-1" title="Semente (-1 = aleatória; repita a mesma para refazer o mesmo personagem)">
+          </div>
+          <div class="sp-row">
+            <button id="spGenerate" class="btn primary">Gerar sprite</button>
+            <button id="spPixelate" class="btn" title="Transformar uma imagem sua em pixel art (sem IA, na hora)">Pixelar uma imagem…</button>
+            <input type="file" id="spFile" accept="image/*" multiple hidden>
+          </div>
+          <div id="spProgress" class="sp-progress" hidden></div>
+        </div>
+        <div class="sp-card" id="spConstruct"></div>
+      </div>
+      <div class="sp-col sp-result" id="spResult">
+        <div class="empty"><div style="font-size:42px">👾</div><p>O sprite aparece aqui.<br><small class="muted">Fundo quadriculado = transparente.</small></p></div>
+      </div>
     </div>
   </section>
   <aside id="inspector">
@@ -532,5 +582,6 @@
 <script src="app.js"></script>
 <script src="workspace.js"></script>
 <script src="studio.js"></script>
+<script src="sprites.js"></script>
 </body>
 </html>

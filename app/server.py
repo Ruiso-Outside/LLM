@@ -38,6 +38,7 @@ import gateway
 import rea
 import catalog
 import media
+import sprites
 import websearch
 
 # LLM_HOME: pasta de dados (modelos, motor, conversas). O app desktop define isso.
@@ -348,6 +349,21 @@ agents.configure(DATA)
 kb.configure(DATA)
 modelsettings.configure(DATA)
 mcp.configure(DATA)
+SPRITE_LOCK = threading.Lock()  # uma geracao de sprites por vez (a GPU e uma so)
+
+
+def connect_construct_later(delay=2.0):
+    """Conecta ao Arasaka Construct em segundo plano, sem configuracao: acha o editor e abre `demonic-editor --mcp`."""
+    def run():
+        time.sleep(delay)
+        try:
+            mcp.MANAGER.sync()
+            srv = mcp.MANAGER.get(mcp.CONSTRUCT_ID)
+            if srv and srv.cfg.get("enabled", True):
+                srv.connect()
+        except mcp.MCPError as e:
+            print("Arasaka Construct:", e, flush=True)
+    threading.Thread(target=run, daemon=True).start()
 CHECKPOINTS = DATA / "checkpoints"
 
 
@@ -1627,6 +1643,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(agents.load())
             if p == "/api/mcp":
                 return self.send_json(self.mcp_status())
+            if p == "/api/construct":
+                mcp.MANAGER.sync()
+                return self.send_json(sprites.construct_status())
+            if p == "/api/sprites":
+                return self.send_json(self.sprite_status())
+            if p == "/mcp":
+                return self.send_json({"error": "use POST (MCP streamable HTTP, respostas em JSON)"}, 405)
             if p == "/api/models/settings":
                 rel = q.get("model", [""])[0]
                 rec, family = model_recommended(rel)
@@ -1715,6 +1738,8 @@ class Handler(BaseHTTPRequestHandler):
         p = urllib.parse.urlparse(self.path).path
         if p == "/api/upload":
             return self.handle_upload()
+        if p == "/mcp":
+            return self.mikoshi_mcp()
         if p == "/api/restore":
             return self.handle_restore(urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query))
         try:
@@ -1785,6 +1810,41 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json({"ok": agent.AgentRun.answer(b.get("id"), bool(b.get("ok")), bool(b.get("always")))})
             if p == "/api/image/generate":
                 return self.image_generate(b)
+            if p == "/api/sprites/generate":
+                return self.sprites_generate(b)
+            if p == "/api/sprites/pixelate":
+                try:
+                    srcs = [media.upload_path(x) for x in (b.get("ids") or [])][:32]
+                    if not srcs:
+                        return self.send_json({"error": "Escolha uma imagem."}, 400)
+                    return self.send_json(sprites.process(srcs, sprites.clean_params(b), int(b.get("rows") or 1)))
+                except ValueError as e:
+                    return self.send_json({"error": str(e)}, 400)
+            if p == "/api/sprites/construct":
+                try:
+                    return self.send_json(sprites.send_to_construct(
+                        b.get("sheet", ""), b.get("name", ""), int(b.get("size") or 32), int(b.get("cols") or 1),
+                        int(b.get("rows") or 1), b.get("views"), int(b.get("fps") or 8)))
+                except (ValueError, mcp.MCPError) as e:
+                    return self.send_json({"error": str(e)}, 400)
+            if p == "/api/construct/connect":
+                mcp.MANAGER.sync()
+                srv = mcp.MANAGER.get(mcp.CONSTRUCT_ID)
+                if not srv:
+                    return self.send_json({"error": "Arasaka Construct não encontrado neste PC.", **sprites.construct_status()}, 404)
+                srv.close()
+                try:
+                    srv.connect()
+                except mcp.MCPError as e:
+                    return self.send_json({"error": str(e), **sprites.construct_status()}, 400)
+                return self.send_json(sprites.construct_status())
+            if p == "/api/construct/project":
+                try:
+                    mcp.set_construct_project(b.get("path", ""))
+                except mcp.MCPError as e:
+                    return self.send_json({"error": str(e)}, 400)
+                connect_construct_later(0)
+                return self.send_json(sprites.construct_status())
             if p == "/api/transcribe":
                 s = load_settings()
                 try:
@@ -2257,6 +2317,100 @@ class Handler(BaseHTTPRequestHandler):
         shutil.copy2(out, dest)
         return fid
 
+    # ---- Sprites (pixel art) ----
+    def sprite_status(self):
+        img = media.image_status()
+        key = media.PIXEL_PRESET
+        return {"engine": {k: img[k] for k in ("installed", "version", "problem")}, "preset": key,
+                "model": img["presets"][key], "download_bytes": media.IMAGE_PRESETS[key].get("bytes", 0),
+                "construct": sprites.construct_status(), "mcp_url": f"http://{HOST}:{PORT}/mcp",
+                "sizes": list(sprites.pixel.SIZES), "views": list(sprites.VIEWS), "os": "windows" if os.name == "nt" else "linux",
+                "models_dir": str(MODELS / "image" / key),
+                "tasks": [t for t in public_tasks() if key in t["label"] or t["label"].startswith("Motor de imagem")]}
+
+    def sprite_gen(self, alive=None):
+        """Funcao gen() do sprites.py: gera uma imagem com o preset de pixel art e devolve o caminho."""
+        s = load_settings()
+        key = media.PIXEL_PRESET
+        if not media.find_exe("sd", media.SD_EXE):
+            raise RuntimeError("Instale o motor de imagem primeiro (setor Sprites > Instalar motor).")
+        prob = media.engine_problem("sd", media.SD_EXE)
+        if prob:
+            raise RuntimeError(prob)
+        if not media.preset_installed(key):
+            raise RuntimeError("Baixe o modelo Pixel Art XL primeiro (setor Sprites > Baixar modelo).")
+        preset = media.IMAGE_PRESETS[key]
+
+        def gen(prompt, negative, seed, mode, on_progress=None):
+            m = preset["modes"].get(mode) or preset["modes"]["rapido"]
+            _, out = media.generate_image(key, prompt, negative, 0, 0, m["steps"], m["cfg"], seed,
+                                          s.get("image_offload", True), threads=cpu_threads(s),
+                                          on_progress=on_progress, cancel=(lambda: not alive["ok"]) if alive else None,
+                                          loras=m["loras"], sampler=m["sampler"])
+            return out
+        return gen
+
+    def sprites_generate(self, b):
+        try:
+            params = sprites.clean_params(b)
+        except ValueError as e:
+            return self.send_json({"error": str(e)}, 400)
+        if not (b.get("prompt") or "").strip():
+            return self.send_json({"error": "Descreva o sprite."}, 400)
+        self.start_sse()
+        alive = {"ok": True}
+
+        def emit(obj):
+            if alive["ok"]:
+                alive["ok"] = self.sse_safe(obj)
+            return alive["ok"]
+
+        s = load_settings()
+        reload_model = None
+        try:
+            gen = self.sprite_gen(alive)
+            if s.get("image_unload_llm") and ENGINE_PROC.state in ("ready", "loading"):
+                reload_model = ENGINE_PROC.model
+                emit({"sprite": {"stage": "unload"}})
+                ENGINE_PROC.stop()
+            with SPRITE_LOCK:
+                res = sprites.generate(b["prompt"], params, gen, lambda ev: emit({"sprite": ev}),
+                                       lambda: not alive["ok"], int(b.get("seed", -1)))
+            emit({"sprite": {"stage": "done", **res}})
+        except (RuntimeError, ValueError, OSError) as e:
+            emit({"error": {"message": str(e)}})
+        finally:
+            if reload_model:
+                try:
+                    ENGINE_PROC.start(reload_model, load_settings())
+                except (ValueError, OSError):
+                    pass
+
+    def mikoshi_mcp(self):
+        """Servidor MCP da Mikoshi (HTTP streamable, respostas em JSON): generate_sprite, pixelate_image, sprite_status."""
+        host = (self.headers.get("Host") or "").split(":")[0]
+        if host not in (HOST, "localhost"):  # protege contra DNS rebinding
+            return self.send_json({"error": "host bloqueado"}, 403)
+        try:
+            msg = self.body()
+        except ValueError:
+            return self.send_json({"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "JSON inválido"}}, 400)
+
+        def gen(*a, **k):
+            with SPRITE_LOCK:
+                return self.sprite_gen()(*a, **k)
+        status = self.sprite_status
+        if isinstance(msg, list):
+            out = [r for r in (sprites.handle_rpc(m, gen, status) for m in msg) if r]
+        else:
+            out = sprites.handle_rpc(msg, gen, status)
+        if not out:
+            self.send_response(202)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        return self.send_json(out)
+
     # ---- Codex ----
     def run_agent(self, b):
         if ENGINE_PROC.state != "ready":
@@ -2376,6 +2530,7 @@ class Handler(BaseHTTPRequestHandler):
         return fid
 
     def mcp_status(self):
+        mcp.MANAGER.sync()  # o Construct pode ter sido instalado depois de a Mikoshi abrir
         return {"servers": [x.public() for x in mcp.MANAGER.all()], "roblox_detected": bool(mcp.roblox_bat())}
 
     def checkpoint_dir(self, chat_id, run_id):
@@ -2751,6 +2906,8 @@ def main():
     threading.Thread(target=auto_load, daemon=True).start()
     threading.Thread(target=cleanup_checkpoints, daemon=True).start()
     threading.Thread(target=diag_sampler, daemon=True).start()
+    if os.environ.get("MIKOSHI_NO_CONSTRUCT") != "1":
+        connect_construct_later()
     configure_train()
     gateway.GATEWAY.configure(sys.modules[__name__])
     gateway.GATEWAY.apply()

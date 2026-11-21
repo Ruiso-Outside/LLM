@@ -17,7 +17,11 @@ permissions:
   contents: write
 
 jobs:
+  testes:
+    uses: ./.github/workflows/tests.yml
+
   nsis:
+    needs: testes
     runs-on: windows-latest
     env:
       TAG: ${{ inputs.tag || github.ref_name }}

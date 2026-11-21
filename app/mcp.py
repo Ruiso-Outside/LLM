@@ -141,22 +141,139 @@ def hub_server():
             "auto_approve": False, "command": "", "args": [], "env": {}, "tools": None, "builtin": True}
 
 
-def load():
+# Arasaka Construct (antiga Demonic Engine): o editor e um servidor MCP (`demonic-editor [projeto] --mcp`). A Mikoshi
+# acha o editor instalado sozinha e conecta sem configuracao. As preferencias (usar no Codex, confirmacao, ferramentas
+# ligadas, projeto) ficam em mcp.json -> "construct".
+CONSTRUCT_ID = "construct"
+BUILTIN_IDS = (HUB_ID, CONSTRUCT_ID)
+CONSTRUCT_EXE = "demonic-editor.exe" if os.name == "nt" else "demonic-editor"
+
+
+def _central_state():
+    base = os.environ.get("APPDATA") or os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+    for name in ("Arasaka Central", "Piphin Hub"):
+        try:
+            return json.loads((Path(base) / name / "state.json").read_text("utf-8"))
+        except (OSError, ValueError):
+            continue
+    return {}
+
+
+def find_construct():
+    """Caminho do demonic-editor instalado (None se nao achar). ARASAKA_CONSTRUCT_EDITOR tem prioridade (testes)."""
+    env = os.environ.get("ARASAKA_CONSTRUCT_EDITOR", "")
+    if env:
+        return Path(env) if Path(env).is_file() else None
+    cands = []
+    rec = (_central_state().get("installed") or {}).get("arasaka-construct") or {}
+    if rec.get("dir"):
+        cands += [Path(rec["dir"]) / CONSTRUCT_EXE, Path(rec["dir"]) / "bin" / CONSTRUCT_EXE]
+    if os.name == "nt":
+        for base in (os.environ.get("LOCALAPPDATA", ""), os.environ.get("ProgramFiles", "")):
+            if base:
+                cands += [Path(base) / "Programs" / "Arasaka Construct" / CONSTRUCT_EXE, Path(base) / "Arasaka Construct" / CONSTRUCT_EXE]
+    else:
+        cands += [Path.home() / ".local" / "bin" / CONSTRUCT_EXE, Path.home() / ".local/share/demonic-engine/bin" / CONSTRUCT_EXE]
+    import shutil
+    w = shutil.which(CONSTRUCT_EXE)
+    if w:
+        cands.append(Path(w))
+    return next((c for c in cands if c.is_file()), None)
+
+
+def construct_recent():
+    """Projetos abertos por ultimo no editor do Construct (mesma lista da tela inicial dele)."""
+    if os.environ.get("ARASAKA_CONSTRUCT_RECENT"):
+        f = Path(os.environ["ARASAKA_CONSTRUCT_RECENT"])
+    elif os.name == "nt":
+        f = Path(os.environ.get("APPDATA", "")) / "Demonic" / "Editor" / "recentes.txt"
+    else:
+        f = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share") / "Demonic" / "Editor" / "recentes.txt"
     try:
-        return [s for s in json.loads(FILE.read_text("utf-8")).get("servers", []) if s.get("id") != HUB_ID]
-    except (OSError, ValueError, AttributeError):
+        lines = [l.strip() for l in f.read_text("utf-8").splitlines() if l.strip()]
+    except OSError:
         return []
+    return [l for l in lines if (Path(l) / "project.luau").is_file()][:8]
+
+
+def _file():
+    try:
+        d = json.loads(FILE.read_text("utf-8"))
+        return d if isinstance(d, dict) else {}
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
+def construct_prefs():
+    p = _file().get("construct") or {}
+    return {"enabled": bool(p.get("enabled", True)), "auto_approve": bool(p.get("auto_approve")),
+            "tools": _allowed(p), "project": str(p.get("project") or "")}
+
+
+def construct_project(prefs=None):
+    """O projeto escolhido; sem escolha, o mais recente do editor ("" = nenhum, o assistente abre ou cria)."""
+    prefs = prefs or construct_prefs()
+    if prefs["project"] and (Path(prefs["project"]) / "project.luau").is_file():
+        return prefs["project"]
+    rec = construct_recent()
+    return rec[0] if rec else ""
+
+
+def construct_server():
+    exe = find_construct()
+    if not exe:
+        return None
+    prefs = construct_prefs()
+    proj = construct_project(prefs)
+    cmd, pre = str(exe), []
+    if exe.suffix == ".py":  # testes: um Construct falso em Python
+        import sys
+        cmd, pre = sys.executable, [str(exe)]
+    return {"id": CONSTRUCT_ID, "name": "Arasaka Construct", "type": "stdio", "command": cmd,
+            "args": pre + ([proj] if proj else []) + ["--mcp"], "env": {}, "url": "", "enabled": prefs["enabled"],
+            "auto_approve": prefs["auto_approve"], "tools": prefs["tools"], "builtin": True, "project": proj,
+            "project_choice": prefs["project"], "recent": construct_recent()}
+
+
+def builtin_servers():
+    return [s for s in (hub_server(), construct_server()) if s]
+
+
+def load():
+    return [s for s in _file().get("servers", []) if s.get("id") not in BUILTIN_IDS]
+
+
+def _write(data):
+    FILE.write_text(json.dumps(data, ensure_ascii=False, indent=1), "utf-8")
 
 
 def save(servers):
-    out, taken = [], {HUB_ID}
-    for s in [x for x in (servers or []) if x.get("id") != HUB_ID and not x.get("builtin")][:30]:
+    out, taken = [], set(BUILTIN_IDS)
+    data = _file()
+    for s in servers or []:  # a lista da tela traz o Construct junto: guarda so as preferencias dele
+        if s.get("id") == CONSTRUCT_ID:
+            old = construct_prefs()
+            data["construct"] = {"enabled": bool(s.get("enabled", True)), "auto_approve": bool(s.get("auto_approve")),
+                                 "tools": _allowed(s), "project": old["project"]}
+    for s in [x for x in (servers or []) if x.get("id") not in BUILTIN_IDS and not x.get("builtin")][:30]:
         c = _clean(s, taken)
         taken.add(c["id"])
         out.append(c)
-    FILE.write_text(json.dumps({"servers": out}, ensure_ascii=False, indent=1), "utf-8")
+    data["servers"] = out
+    _write(data)
     MANAGER.sync(out)
     return out
+
+
+def set_construct_project(path):
+    path = str(path or "").strip()
+    if path and not (Path(path) / "project.luau").is_file():
+        raise MCPError("Essa pasta não é um projeto do Arasaka Construct (falta o project.luau).")
+    data = _file()
+    data["construct"] = {**construct_prefs(), "project": path}
+    _write(data)
+    MANAGER.sync()
+    return construct_server()
 
 
 def command_line(s):
@@ -459,9 +576,7 @@ class Manager:
     def sync(self, cfgs=None):
         """Aplica a configuracao: fecha servidores removidos ou alterados."""
         cfgs = load() if cfgs is None else cfgs
-        cfgs = [_local_rea(c) for c in cfgs if c.get("id") != HUB_ID]
-        if hub_server():
-            cfgs.append(hub_server())
+        cfgs = [_local_rea(c) for c in cfgs if c.get("id") not in BUILTIN_IDS] + builtin_servers()
         with self.lock:
             new = {}
             for c in cfgs:
